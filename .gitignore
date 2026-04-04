@@ -23,6 +23,8 @@ Thumbs.db
 .coverage
 htmlcov/
 
-# Environment
+# Environment / Config
 .env
 .env.local
+orca.yaml
+.mcp.json
