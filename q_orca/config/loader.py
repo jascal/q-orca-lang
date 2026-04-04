@@ -126,7 +126,7 @@ def load_config(config_path: str | None = None) -> QOrcaConfig:
     if env_overrides:
         # Validate provider is a valid literal
         if "provider" in env_overrides:
-            valid_providers = ("anthropic", "openai", "ollama", "grok")
+            valid_providers = ("anthropic", "openai", "ollama", "grok", "minimax")
             if env_overrides["provider"] not in valid_providers:
                 raise ValueError(f"ORCA_PROVIDER must be one of {valid_providers}")
         configs.append(QOrcaConfig(**env_overrides))

@@ -324,11 +324,16 @@ async def generate_skill(spec: str, max_iterations: int = 3) -> GenerateSkillRes
     has_key = (
         (config.provider == "openai" and openai_key) or
         (config.provider == "ollama") or
-        (bool(anthropic_key) if config.provider == "anthropic" else False)
+        (config.provider in ("anthropic", "minimax") and bool(anthropic_key))
     )
 
     if not has_key:
-        key_name = "OPENAI_API_KEY" if config.provider == "openai" else "ANTHROPIC_API_KEY"
+        if config.provider == "minimax":
+            key_name = "MINIMAX_API_KEY"
+        elif config.provider == "openai":
+            key_name = "OPENAI_API_KEY"
+        else:
+            key_name = "ANTHROPIC_API_KEY"
         return GenerateSkillResult(
             status="error",
             error=f"No API key available. Set {key_name} in your environment.",
@@ -433,11 +438,16 @@ async def refine_skill(input: SkillInput, errors: list[SkillError] | None = None
     has_key = (
         (config.provider == "openai" and openai_key) or
         (config.provider == "ollama") or
-        (bool(anthropic_key) if config.provider == "anthropic" else False)
+        (config.provider in ("anthropic", "minimax") and bool(anthropic_key))
     )
 
     if not has_key:
-        key_name = "OPENAI_API_KEY" if config.provider == "openai" else "ANTHROPIC_API_KEY"
+        if config.provider == "minimax":
+            key_name = "MINIMAX_API_KEY"
+        elif config.provider == "openai":
+            key_name = "OPENAI_API_KEY"
+        else:
+            key_name = "ANTHROPIC_API_KEY"
         return RefineSkillResult(status="error", iterations=0, changes=[], error=f"No API key available. Set {key_name}.")
 
     if errors is None:

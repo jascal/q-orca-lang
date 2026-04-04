@@ -267,7 +267,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 export ORCA_API_KEY=sk-ant-...
 
 # Optional overrides
-export ORCA_PROVIDER=anthropic   # anthropic, openai, ollama, grok
+export ORCA_PROVIDER=anthropic   # anthropic, openai, minimax, ollama, grok
 export ORCA_MODEL=claude-sonnet-4-6
 export ORCA_BASE_URL=           # For proxies or API-compatible endpoints
 export ORCA_MAX_TOKENS=4096
@@ -277,9 +277,19 @@ export ORCA_TEMPERATURE=0.7
 Or via a YAML config file (`orca.yaml` or `.orca.yaml` in your project):
 
 ```yaml
+# Anthropic (default)
 provider: anthropic
 model: claude-sonnet-4-6
 api_key: sk-ant-...
+max_tokens: 4096
+temperature: 0.7
+```
+
+```yaml
+# MiniMax
+provider: minimax
+model: MiniMax-M2.7
+api_key: ${MINIMAX_API_KEY}
 max_tokens: 4096
 temperature: 0.7
 ```

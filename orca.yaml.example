@@ -1,9 +1,18 @@
 # Q-Orca configuration example
 # Copy to orca.yaml and fill in your values
+# Supported providers: anthropic, openai, minimax, ollama, grok
 
-provider: anthropic
-base_url: https://api.minimax.io/anthropic
-model: claude-sonnet-4-6
+# --- Anthropic (default) ---
+# provider: anthropic
+# model: claude-sonnet-4-6
+# api_key: ${ANTHROPIC_API_KEY}
+
+# --- MiniMax ---
+provider: minimax
+model: MiniMax-M2.7
+api_key: ${MINIMAX_API_KEY}
+
+# --- Common settings ---
 code_generator: python
 max_tokens: 4096
 temperature: 0.7

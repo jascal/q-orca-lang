@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 
-ProviderType = Literal["anthropic", "openai", "ollama", "grok"]
+ProviderType = Literal["anthropic", "openai", "ollama", "grok", "minimax"]
 CodeGeneratorType = Literal["python", "typescript", "rust", "go"]
 
 

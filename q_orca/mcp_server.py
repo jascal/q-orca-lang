@@ -10,7 +10,7 @@ Usage:
     q-orca-mcp
 
 Environment variables (ORCA_* prefix overrides config file):
-    ORCA_PROVIDER     LLM provider: anthropic, openai, ollama, grok
+    ORCA_PROVIDER     LLM provider: anthropic, openai, minimax, ollama, grok
     ORCA_MODEL        Model name
     ORCA_BASE_URL     API base URL (for proxies, MiniMax, etc.)
     ORCA_API_KEY      API key
