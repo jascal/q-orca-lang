@@ -2,11 +2,9 @@
   "mcpServers": {
     "q-orca": {
       "command": "q-orca-mcp",
-      "type": "stdio",
       "env": {
-        "ORCA_API_KEY": "your-api-key-here",
-        "ORCA_PROVIDER": "anthropic",
-        "ORCA_BASE_URL": "https://api.minimax.io/anthropic",
+        "ORCA_API_KEY": "${ORCA_API_KEY}",
+        "ORCA_PROVIDER": "minimax",
         "ORCA_MODEL": "MiniMax-M2.7"
       }
     }
