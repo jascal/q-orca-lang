@@ -124,6 +124,27 @@ q-orca simulate examples/bell-entangler.q.orca.md --run --json
 
 ## Machine Format
 
+```mermaid
+stateDiagram-v2
+  direction LR
+
+  s00 : |00⟩
+  sPlus : |+0⟩ = (|0⟩+|1⟩)|0⟩/√2
+  sPsi : |ψ⟩ = (|00⟩+|11⟩)/√2
+  s00c : |00_collapsed⟩
+  s11c : |11_collapsed⟩
+
+  [*] --> s00
+  s00 --> sPlus : prepare_H / apply_H
+  sPlus --> sPsi : entangle / apply_CNOT
+  sPsi --> s00c : measure [p=0.5]
+  sPsi --> s11c : measure [p=0.5]
+  s00c --> [*]
+  s11c --> [*]
+```
+
+### Source
+
 ```markdown
 # machine BellEntangler
 
