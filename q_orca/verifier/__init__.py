@@ -9,6 +9,7 @@ from q_orca.verifier.completeness import check_completeness
 from q_orca.verifier.determinism import check_determinism
 from q_orca.verifier.quantum import verify_quantum
 from q_orca.verifier.superposition import check_superposition_leaks
+from q_orca.verifier.dynamic import dynamic_verify
 from q_orca.verifier.types import QVerificationResult, QVerificationError
 
 
@@ -17,6 +18,7 @@ class VerifyOptions:
     skip_completeness: bool = False
     skip_quantum: bool = False
     skip_qutip: bool = False
+    skip_dynamic: bool = False
 
 
 def verify(machine: QMachineDef, options: Optional[VerifyOptions] = None) -> QVerificationResult:
@@ -44,6 +46,11 @@ def verify(machine: QMachineDef, options: Optional[VerifyOptions] = None) -> QVe
     if not opts.skip_quantum:
         quantum = verify_quantum(machine)
         all_errors.extend(quantum.errors)
+
+    # Stage 4b: Dynamic quantum verification (actual circuit simulation)
+    if not opts.skip_dynamic:
+        dynamic = dynamic_verify(machine)
+        all_errors.extend(dynamic.errors)
 
     # Stage 5: Superposition leak check
     superposition = check_superposition_leaks(machine)

@@ -143,7 +143,7 @@ class VerifySkillResult(TypedDict, total=False):
     errors: list[SkillError]
 
 
-def verify_skill(input: SkillInput, skip_completeness: bool = False, skip_quantum: bool = False) -> VerifySkillResult:
+def verify_skill(input: SkillInput, skip_completeness: bool = False, skip_quantum: bool = False, skip_dynamic: bool = False) -> VerifySkillResult:
     """Verify a Q-Orca machine definition (5-stage pipeline)."""
     try:
         source = _resolve_source(input)
@@ -166,15 +166,21 @@ def verify_skill(input: SkillInput, skip_completeness: bool = False, skip_quantu
             )
 
         machine = parsed.file.machines[0]
-        opts = VerifyOptions(skip_completeness=skip_completeness, skip_quantum=skip_quantum)
+        opts = VerifyOptions(skip_completeness=skip_completeness, skip_quantum=skip_quantum, skip_dynamic=skip_dynamic)
         result = verify(machine, opts)
+
+        def _sanitize_location(loc):
+            """Ensure location dict is JSON-serializable."""
+            if loc is None:
+                return None
+            return {k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v for k, v in loc.items()}
 
         def map_error(e) -> SkillError:
             return SkillError(
                 code=e.code,
                 message=e.message,
                 severity=e.severity,
-                location=e.location,
+                location=_sanitize_location(e.location),
                 suggestion=e.suggestion,
             )
 

@@ -1,0 +1,30 @@
+name: Verify Examples
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install q-orca
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e ".[quantum]"
+
+      - name: Verify all examples
+        run: |
+          for f in examples/*.q.orca.md; do
+            echo "Verifying: $f"
+            .venv/bin/q-orca verify "$f" || exit 1
+          done

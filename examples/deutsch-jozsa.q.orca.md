@@ -3,7 +3,7 @@
 ## context
 | Field       | Type          | Default   |
 |-------------|---------------|-----------|
-| qubits      | list<qubit>   |           |
+| qubits      | list<qubit>   | [q0, q1] |
 | is_constant | bool          | false     |
 
 ## events

@@ -3,7 +3,7 @@
 ## context
 | Field       | Type          | Default |
 |-------------|---------------|---------|
-| qubits      | list<qubit>   |         |
+| qubits      | list<qubit>   | [q0, q1, q2] |
 | alice_bit   | int           | -1      |
 | bob_bit     | int           | -1      |
 
