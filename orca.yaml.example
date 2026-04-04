@@ -1,0 +1,9 @@
+# Q-Orca configuration example
+# Copy to orca.yaml and fill in your values
+
+provider: anthropic
+base_url: https://api.minimax.io/anthropic
+model: claude-sonnet-4-6
+code_generator: python
+max_tokens: 4096
+temperature: 0.7
