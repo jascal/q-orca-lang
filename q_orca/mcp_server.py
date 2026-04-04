@@ -30,7 +30,6 @@ from q_orca.skills import (
     parse_skill,
     verify_skill,
     compile_skill,
-    generate_actions_skill,
     generate_skill,
     refine_skill,
     SkillInput,
@@ -111,10 +110,6 @@ async def call_tool(name: str, arguments: dict) -> dict:
             errors = arguments.get("errors")
             max_iterations = arguments.get("max_iterations", 3)
             return await refine_skill(inp, errors, max_iterations)
-
-        case "generate_actions":
-            inp = SkillInput(source=arguments.get("source"), file=arguments.get("file"))
-            return generate_actions_skill(inp, arguments.get("language", "python"))
 
         case "simulate_machine":
             inp = SkillInput(source=arguments.get("source"), file=arguments.get("file"))

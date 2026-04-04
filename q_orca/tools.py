@@ -116,30 +116,6 @@ Q_ORCA_TOOLS = [
         },
     },
     {
-        "name": "generate_actions",
-        "description": "Generate action scaffolds (function stubs) for a Q-Orca machine's actions, in Python or TypeScript.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "source": {
-                    "type": "string",
-                    "description": "Raw Q-Orca source content",
-                },
-                "file": {
-                    "type": "string",
-                    "description": "Path to a .q.orca.md file",
-                },
-                "language": {
-                    "type": "string",
-                    "enum": ["python", "typescript"],
-                    "description": "Target language for scaffolds",
-                    "default": "python",
-                },
-            },
-            "oneOf": [{"required": ["source"]}, {"required": ["file"]}],
-        },
-    },
-    {
         "name": "simulate_machine",
         "description": "Simulate a Q-Orca quantum machine using Qiskit. Generates or runs a Qiskit Python script.",
         "inputSchema": {

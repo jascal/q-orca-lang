@@ -215,7 +215,6 @@ Add to your Claude Code settings (`~/.claude/settings.json` or project `.claude.
 | `compile_machine` | Compile to Mermaid, QASM, or Qiskit |
 | `generate_machine` | Generate quantum machine from natural language spec |
 | `refine_machine` | Fix verification errors using LLM |
-| `generate_actions` | Generate action scaffolds (Python/TypeScript) |
 | `simulate_machine` | Run Qiskit simulation |
 | `server_status` | Get server version and LLM config |
 
