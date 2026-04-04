@@ -317,6 +317,7 @@ q_orca/
 │   ├── provider.py        # Abstract LLM provider interface
 │   ├── anthropic.py       # Anthropic provider
 │   ├── openai.py          # OpenAI provider
+│   ├── minimax.py         # MiniMax provider
 │   ├── ollama.py          # Ollama provider
 │   └── grok.py            # Grok provider
 ├── config/
