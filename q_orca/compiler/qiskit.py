@@ -2,8 +2,76 @@
 
 import re
 
-from q_orca.ast import QMachineDef, QuantumGate
+from q_orca.ast import QMachineDef, QuantumGate, QTypeQubit, QTypeScalar, QTypeList
 from dataclasses import dataclass
+
+
+def _parse_effect_string(effect_str: str) -> list[QuantumGate]:
+    """Parse an effect string with semicolon-separated gates into a list of QuantumGate."""
+    if not effect_str:
+        return []
+    gates = []
+    # Split on semicolons to handle multi-gate effects like "H(qs[0]); H(qs[1])"
+    for part in effect_str.split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        gate = _parse_single_gate(part)
+        if gate:
+            gates.append(gate)
+    return gates
+
+
+def _parse_single_gate(effect_str: str) -> QuantumGate | None:
+    """Parse a single gate from an effect string."""
+    effect_str = effect_str.strip()
+
+    # Hadamard(qs[N]) or Hadamard(qs[N] M K)
+    m = re.search(r"Hadamard\(\s*(\w+\[(?:\d+(?:\s+\d+)*)?\])\s*\)", effect_str, re.IGNORECASE)
+    if m:
+        indices_str = m.group(1)
+        indices = [int(x) for x in re.findall(r"\d+", indices_str)]
+        return QuantumGate(kind="H", targets=indices)
+
+    # CNOT(qs[control], qs[target])
+    m = re.search(r"CNOT\(\s*(\w+\[(\d+)\])\s*,\s*(\w+\[(\d+)\])\s*\)", effect_str, re.IGNORECASE)
+    if m:
+        ctrl = int(m.group(2))
+        tgt = int(m.group(4))
+        return QuantumGate(kind="CNOT", targets=[tgt], controls=[ctrl])
+
+    # CZ(qs[control], qs[target])
+    m = re.search(r"CZ\(\s*(\w+\[(\d+)\])\s*,\s*(\w+\[(\d+)\])\s*\)", effect_str, re.IGNORECASE)
+    if m:
+        ctrl = int(m.group(2))
+        tgt = int(m.group(4))
+        return QuantumGate(kind="CZ", targets=[tgt], controls=[ctrl])
+
+    # SWAP(qs[a], qs[b])
+    m = re.search(r"SWAP\(\s*(\w+\[(\d+)\])\s*,\s*(\w+\[(\d+)\])\s*\)", effect_str, re.IGNORECASE)
+    if m:
+        idx1 = int(m.group(2))
+        idx2 = int(m.group(4))
+        return QuantumGate(kind="SWAP", targets=[idx1, idx2])
+
+    # X(qs[N]), Y(qs[N]), Z(qs[N]), T(qs[N]), S(qs[N])
+    m = re.search(r"^([XYZS])\(\s*(\w+\[(\d+)\])\s*\)", effect_str)
+    if m:
+        kind = m.group(1)
+        idx = int(m.group(3))
+        return QuantumGate(kind=kind, targets=[idx])
+
+    # Generic single-qubit gate: GateName(qs[N])
+    m = re.search(r"^([A-Z][a-zA-Z]*)\(\s*(\w+\[(\d+)\])\s*\)", effect_str)
+    if m:
+        kind = m.group(1).upper()
+        idx = int(m.group(3))
+        kind_map = {"H": "H", "X": "X", "Y": "Y", "Z": "Z", "T": "T", "S": "S", "I": "I"}
+        if kind in kind_map:
+            return QuantumGate(kind=kind_map[kind], targets=[idx])
+        return QuantumGate(kind="custom", targets=[idx], custom_name=kind)
+
+    return None
 
 
 DEFAULT_SHOTS = 1024
@@ -51,11 +119,12 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
     gate_sequence = _extract_gate_sequence(machine)
 
     lines.append("# Gate sequence from state machine")
-    for action_name, gate, comment in gate_sequence:
+    for action_name, gates, comment in gate_sequence:
         if comment:
             lines.append(f"# {comment}")
-        if gate:
-            lines.append(_gate_to_qiskit(gate))
+        if gates:
+            for gate in gates:
+                lines.append(_gate_to_qiskit(gate))
 
     if options.analytic:
         lines.append("")
@@ -148,6 +217,7 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
 
 
 def _extract_gate_sequence(machine: QMachineDef) -> list:
+    """Extract gate sequence from machine, handling multi-gate effects."""
     steps = []
     action_map = {a.name: a for a in machine.actions}
 
@@ -170,7 +240,14 @@ def _extract_gate_sequence(machine: QMachineDef) -> list:
             if t.action:
                 action = action_map.get(t.action)
                 if action:
-                    steps.append((t.action, action.gate, f"{t.source} --{t.event}--> {t.target}"))
+                    # Use effect string to get all gates (not just the first)
+                    gates = _parse_effect_string(action.effect) if action.effect else []
+                    # Also fall back to action.gate if effect parsing gave nothing
+                    if not gates and action.gate:
+                        gates = [action.gate]
+                    comment = f"{t.source} --{t.event}--> {t.target}"
+                    # Append (action_name, [gates], comment) for each action
+                    steps.append((t.action, gates, comment))
 
             is_measure = "measure" in t.event.lower() or "collapse" in t.event.lower()
             if not is_measure and t.target not in visited:
@@ -220,6 +297,38 @@ def _gate_to_qiskit(gate: QuantumGate) -> str:
 
 
 def _infer_qubit_count(machine: QMachineDef) -> int:
+    # First, try to infer from context fields
+    n_value = None
+    has_ancilla = False
+    qubits_list_length = None
+
+    for field in machine.context:
+        # Check for 'n' int field (commonly used for number of control qubits)
+        if field.name == "n" and isinstance(field.type, QTypeScalar) and field.type.kind == "int":
+            try:
+                n_value = int(field.default_value) if field.default_value else None
+            except (ValueError, TypeError):
+                n_value = None
+        # Check for ancilla qubit field
+        if field.name == "ancilla" and isinstance(field.type, QTypeQubit):
+            has_ancilla = True
+        # Check for explicit qubits list
+        if field.name == "qubits" and isinstance(field.type, QTypeList):
+            # Try to parse default_value like "[q0, q1, q2]"
+            if field.default_value:
+                items = re.findall(r"q\d+", field.default_value)
+                if items:
+                    qubits_list_length = len(items)
+
+    # If we found n control qubits and an ancilla, total is n + 1
+    if n_value is not None and has_ancilla:
+        return n_value + 1
+
+    # If we found an explicit qubits list, use its length
+    if qubits_list_length is not None:
+        return qubits_list_length
+
+    # Fall back to parsing state names and expressions for bitstrings
     max_bits = 0
     for state in machine.states:
         m = re.search(r"\|([01]+)>", state.name)

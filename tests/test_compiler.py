@@ -89,6 +89,174 @@ class TestQASMCompiler:
         assert "BellEntangler" in output
 
 
+class TestInferQubitCount:
+    """Tests for _infer_qubit_count function."""
+
+    def test_n_plus_ancilla(self):
+        """Machine with n control qubits + ancilla should return n + 1."""
+        source = """\
+# machine DeutschJozsa
+
+## context
+| Field          | Type          | Default |
+|----------------|---------------|---------|
+| qubits         | list<qubit>   |         |
+| n              | int           | 3       |
+| control_qubits | list<qubit>   | qs[0:n] |
+| ancilla        | qubit         | qs[n]   |
+
+## events
+- init
+
+## state |psi0> [initial]
+> Initial
+
+## transitions
+| Source | Event | Guard | Target |
+|--------|-------|-------|--------|
+| |psi0> | init |       | |psi0> |
+
+## actions
+| Name | Signature | Effect |
+|------|-----------|--------|
+| noop | (qs) -> qs | Identity |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        from q_orca.compiler.qiskit import _infer_qubit_count
+        machine = _machine(source)
+        assert _infer_qubit_count(machine) == 4  # n=3 + ancilla=1
+
+    def test_explicit_qubits_list(self):
+        """Machine with explicit qubits list should return length of list."""
+        source = """\
+# machine CustomQubits
+
+## context
+| Field   | Type        | Default       |
+|---------|-------------|---------------|
+| qubits  | list<qubit> | [q0, q1, q2] |
+
+## events
+- init
+
+## state |psi0> [initial]
+> Initial
+
+## transitions
+| Source | Event | Guard | Target |
+|--------|-------|-------|--------|
+| |psi0> | init |       | |psi0> |
+
+## actions
+| Name | Signature | Effect |
+|------|-----------|--------|
+| noop | (qs) -> qs | Identity |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        from q_orca.compiler.qiskit import _infer_qubit_count
+        machine = _machine(source)
+        assert _infer_qubit_count(machine) == 3
+
+    def test_bitstring_in_state_name(self):
+        """Machine with bitstrings in state names should return max bitstring length."""
+        source = """\
+# machine BitstringMachine
+
+## events
+- init
+
+## state |0000> [initial]
+> Initial
+
+## state |1111>
+> Final
+
+## transitions
+| Source | Event | Guard | Target |
+|--------|-------|-------|--------|
+| |0000> | init |       | |1111> |
+
+## actions
+| Name | Signature | Effect |
+|------|-----------|--------|
+| noop | (qs) -> qs | Identity |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        from q_orca.compiler.qiskit import _infer_qubit_count
+        machine = _machine(source)
+        assert _infer_qubit_count(machine) == 4
+
+    def test_fallback_to_one(self):
+        """Machine with no context or bitstrings should default to 1."""
+        source = """\
+# machine MinimalNoQubits
+
+## events
+- go
+
+## state |psi0> [initial]
+> Start
+
+## transitions
+| Source | Event | Guard | Target |
+|--------|-------|-------|--------|
+| |psi0> | go   |       | |psi0> |
+
+## actions
+| Name | Signature | Effect |
+|------|-----------|--------|
+| noop | (qs) -> qs | Identity |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        from q_orca.compiler.qiskit import _infer_qubit_count
+        machine = _machine(source)
+        assert _infer_qubit_count(machine) == 1
+
+    def test_n_minus_1_ancilla(self):
+        """Machine with n=5 + ancilla should return 6."""
+        source = """\
+# machine SixQubits
+
+## context
+| Field    | Type        | Default |
+|----------|-------------|---------|
+| qubits   | list<qubit> |         |
+| n        | int         | 5       |
+| ctrl     | list<qubit> | qs[0:n] |
+| ancilla  | qubit       | qs[n]   |
+
+## events
+- init
+
+## state |psi0> [initial]
+> Initial
+
+## transitions
+| Source | Event | Guard | Target |
+|--------|-------|-------|--------|
+| |psi0> | init |       | |psi0> |
+
+## actions
+| Name | Signature | Effect |
+|------|-----------|--------|
+| noop | (qs) -> qs | Identity |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        from q_orca.compiler.qiskit import _infer_qubit_count
+        machine = _machine(source)
+        assert _infer_qubit_count(machine) == 6  # n=5 + ancilla=1
+
+
 class TestQiskitCompiler:
     def test_produces_python_script(self, bell_source):
         machine = _machine(bell_source)
@@ -151,3 +319,122 @@ class TestQiskitCompiler:
         opts = QSimulationOptions(analytic=True)
         output = compile_to_qiskit(machine, opts)
         assert "json.dumps" in output
+
+    def test_multi_gate_effects_expanded(self):
+        """Multi-gate effects (semicolon-separated) should generate all gates."""
+        source = """\
+# machine MultiGateTest
+
+## context
+| Field   | Type        | Default |
+|---------|-------------|---------|
+| qubits  | list<qubit> | [q0, q1, q2, q3] |
+
+## events
+- init
+- apply
+
+## state |s0> [initial]
+> Initial
+
+## state |s1>
+> After gates
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | init  |       | |s1>   | multi_h |
+
+## actions
+| Name     | Signature   | Effect                                |
+|----------|-------------|---------------------------------------|
+| multi_h  | (qs) -> qs | H(qs[0]); H(qs[1]); H(qs[2]); H(qs[3]) |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        machine = _machine(source)
+        opts = QSimulationOptions(analytic=True, skip_qutip=True)
+        output = compile_to_qiskit(machine, opts)
+        # All 4 Hadamards should appear
+        assert output.count("qc.h(0)") == 1
+        assert output.count("qc.h(1)") == 1
+        assert output.count("qc.h(2)") == 1
+        assert output.count("qc.h(3)") == 1
+
+    def test_multi_gate_cnot_oracle(self):
+        """CNOT gates from semicolon-separated effect should all be generated."""
+        source = """\
+# machine BVOracle
+
+## context
+| Field   | Type        | Default |
+|---------|-------------|---------|
+| qubits  | list<qubit> | [q0, q1, q2, q3] |
+
+## events
+- init
+- apply
+
+## state |s0> [initial]
+> Initial
+
+## state |s1>
+> After oracle
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | init  |       | |s1>   | bv_oracle |
+
+## actions
+| Name     | Signature   | Effect                            |
+|----------|-------------|-----------------------------------|
+| bv_oracle | (qs) -> qs | CNOT(qs[0], qs[3]); CNOT(qs[2], qs[3]) |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        machine = _machine(source)
+        opts = QSimulationOptions(analytic=True, skip_qutip=True)
+        output = compile_to_qiskit(machine, opts)
+        # Both CNOTs should appear
+        assert "qc.cx(0, 3)" in output
+        assert "qc.cx(2, 3)" in output
+
+    def test_qubit_count_from_n_plus_ancilla(self):
+        """Machine with n=3 and ancilla should produce 4 qubits."""
+        source = """\
+# machine BVTest
+
+## context
+| Field   | Type        | Default |
+|---------|-------------|---------|
+| qubits  | list<qubit> |         |
+| n       | int         | 3       |
+| ancilla | qubit       | qs[n]   |
+
+## events
+- init
+
+## state |s0> [initial]
+> Initial
+
+## transitions
+| Source | Event | Guard | Target |
+|--------|-------|-------|--------|
+| |s0>   | init  |       | |s0>   | noop |
+
+## actions
+| Name | Signature | Effect |
+|------|-----------|--------|
+| noop | (qs) -> qs | H(qs[0]) |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        machine = _machine(source)
+        opts = QSimulationOptions(analytic=True, skip_qutip=True)
+        output = compile_to_qiskit(machine, opts)
+        assert "qubit_count = 4" in output
+        assert "qc = QuantumCircuit(4)" in output
