@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "q-orca"
+version = "0.1.0"
+description = "Q-Orca — Quantum Orchestrated State Machine Language"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Allan" }
+]
+keywords = ["quantum", "state-machine", "qiskit", "qutip"]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+quantum = ["qiskit", "qutip"]
+mcp = ["pyyaml"]
+all = ["qiskit", "qutip", "pyyaml"]
+
+[project.scripts]
+q-orca = "q_orca.cli:main"
+q-orca-mcp = "q_orca.mcp_server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["q_orca"]
+
+[tool.ruff]
+line-length = 100
