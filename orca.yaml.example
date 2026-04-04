@@ -1,16 +1,19 @@
 # Q-Orca configuration example
 # Copy to orca.yaml and fill in your values
 # Supported providers: anthropic, openai, minimax, ollama, grok
+#
+# ORCA_API_KEY is the universal key — works for any provider.
+# Set it in your environment or reference it here via ${ORCA_API_KEY}.
 
 # --- Anthropic (default) ---
 # provider: anthropic
 # model: claude-sonnet-4-6
-# api_key: ${ANTHROPIC_API_KEY}
+# api_key: ${ORCA_API_KEY}
 
 # --- MiniMax ---
 provider: minimax
 model: MiniMax-M2.7
-api_key: ${MINIMAX_API_KEY}
+api_key: ${ORCA_API_KEY}
 
 # --- Common settings ---
 code_generator: python
