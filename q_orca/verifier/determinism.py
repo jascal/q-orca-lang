@@ -1,8 +1,6 @@
 """Q-Orca determinism verification — guard mutual exclusion."""
 
-from typing import Optional
-
-from q_orca.ast import QMachineDef, QTransition, QGuardRef, QGuardDef, QGuardExpression
+from q_orca.ast import QMachineDef, QTransition, QGuardRef, QGuardDef
 from q_orca.verifier.types import QVerificationError, QVerificationResult
 
 

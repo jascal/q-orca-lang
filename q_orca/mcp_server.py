@@ -33,7 +33,6 @@ from q_orca.skills import (
     generate_skill,
     refine_skill,
     SkillInput,
-    SkillError,
 )
 from q_orca.tools import Q_ORCA_TOOLS
 from q_orca.runtime.python import simulate_machine, QSimulationOptions

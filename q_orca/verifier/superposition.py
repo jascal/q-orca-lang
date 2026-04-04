@@ -2,7 +2,7 @@
 
 import re
 
-from q_orca.ast import QMachineDef, QStateDef, QTransition
+from q_orca.ast import QMachineDef, QStateDef
 from q_orca.verifier.types import QVerificationError, QVerificationResult
 from q_orca.verifier.structural import analyze_machine
 

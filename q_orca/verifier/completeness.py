@@ -27,7 +27,6 @@ def has_quantum_preparation_path(machine: QMachineDef) -> bool:
 
 
 def check_completeness(machine: QMachineDef) -> QVerificationResult:
-    analysis = analyze_machine(machine)
     errors: list[QVerificationError] = []
 
     # Build (state, event) -> transitions map

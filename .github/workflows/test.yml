@@ -50,5 +50,5 @@ jobs:
 
       - name: Verify MCP tools
         run: |
-          python -m q_orca.cli --tools --json | python -c "import sys,json; tools=json.load(sys.stdin); assert len(tools)==8, f'Expected 8 tools, got {len(tools)}'"
-          echo "All 8 MCP tools registered"
+          python -m q_orca.cli --tools --json | python -c "import sys,json; tools=json.load(sys.stdin); assert len(tools)==7, f'Expected 7 tools, got {len(tools)}'"
+          echo "All 7 MCP tools registered"

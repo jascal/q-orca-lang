@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from q_orca.ast import QMachineDef
-from q_orca.verifier.structural import check_structural, analyze_machine
+from q_orca.verifier.structural import check_structural
 from q_orca.verifier.completeness import check_completeness
 from q_orca.verifier.determinism import check_determinism
 from q_orca.verifier.quantum import verify_quantum

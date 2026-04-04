@@ -2,7 +2,7 @@
 
 import re
 
-from q_orca.ast import QMachineDef, QActionSignature, QTransition
+from q_orca.ast import QMachineDef
 from q_orca.verifier.types import QVerificationError, QVerificationResult
 
 

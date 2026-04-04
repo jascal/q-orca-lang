@@ -14,7 +14,7 @@ from q_orca.verifier import verify, VerifyOptions
 from q_orca.compiler.mermaid import compile_to_mermaid
 from q_orca.compiler.qasm import compile_to_qasm
 from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
-from q_orca.ast import QMachineDef, QStateDef, QTransition
+from q_orca.ast import QMachineDef, QStateDef
 from q_orca.config import load_config
 from q_orca.llm import create_provider, LLMMessage, LLMRequest, LLMProviderConfig
 
@@ -318,7 +318,6 @@ async def generate_skill(spec: str, max_iterations: int = 3) -> GenerateSkillRes
     config = load_config()
 
     # Check API key availability
-    is_minimax = "minimax" in (config.base_url or "")
     anthropic_key = config.api_key or os.environ.get("ORCA_API_KEY") or os.environ.get("MINIMAX_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "")
     openai_key = config.api_key or os.environ.get("ORCA_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
 
@@ -428,7 +427,6 @@ async def refine_skill(input: SkillInput, errors: list[SkillError] | None = None
     config = load_config()
 
     # Check API key
-    is_minimax = "minimax" in (config.base_url or "")
     anthropic_key = config.api_key or os.environ.get("ORCA_API_KEY") or os.environ.get("MINIMAX_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "")
     openai_key = config.api_key or os.environ.get("ORCA_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
 

@@ -1,6 +1,6 @@
 # Q-Orca — Quantum Orchestrated State Machine Language
 
-Q-Orca is a quantum-aware dialect of [Orca](https://github.com/orca-lang/orca-lang) — a state machine language for modeling quantum computation workflows. Machines are written in Markdown with quantum-aware state representations, unitary gate actions, entanglement verification, and simulation via Qiskit.
+Q-Orca is a quantum-aware dialect of [Orca](https://github.com/orca-lang/orca-lang), a state machine language written in Markdown. It extends Orca with Dirac ket notation for quantum states, unitary gate actions, entanglement verification, and simulation via Qiskit.
 
 ---
 
@@ -113,48 +113,66 @@ q-orca simulate examples/bell-entangler.q.orca.md --run --json
 
 ## Examples
 
-```
-examples/
-├── bell-entangler.q.orca.md    Bell state via Hadamard + CNOT
-├── quantum-teleportation.q.orca.md  Teleports a qubit via Bell pair
-├── deutsch-jozsa.q.orca.md    Constant vs balanced oracle detection
-└── ghz-state.q.orca.md        3-qubit GHZ state preparation
-```
+| File | Description |
+|------|-------------|
+| `bell-entangler.q.orca.md` | Bell state via Hadamard + CNOT |
+| `quantum-teleportation.q.orca.md` | Teleports a qubit via Bell pair |
+| `deutsch-jozsa.q.orca.md` | Constant vs balanced oracle detection |
+| `ghz-state.q.orca.md` | 3-qubit GHZ state preparation |
 
 ---
 
 ## Machine Format
 
 ```markdown
-# machine MyQuantumMachine
+# machine BellEntangler
 
 ## context
-| Field       | Type          | Default |
-|-------------|---------------|---------|
-| qubits      | list<qubit>   |         |
+| Field   | Type        | Default |
+|---------|-------------|---------|
+| qubits  | list<qubit> |         |
 
 ## events
-- prepare
+- prepare_H
 - entangle
-- measure
+- measure_done
 
 ## state |00> [initial]
 > Ground state
 
-## state |ψ> = (|00> + |11>)/√2 [final]
-> Bell state — maximally entangled
+## state |+0> = (|0> + |1>)|0>/√2
+> After Hadamard — superposition
+
+## state |ψ> = (|00> + |11>)/√2
+> Bell state
+
+## state |00_collapsed> [final]
+> Measured |00>
+
+## state |11_collapsed> [final]
+> Measured |11>
 
 ## transitions
-| Source | Event    | Guard | Target | Action           |
-|--------|----------|-------|--------|------------------|
-| |00>   | prepare  |       | |00>   | apply_H          |
-| |00>   | entangle |       | |ψ>    | apply_CNOT        |
+| Source | Event        | Guard                   | Target         | Action              |
+|--------|--------------|-------------------------|----------------|---------------------|
+| |00>   | prepare_H    |                         | |+0>           | apply_H_on_q0      |
+| |+0>   | entangle     |                         | |ψ>            | apply_CNOT_q0_to_q1 |
+| |ψ>    | measure_done | prob_collapse('00')=0.5 | |00_collapsed> | set_outcome_0       |
+| |ψ>    | measure_done | prob_collapse('11')=0.5 | |11_collapsed> | set_outcome_1       |
+
+## guards
+| Name                | Expression                     |
+|---------------------|--------------------------------|
+| prob_collapse('00') | fidelity(|ψ>, |00>) ** 2 ≈ 0.5 |
+| prob_collapse('11') | fidelity(|ψ>, |11>) ** 2 ≈ 0.5 |
 
 ## actions
-| Name       | Signature     | Effect           |
-|------------|---------------|------------------|
-| apply_H    | (qs) -> qs   | Hadamard(qs[0]) |
-| apply_CNOT | (qs) -> qs   | CNOT(qs[0], qs[1]) |
+| Name                | Signature    | Effect             |
+|---------------------|--------------|--------------------|
+| apply_H_on_q0       | (qs) -> qs   | Hadamard(qs[0])    |
+| apply_CNOT_q0_to_q1 | (qs) -> qs   | CNOT(qs[0], qs[1]) |
+| set_outcome_0       | (ctx) -> ctx | ctx.outcome = 0    |
+| set_outcome_1       | (ctx) -> ctx | ctx.outcome = 1    |
 
 ## verification rules
 - unitarity: all gates preserve norm
@@ -162,8 +180,6 @@ examples/
 - completeness: all collapse branches covered
 - no-cloning: no copy operations
 ```
-
----
 
 ---
 
@@ -253,23 +269,35 @@ temperature: 0.7
 
 ```
 q_orca/
-├── __init__.py          # Package exports
-├── ast.py               # AST dataclasses
-├── cli.py               # CLI entrypoint
+├── __init__.py            # Package exports
+├── ast.py                 # AST dataclasses
+├── cli.py                 # CLI entrypoint
+├── skills.py              # Skill functions (parse, verify, compile, generate, refine)
+├── tools.py               # MCP tool JSON schemas
+├── mcp_server.py          # MCP server (stdio JSON-RPC)
 ├── parser/
-│   └── markdown_parser.py  # Two-phase markdown parser
+│   └── markdown_parser.py # Two-phase markdown parser
 ├── verifier/
-│   ├── types.py         # Verification result types
-│   ├── structural.py    # Reachability, deadlocks, orphans
-│   ├── completeness.py  # (state, event) coverage
-│   ├── determinism.py    # Guard mutual exclusion
-│   ├── quantum.py       # Unitarity, no-cloning, entanglement
-│   └── superposition.py # Superposition coherence leak
+│   ├── types.py           # Verification result types
+│   ├── structural.py      # Reachability, deadlocks, orphans
+│   ├── completeness.py    # (state, event) coverage
+│   ├── determinism.py     # Guard mutual exclusion
+│   ├── quantum.py         # Unitarity, no-cloning, entanglement
+│   └── superposition.py   # Superposition coherence leak
 ├── compiler/
-│   ├── mermaid.py       # Mermaid state diagram
-│   ├── qasm.py          # OpenQASM 3.0
-│   └── qiskit.py        # Qiskit Python script
+│   ├── mermaid.py         # Mermaid state diagram
+│   ├── qasm.py            # OpenQASM 3.0
+│   └── qiskit.py          # Qiskit Python script
+├── llm/
+│   ├── provider.py        # Abstract LLM provider interface
+│   ├── anthropic.py       # Anthropic provider
+│   ├── openai.py          # OpenAI provider
+│   ├── ollama.py          # Ollama provider
+│   └── grok.py            # Grok provider
+├── config/
+│   ├── loader.py          # YAML/env config loader
+│   └── types.py           # Config types
 └── runtime/
-    ├── types.py         # Simulation result types
-    └── python.py        # Python subprocess runner + simulation
+    ├── types.py           # Simulation result types
+    └── python.py          # Python subprocess runner + simulation
 ```
