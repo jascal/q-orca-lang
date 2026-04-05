@@ -222,6 +222,14 @@ class VerificationRule:
 
 
 @dataclass
+class Invariant:
+    kind: str          # 'entanglement' | 'schmidt_rank'
+    qubits: list[int]  # e.g. [0, 1]
+    op: str = "eq"     # 'eq' | 'ge' | 'gt' | 'le' | 'lt'
+    value: Optional[float] = None  # e.g. 2 for schmidt_rank >= 2
+
+
+@dataclass
 class QTransition:
     source: str
     event: str
@@ -241,6 +249,7 @@ class QMachineDef:
     actions: list[QActionSignature] = field(default_factory=list)
     effects: list[QEffectDef] = field(default_factory=list)
     verification_rules: list[VerificationRule] = field(default_factory=list)
+    invariants: list[Invariant] = field(default_factory=list)
 
 
 @dataclass

@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from q_orca import __version__
 from q_orca.parser.markdown_parser import parse_q_orca_markdown
 from q_orca.verifier import verify, VerifyOptions
 from q_orca.compiler.mermaid import compile_to_mermaid
@@ -19,6 +20,7 @@ def main():
         prog="q-orca",
         description="Q-Orca — Quantum Orchestrated State Machine Language",
     )
+    parser.add_argument("--version", action="version", version=f"q-orca {__version__}")
     parser.add_argument("--stdin", action="store_true", help="Read source from stdin")
     parser.add_argument("--tools", action="store_true", help="Output MCP tool definitions")
     parser.add_argument("--json", action="store_true", help="Output as JSON (use with --tools)")

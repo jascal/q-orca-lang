@@ -304,6 +304,13 @@ def _check_dynamic_entanglement(
     return report
 
 
+# Public API — callable directly from tests or external code
+check_dynamic_entanglement = _check_dynamic_entanglement
+evolve_path = _evolve_path
+entanglement_entropy = _entanglement_entropy
+schmidt_rank_across_bipartition = _schmidt_rank_across_bipartition
+
+
 def dynamic_verify(machine: QMachineDef) -> QVerificationResult:
     """Run QuTiP-based dynamic quantum verification.
 
@@ -337,18 +344,22 @@ def dynamic_verify(machine: QMachineDef) -> QVerificationResult:
                for k in entangled_kinds)
     ]
 
+    # Collect declared invariant pairs from parsed Markdown `## invariants`
+    invariant_pairs = [
+        (inv.qubits[0], inv.qubits[1])
+        for inv in getattr(machine, "invariants", [])
+        if inv.kind in ("entanglement", "schmidt_rank") and len(inv.qubits) >= 2
+    ]
+
     for state in entangled_states:
-        # Determine expected entangled pairs based on state type
-        expr = (state.state_expression or "").lower()
-        if "ghz" in expr or "|000>" in expr or "|111>" in expr:
-            # GHZ: check all pairs
-            expected_pairs = [(i, i + 1) for i in range(qubit_count - 1)]
+        if invariant_pairs:
+            expected_pairs = invariant_pairs
         else:
-            # Bell: check adjacent pairs
+            # Fall back to adjacent-pair heuristic
             expected_pairs = [(i, i + 1) for i in range(qubit_count - 1)]
 
         result = _check_dynamic_entanglement(
-            machine, all_gates, state.name, expected_pairs=expected_pairs
+            machine, all_gates, state.name, expected_entangled_pairs=expected_pairs
         )
 
         if not result["passed"]:

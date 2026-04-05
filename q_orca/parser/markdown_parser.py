@@ -6,7 +6,7 @@ from typing import Optional
 
 from q_orca.ast import (
     QMachineDef, QOrcaFile, QParseResult, ContextField, EventDef, QStateDef,
-    QTransition, QGuardDef, QActionSignature, QEffectDef, VerificationRule,
+    QTransition, QGuardDef, QActionSignature, QEffectDef, VerificationRule, Invariant,
     QType, QTypeQubit, QTypeList, QTypeScalar, QTypeOptional, QTypeCustom,
     QGuardRef, QuantumGate, Measurement, CollapseOutcome,
     QGuardTrue, QGuardFalse, QGuardCompare, QGuardProbability, QGuardFidelity,
@@ -178,6 +178,7 @@ def _parse_machine_chunk(elements: list[MdElement]) -> Optional[QMachineDef]:
     actions: list[QActionSignature] = []
     effects: list[QEffectDef] = []
     verification_rules: list[VerificationRule] = []
+    invariants: list[Invariant] = []
 
     i = 0
     while i < len(elements):
@@ -247,6 +248,13 @@ def _parse_machine_chunk(elements: list[MdElement]) -> Optional[QMachineDef]:
                     i += 1
                 continue
 
+            if section_name_lower == "invariants":
+                i += 1
+                if i < len(elements) and isinstance(elements[i], MdBulletList):
+                    invariants = _parse_invariants(elements[i])
+                    i += 1
+                continue
+
         i += 1
 
     if not name:
@@ -266,6 +274,7 @@ def _parse_machine_chunk(elements: list[MdElement]) -> Optional[QMachineDef]:
         actions=actions,
         effects=effects,
         verification_rules=verification_rules,
+        invariants=invariants,
     )
 
 
@@ -462,6 +471,27 @@ def _parse_verification_rules(list_el: MdBulletList) -> list[VerificationRule]:
         ))
 
     return rules
+
+
+def _parse_invariants(list_el: MdBulletList) -> list[Invariant]:
+    invariants: list[Invariant] = []
+    for item in list_el.items:
+        # entanglement(q0,q1) = True
+        m = re.match(r"entanglement\(\s*(q\d+)\s*,\s*(q\d+)\s*\)\s*=\s*True", item, re.IGNORECASE)
+        if m:
+            q1 = int(re.search(r'\d+', m.group(1)).group())
+            q2 = int(re.search(r'\d+', m.group(2)).group())
+            invariants.append(Invariant(kind="entanglement", qubits=[q1, q2]))
+            continue
+        # schmidt_rank(q0,q1) >= 2
+        m = re.match(r"schmidt_rank\(\s*(q\d+)\s*,\s*(q\d+)\s*\)\s*(>=|>|<=|<|==)\s*(\d+)", item, re.IGNORECASE)
+        if m:
+            q1 = int(re.search(r'\d+', m.group(1)).group())
+            q2 = int(re.search(r'\d+', m.group(2)).group())
+            op = _parse_comparison_op(m.group(3))
+            value = float(m.group(4))
+            invariants.append(Invariant(kind="schmidt_rank", qubits=[q1, q2], op=op, value=value))
+    return invariants
 
 
 # ============================================================

@@ -1,10 +1,32 @@
 # Q-Orca — Quantum Orchestrated State Machine Language
 
+[![Tests](https://github.com/jascal/q-orca-lang/actions/workflows/test.yml/badge.svg)](https://github.com/jascal/q-orca-lang/actions/workflows/test.yml)
+[![Verify Examples](https://github.com/jascal/q-orca-lang/actions/workflows/verify-examples.yml/badge.svg)](https://github.com/jascal/q-orca-lang/actions/workflows/verify-examples.yml)
+[![PyPI](https://img.shields.io/pypi/v/q-orca)](https://pypi.org/project/q-orca/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://pypi.org/project/q-orca/)
+
 Q-Orca is a quantum-aware dialect of [Orca](https://github.com/orca-lang/orca-lang), a state machine language written in Markdown. It extends Orca with Dirac ket notation for quantum states, unitary gate actions, entanglement verification, and simulation via Qiskit.
+
+All 5 example machines (Bell, GHZ, Deutsch-Jozsa, Teleportation, VQE) pass the full 5-stage verification pipeline on every commit, across Python 3.10–3.13.
 
 ---
 
-## Setup
+## Install
+
+```bash
+pip install q-orca[quantum]
+```
+
+Installs the CLI, verifier, compilers, and Qiskit/QuTiP simulation support.
+
+```bash
+pip install q-orca[all]      # + MCP server (pyyaml)
+pip install q-orca           # CLI + verifier only, no quantum libs
+```
+
+---
+
+## Setup (development)
 
 ```bash
 # Create and activate a virtual environment
@@ -62,20 +84,99 @@ cat examples/bell-entangler.q.orca.md | q-orca --stdin verify
 
 ---
 
+## How Verification Works
+
+Every machine passes through 5 stages in order. A failure in stage 1 stops the pipeline early; later stages are cumulative.
+
+| Stage | Module | What it checks |
+|-------|--------|----------------|
+| 1 — Structural | `structural.py` | All states reachable, no deadlocks, no orphan states |
+| 2 — Completeness | `completeness.py` | Every (state, event) pair has at least one outgoing transition |
+| 3 — Determinism | `determinism.py` | Guards on competing transitions are mutually exclusive |
+| 4 — Quantum | `quantum.py` | Unitarity of gates, no-cloning violations, entanglement declarations, collapse probability sum = 1 |
+| 4b — Dynamic | `dynamic.py` | QuTiP circuit simulation: actual Schmidt rank and Von Neumann entropy for every declared entangled state |
+| 5 — Superposition | `superposition.py` | No superposition coherence leaks across unguarded transitions |
+
+Stage 4b is a soft dependency: if QuTiP is not installed it skips gracefully and CI still passes.
+
+### Example failure report
+
+A machine with a missing CNOT gate and an incomplete collapse:
+
+```
+$ q-orca verify broken-bell.q.orca.md
+
+  Machine: BrokenBell
+  States: |00>, |ψ>, |00_collapsed>
+  Events: prepare, measure_done
+  Transitions: 2
+  Verification rules: unitarity, entanglement
+
+  Result: INVALID
+  [WARN] ENTANGLEMENT_WITHOUT_GATE: State '|ψ>' is declared as entangled but no entangling gate (CNOT, CZ, etc.) leads to it
+        -> Add a transition with a CNOT or other entangling gate action
+  [ERR]  DYNAMIC_NO_ENTANGLEMENT: State '|ψ>' should be entangled but verification failed: q0-q1: Schmidt rank 1 ≤ 1
+        -> Ensure the circuit creates an entangled state with CNOT or CZ gates
+  [ERR]  DYNAMIC_INCOMPLETE_COLLAPSE: Measurement branches have probabilities summing to 0.5000, expected 1.0
+        -> Ensure all collapse outcomes are covered with probabilities summing to 1
+```
+
+Same report as JSON (`--json`):
+
+```json
+{
+  "machine": "BrokenBell",
+  "valid": false,
+  "errors": [
+    {
+      "code": "ENTANGLEMENT_WITHOUT_GATE",
+      "message": "State '|ψ>' is declared as entangled but no entangling gate (CNOT, CZ, etc.) leads to it",
+      "severity": "warning",
+      "suggestion": "Add a transition with a CNOT or other entangling gate action"
+    },
+    {
+      "code": "DYNAMIC_NO_ENTANGLEMENT",
+      "message": "State '|ψ>' should be entangled but verification failed: q0-q1: Schmidt rank 1 ≤ 1",
+      "severity": "error",
+      "suggestion": "Ensure the circuit creates an entangled state with CNOT or CZ gates"
+    },
+    {
+      "code": "DYNAMIC_INCOMPLETE_COLLAPSE",
+      "message": "Measurement branches have probabilities summing to 0.5000, expected 1.0",
+      "severity": "error",
+      "suggestion": "Ensure all collapse outcomes are covered with probabilities summing to 1"
+    }
+  ]
+}
+```
+
+### Declaring invariants in Markdown
+
+For precise dynamic checks, add an `## invariants` section to your machine. This tells stage 4b exactly which qubit pairs to verify rather than using the default adjacent-pair heuristic:
+
+```markdown
+## invariants
+- entanglement(q0,q1) = True
+- schmidt_rank(q0,q1) >= 2
+```
+
+---
+
 ## Commands
 
 ### `q-orca verify`
 
-Parses and verifies a quantum machine definition. Runs 5 verification stages:
+Parses and verifies a quantum machine definition through all 5 stages.
 
-1. **Structural** — reachability, deadlocks, orphan states
-2. **Completeness** — (state, event) coverage
-3. **Determinism** — guard mutual exclusion
-4. **Quantum** — unitarity, no-cloning, entanglement, collapse completeness
-5. **Superposition leak** — static analysis of superposition coherence
+```bash
+q-orca verify examples/bell-entangler.q.orca.md
+q-orca verify examples/bell-entangler.q.orca.md --json
+q-orca verify examples/bell-entangler.q.orca.md --strict   # warnings → errors
+```
 
 Options:
 - `--json` — output as JSON
+- `--strict` — treat warnings as errors
 - `--skip-completeness` — skip event completeness checks
 - `--skip-quantum` — skip quantum-specific checks
 
