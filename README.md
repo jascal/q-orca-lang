@@ -725,9 +725,12 @@ q_orca/
 
 ## Roadmap
 
+**Near-term**
 - **Parameterized gates** — `Rx(θ)`, `Ry(θ)`, `Rz(θ)` with symbolic angles in the Markdown action table and invariant expressions (e.g. `theta = pi/4`)
 - **Noise models** — depolarizing, amplitude damping, thermal noise in `## context`; propagate into Qiskit noise simulation
+- **QASM 3.0 import** — parse existing `.qasm` files and lift them into Q-Orca state machines
+
+**Longer-term**
 - **Hybrid classical/quantum transitions** — classical control flow between quantum sub-circuits (mid-circuit measurement + feedforward)
 - **Multi-machine composition** — link two machines via shared qubits or classical channels, verified jointly
-- **QASM 3.0 import** — parse existing `.qasm` files and lift them into Q-Orca state machines
 - **VS Code extension** — syntax highlighting, inline verification on save, Mermaid preview
