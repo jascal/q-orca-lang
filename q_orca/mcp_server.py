@@ -125,12 +125,19 @@ async def call_tool(name: str, arguments: dict) -> dict:
             )
             if opts.run:
                 result = simulate_machine(machine, opts)
+                # QuTiPVerificationResult is a dataclass — convert to dict for JSON
+                import dataclasses
+                qutip_dict = (
+                    dataclasses.asdict(result.qutip_verification)
+                    if result.qutip_verification is not None
+                    else None
+                )
                 return {
                     "success": result.success,
                     "machine": machine.name,
                     "probabilities": result.probabilities,
                     "counts": result.counts,
-                    "qutipVerification": result.qutip_verification,
+                    "qutipVerification": qutip_dict,
                     "error": result.error,
                 }
             else:

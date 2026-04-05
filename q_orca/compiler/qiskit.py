@@ -33,8 +33,8 @@ def _parse_single_gate(effect_str: str) -> QuantumGate | None:
         indices = [int(x) for x in re.findall(r"\d+", indices_str)]
         return QuantumGate(kind="H", targets=indices)
 
-    # CNOT(qs[control], qs[target])
-    m = re.search(r"CNOT\(\s*(\w+\[(\d+)\])\s*,\s*(\w+\[(\d+)\])\s*\)", effect_str, re.IGNORECASE)
+    # CNOT(qs[control], qs[target]) — also accepts CX alias
+    m = re.search(r"(?:CNOT|CX)\(\s*(\w+\[(\d+)\])\s*,\s*(\w+\[(\d+)\])\s*\)", effect_str, re.IGNORECASE)
     if m:
         ctrl = int(m.group(2))
         tgt = int(m.group(4))
@@ -53,6 +53,18 @@ def _parse_single_gate(effect_str: str) -> QuantumGate | None:
         idx1 = int(m.group(2))
         idx2 = int(m.group(4))
         return QuantumGate(kind="SWAP", targets=[idx1, idx2])
+
+    # RX/RY/RZ(angle, qs[N]) — angle may be a float literal or a symbolic name
+    m = re.search(r"R([XYZ])\(\s*([\w./\-]+)\s*,\s*\w+\[(\d+)\]\s*\)", effect_str, re.IGNORECASE)
+    if m:
+        axis = m.group(1).upper()
+        param_str = m.group(2).strip()
+        idx = int(m.group(3))
+        try:
+            theta = float(param_str)
+        except ValueError:
+            theta = 0.0  # symbolic parameter — use 0.0 as placeholder
+        return QuantumGate(kind=f"R{axis}", targets=[idx], parameter=theta)
 
     # X(qs[N]), Y(qs[N]), Z(qs[N]), T(qs[N]), S(qs[N])
     m = re.search(r"^([XYZS])\(\s*(\w+\[(\d+)\])\s*\)", effect_str)

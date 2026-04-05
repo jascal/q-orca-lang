@@ -2,7 +2,8 @@
 
 import re
 
-from q_orca.ast import QMachineDef, QuantumGate
+from q_orca.ast import QMachineDef, QuantumGate, QTypeScalar, QTypeList, QTypeQubit
+from q_orca.compiler.qiskit import _parse_effect_string
 
 
 def compile_to_qasm(machine: QMachineDef) -> str:
@@ -35,10 +36,10 @@ def compile_to_qasm(machine: QMachineDef) -> str:
 
     gate_sequence = _extract_gate_sequence(machine)
     lines.append("// Gate sequence derived from state machine transitions")
-    for action_name, gate, comment in gate_sequence:
+    for action_name, gates, comment in gate_sequence:
         if comment:
             lines.append(f"// {comment}")
-        if gate:
+        for gate in gates:
             lines.append(_gate_to_qasm(gate, qubit_count))
 
     if has_measurement or has_measure_event:
@@ -51,6 +52,7 @@ def compile_to_qasm(machine: QMachineDef) -> str:
 
 
 def _extract_gate_sequence(machine: QMachineDef) -> list:
+    """Return (action_name, [gates], comment) triples ordered by BFS traversal."""
     steps = []
     action_map = {a.name: a for a in machine.actions}
 
@@ -73,7 +75,12 @@ def _extract_gate_sequence(machine: QMachineDef) -> list:
             if t.action:
                 action = action_map.get(t.action)
                 if action:
-                    steps.append((t.action, action.gate, f"{t.source} -> {t.target} via {t.event}"))
+                    # Parse the full effect string (handles CX, multi-gate, etc.)
+                    gates = _parse_effect_string(action.effect) if action.effect else []
+                    # Fall back to the single gate stored on the action if parsing gave nothing
+                    if not gates and action.gate:
+                        gates = [action.gate]
+                    steps.append((t.action, gates, f"{t.source} -> {t.target} via {t.event}"))
 
             is_measure = "measure" in t.event.lower() or "collapse" in t.event.lower()
             if not is_measure and t.target not in visited:
@@ -125,6 +132,31 @@ def _gate_to_qasm(gate: QuantumGate, qubit_count: int) -> str:
 
 
 def _infer_qubit_count(machine: QMachineDef) -> int:
+    # 1. Explicit qubits list in context: qubits = [q0, q1] → 2
+    n_value = None
+    has_ancilla = False
+    qubits_list_length = None
+
+    for field in machine.context:
+        if field.name == "n" and isinstance(field.type, QTypeScalar) and field.type.kind == "int":
+            try:
+                n_value = int(field.default_value) if field.default_value else None
+            except (ValueError, TypeError):
+                n_value = None
+        if field.name == "ancilla" and isinstance(field.type, QTypeQubit):
+            has_ancilla = True
+        if field.name == "qubits" and isinstance(field.type, QTypeList):
+            if field.default_value:
+                items = re.findall(r"q\d+", field.default_value)
+                if items:
+                    qubits_list_length = len(items)
+
+    if n_value is not None and has_ancilla:
+        return n_value + 1
+    if qubits_list_length is not None:
+        return qubits_list_length
+
+    # 2. Bitstring-style state names: |00> → 2 qubits
     max_bits = 0
     for state in machine.states:
         m = re.search(r"\|([01]+)>", state.name)

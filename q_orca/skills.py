@@ -84,6 +84,20 @@ def _collect_state_names(states: list[QStateDef]) -> list[str]:
 
 
 def _machine_to_parsed(machine: QMachineDef) -> ParsedMachine:
+    # Named guards from the ## guards section
+    guards_list = [
+        {"name": g.name, "expression": str(g.expression)}
+        for g in machine.guards
+    ]
+    # Also collect inline guard expressions referenced in transitions but absent from ## guards
+    named_guard_keys = {g.name for g in machine.guards}
+    for t in machine.transitions:
+        if t.guard:
+            guard_key = f"!{t.guard.name}" if t.guard.negated else t.guard.name
+            if guard_key not in named_guard_keys:
+                named_guard_keys.add(guard_key)
+                guards_list.append({"name": guard_key, "expression": None})
+
     return ParsedMachine(
         name=machine.name,
         states=_collect_state_names(machine.states),
@@ -98,10 +112,7 @@ def _machine_to_parsed(machine: QMachineDef) -> ParsedMachine:
             )
             for t in machine.transitions
         ],
-        guards=[
-            {"name": g.name, "expression": str(g.expression)}
-            for g in machine.guards
-        ],
+        guards=guards_list,
         actions=[
             {"name": a.name, "hasEffect": a.has_effect, "effectType": a.effect_type}
             for a in machine.actions
@@ -360,9 +371,13 @@ Generate Q-Orca machine definitions in markdown (.q.orca.md) format from natural
 {Q_ORCA_SYNTAX_REFERENCE}
 
 Key rules:
-- States use Dirac ket notation: |00>, |01>, |ψ>, etc.
+- State names MUST be safe identifiers: letters, digits, and underscores only.
+  Use descriptive names like: ground, superposed, entangled, bell, ghz, collapsed_0, collapsed_1, init, done.
+  Do NOT use Dirac ket notation (|0>, |ψ>, |+>) as state names — the pipe character '|'
+  is a markdown table delimiter and will break the transitions table parser.
 - [initial] marks the initial state, [final] marks terminal states
-- Gates are quantum operations: H (Hadamard), X, Y, Z, CNOT, CZ, SWAP, T, S, Rx, Ry, Rz
+- Gates are quantum operations: H (Hadamard), X, Y, Z, CNOT, CX, CZ, SWAP, T, S, RX, RY, RZ
+- Effect syntax examples: H(qs[0]), CX(qs[0], qs[1]), RZ(0.5, qs[0])
 - Actions represent gate applications on qubits
 - Every (state, event) pair must have a transition or explicit ignore
 - Context should contain qubit registers and quantum state
