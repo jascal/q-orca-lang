@@ -99,6 +99,29 @@ Every machine passes through 5 stages in order. A failure in stage 1 stops the p
 
 Stage 4b is a soft dependency: if QuTiP is not installed it skips gracefully and CI still passes.
 
+### Stage 4 vs 4b — static vs dynamic
+
+Stage 4 (`quantum.py`) checks your **declarations**: does the Markdown say this state is entangled? Does a CNOT gate lead to it? These are fast structural checks that catch obvious mistakes.
+
+Stage 4b (`dynamic.py`) **simulates the circuit**: it replays every gate in the path from the initial state, then computes the actual Von Neumann entropy and Schmidt rank of the resulting state vector using QuTiP. This catches cases where the gate sequence is present but wrong — e.g. two Hadamards that cancel, a CNOT on the wrong qubits, or a rotation angle that leaves the state separable.
+
+For a valid Bell state (`H(q0)` then `CNOT(q0, q1)`), the dynamic verifier internally computes:
+
+```json
+{
+  "state": "|ψ>",
+  "entropy_checks": { "q0": 1.0 },
+  "schmidt_ranks": { "q0-q1": 2 },
+  "passed": true,
+  "details": {}
+}
+```
+
+- **`entropy_checks.q0 = 1.0`** — Von Neumann entropy of qubit 0 after tracing out q1. Exactly 1.0 = maximally entangled.
+- **`schmidt_ranks.q0-q1 = 2`** — Schmidt rank across the q0/q1 bipartition. Rank > 1 confirms entanglement; rank = 1 means separable.
+
+If either value falls below threshold, stage 4b emits a `DYNAMIC_NO_ENTANGLEMENT` error (shown below).
+
 ### Example failure report
 
 A machine with a missing CNOT gate and an incomplete collapse:
