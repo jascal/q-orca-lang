@@ -22,9 +22,9 @@ jobs:
           python -m venv .venv
           .venv/bin/pip install -e ".[quantum]"
 
-      - name: Verify all examples
+      - name: Verify all examples (strict)
         run: |
           for f in examples/*.q.orca.md; do
             echo "Verifying: $f"
-            .venv/bin/q-orca verify "$f" || exit 1
+            .venv/bin/q-orca verify "$f" --strict || exit 1
           done

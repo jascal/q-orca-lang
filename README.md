@@ -53,9 +53,14 @@ To exit the virtual environment: `deactivate`
 ## Running
 
 ```bash
+# Check version
+q-orca --version
+
 # Verify a quantum machine
 q-orca verify examples/bell-entangler.q.orca.md
 q-orca verify examples/bell-entangler.q.orca.md --json
+q-orca verify examples/bell-entangler.q.orca.md --strict        # warnings → errors
+q-orca verify examples/bell-entangler.q.orca.md --skip-dynamic  # skip QuTiP simulation
 
 # Compile to Mermaid diagram
 q-orca compile mermaid examples/quantum-teleportation.q.orca.md
@@ -194,14 +199,34 @@ Parses and verifies a quantum machine definition through all 5 stages.
 ```bash
 q-orca verify examples/bell-entangler.q.orca.md
 q-orca verify examples/bell-entangler.q.orca.md --json
-q-orca verify examples/bell-entangler.q.orca.md --strict   # warnings → errors
+q-orca verify examples/bell-entangler.q.orca.md --strict
+q-orca verify examples/bell-entangler.q.orca.md --skip-dynamic
 ```
 
-Options:
-- `--json` — output as JSON
-- `--strict` — treat warnings as errors
-- `--skip-completeness` — skip event completeness checks
-- `--skip-quantum` — skip quantum-specific checks
+| Flag | Description |
+|------|-------------|
+| `--json` | Output as JSON |
+| `--strict` | Treat warnings as errors (exit 1 on any warning) |
+| `--skip-completeness` | Skip stage 2: event completeness checks |
+| `--skip-quantum` | Skip stage 4: unitarity, no-cloning, entanglement |
+| `--skip-dynamic` | Skip stage 4b: QuTiP circuit simulation |
+
+All 5 bundled examples pass `--strict` on every CI run (Python 3.10–3.13).
+
+**Example: passing strict verify with dynamic entanglement confirmed**
+
+```bash
+$ q-orca verify examples/bell-entangler.q.orca.md --strict --json
+```
+```json
+{
+  "machine": "BellEntangler",
+  "valid": true,
+  "errors": []
+}
+```
+
+When stage 4b runs (QuTiP installed), it internally verifies `entropy(q0) ≈ 1.0` and `Schmidt rank(q0,q1) = 2` for the Bell state before emitting this clean result. Any failure there produces a `DYNAMIC_NO_ENTANGLEMENT` error — see [How Verification Works](#how-verification-works) for the full failure report format.
 
 ### `q-orca compile`
 
@@ -695,3 +720,14 @@ q_orca/
     ├── types.py           # Simulation result types
     └── python.py          # Python subprocess runner + simulation
 ```
+
+---
+
+## Roadmap
+
+- **Parameterized gates** — `Rx(θ)`, `Ry(θ)`, `Rz(θ)` with symbolic angles in the Markdown action table and invariant expressions (e.g. `theta = pi/4`)
+- **Noise models** — depolarizing, amplitude damping, thermal noise in `## context`; propagate into Qiskit noise simulation
+- **Hybrid classical/quantum transitions** — classical control flow between quantum sub-circuits (mid-circuit measurement + feedforward)
+- **Multi-machine composition** — link two machines via shared qubits or classical channels, verified jointly
+- **QASM 3.0 import** — parse existing `.qasm` files and lift them into Q-Orca state machines
+- **VS Code extension** — syntax highlighting, inline verification on save, Mermaid preview

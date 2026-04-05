@@ -31,9 +31,10 @@ def main():
     v = sub.add_parser("verify", help="Parse and verify a quantum machine definition")
     v.add_argument("file", nargs="?", help="Path to .q.orca.md file (or use --stdin)")
     v.add_argument("--json", action="store_true", help="Output as JSON")
-    v.add_argument("--skip-completeness", action="store_true", help="Skip event completeness checks")
-    v.add_argument("--skip-quantum", action="store_true", help="Skip quantum-specific checks")
-    v.add_argument("--strict", action="store_true", help="Treat warnings as errors (fail on any warning)")
+    v.add_argument("--skip-completeness", action="store_true", help="Skip stage 2: event completeness checks")
+    v.add_argument("--skip-quantum", action="store_true", help="Skip stage 4: quantum-specific checks (unitarity, entanglement)")
+    v.add_argument("--skip-dynamic", action="store_true", help="Skip stage 4b: QuTiP circuit simulation (Schmidt rank, entropy)")
+    v.add_argument("--strict", action="store_true", help="Treat warnings as errors (exit 1 on any warning)")
 
     # compile
     c = sub.add_parser("compile", help="Compile to a target format")
@@ -89,6 +90,7 @@ def _cmd_verify(parsed, args):
         opts = VerifyOptions(
             skip_completeness=args.skip_completeness,
             skip_quantum=args.skip_quantum,
+            skip_dynamic=args.skip_dynamic,
         )
         result = verify(machine, opts)
 
