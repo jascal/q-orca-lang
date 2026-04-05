@@ -13,6 +13,9 @@ venv/
 .idea/
 .vscode/
 *.swp
+*~
+\#*\#
+.\#*
 
 # OS
 .DS_Store
