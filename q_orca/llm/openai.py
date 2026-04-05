@@ -10,7 +10,7 @@ from q_orca.llm.provider import LLMProvider, LLMRequest, LLMResponse, LLMProvide
 
 class OpenAIProvider(LLMProvider):
     def __init__(self, config: LLMProviderConfig):
-        self.base_url = config.base_url or "https://api.openai.com"
+        self.base_url = (config.base_url or "https://api.openai.com/v1").rstrip("/")
         self.model = config.model or "gpt-4o"
         self.max_tokens = config.max_tokens or 4096
         self.temperature = config.temperature if config.temperature is not None else 0.7
@@ -52,14 +52,14 @@ class OpenAIProvider(LLMProvider):
         }
 
         req = urllib.request.Request(
-            f"{self.base_url}/v1/chat/completions",
+            f"{self.base_url}/chat/completions",
             data=json.dumps(body).encode("utf-8"),
             headers=headers,
             method="POST",
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=120) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8") if e.fp else ""
@@ -67,6 +67,11 @@ class OpenAIProvider(LLMProvider):
 
         choice = data["choices"][0]
         content = choice.get("message", {}).get("content", "")
+
+        # Strip reasoning/thinking tags from models like MiniMax-M2.7
+        if "<think>" in content:
+            import re
+            content = re.sub(r"<think>[\s\S]*?</think>\s*", "", content).strip()
 
         return LLMResponse(
             content=content,

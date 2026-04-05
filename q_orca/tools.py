@@ -12,14 +12,13 @@ Q_ORCA_TOOLS = [
             "properties": {
                 "source": {
                     "type": "string",
-                    "description": "Raw Q-Orca source content (.q.orca.md format)",
+                    "description": "Raw Q-Orca source content (.q.orca.md format). Provide either source or file.",
                 },
                 "file": {
                     "type": "string",
-                    "description": "Path to a .q.orca.md file",
+                    "description": "Path to a .q.orca.md file. Provide either source or file.",
                 },
             },
-            "oneOf": [{"required": ["source"]}, {"required": ["file"]}],
         },
     },
     {
@@ -30,11 +29,11 @@ Q_ORCA_TOOLS = [
             "properties": {
                 "source": {
                     "type": "string",
-                    "description": "Raw Q-Orca source content",
+                    "description": "Raw Q-Orca source content. Provide either source or file.",
                 },
                 "file": {
                     "type": "string",
-                    "description": "Path to a .q.orca.md file",
+                    "description": "Path to a .q.orca.md file. Provide either source or file.",
                 },
                 "skip_completeness": {
                     "type": "boolean",
@@ -47,7 +46,6 @@ Q_ORCA_TOOLS = [
                     "default": False,
                 },
             },
-            "oneOf": [{"required": ["source"]}, {"required": ["file"]}],
         },
     },
     {
@@ -71,7 +69,6 @@ Q_ORCA_TOOLS = [
                     "default": "qasm",
                 },
             },
-            "oneOf": [{"required": ["source"]}, {"required": ["file"]}],
         },
     },
     {
@@ -112,7 +109,6 @@ Q_ORCA_TOOLS = [
                     "default": 3,
                 },
             },
-            "oneOf": [{"required": ["source"]}, {"required": ["file"]}],
         },
     },
     {
@@ -123,11 +119,11 @@ Q_ORCA_TOOLS = [
             "properties": {
                 "source": {
                     "type": "string",
-                    "description": "Raw Q-Orca source content",
+                    "description": "Raw Q-Orca source content. Provide either source or file.",
                 },
                 "file": {
                     "type": "string",
-                    "description": "Path to a .q.orca.md file",
+                    "description": "Path to a .q.orca.md file. Provide either source or file.",
                 },
                 "run": {
                     "type": "boolean",
@@ -150,7 +146,6 @@ Q_ORCA_TOOLS = [
                     "default": False,
                 },
             },
-            "oneOf": [{"required": ["source"]}, {"required": ["file"]}],
         },
     },
     {

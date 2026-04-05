@@ -2,7 +2,7 @@
 
 import re
 
-from q_orca.ast import QMachineDef, QuantumGate, QTypeQubit, QTypeScalar, QTypeList
+from q_orca.ast import QMachineDef, QuantumGate, QTypeQubit, QTypeScalar, QTypeList, NoiseModel
 from dataclasses import dataclass
 
 
@@ -77,12 +77,99 @@ def _parse_single_gate(effect_str: str) -> QuantumGate | None:
 DEFAULT_SHOTS = 1024
 
 
+def _parse_noise_model_string(text: str) -> NoiseModel | None:
+    """Parse a noise model string like 'depolarizing(0.01)' or 'amplitude_damping(0.1)'."""
+    if not text:
+        return None
+    text = text.strip()
+
+    # depolarizing(p)
+    m = re.match(r"depolarizing\(\s*([\d.]+)\s*\)", text, re.IGNORECASE)
+    if m:
+        return NoiseModel(kind="depolarizing", parameter=float(m.group(1)))
+
+    # amplitude_damping(gamma) or amplitudeDamping(gamma)
+    m = re.match(r"amplitude[_-]?damping\(\s*([\d.]+)\s*\)", text, re.IGNORECASE)
+    if m:
+        return NoiseModel(kind="amplitude_damping", parameter=float(m.group(1)))
+
+    # phase_damping(gamma) or phaseDamping(gamma)
+    m = re.match(r"phase[_-]?damping\(\s*([\d.]+)\s*\)", text, re.IGNORECASE)
+    if m:
+        return NoiseModel(kind="phase_damping", parameter=float(m.group(1)))
+
+    # thermal(depol_prob, p_err) or thermal(p_err)
+    m = re.match(r"thermal\(\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)", text, re.IGNORECASE)
+    if m:
+        param1 = float(m.group(1))
+        param2 = float(m.group(2)) if m.group(2) else 0.01
+        return NoiseModel(kind="thermal", parameter=param1, parameter2=param2)
+
+    return None
+
+
+def _get_noise_models_from_context(machine: QMachineDef) -> list[NoiseModel]:
+    """Extract noise models from machine context fields."""
+    noise_models = []
+    for field in machine.context:
+        if field.name == "noise" and isinstance(field.type, QTypeScalar) and field.type.kind == "noise_model":
+            if field.default_value:
+                nm = _parse_noise_model_string(field.default_value)
+                if nm:
+                    noise_models.append(nm)
+    return noise_models
+
+
+def _emit_qiskit_noise_model_code(noise_model: NoiseModel, qubit_count: int) -> list[str]:
+    """Generate Qiskit noise model code lines."""
+    lines = []
+    lines.append("# Noise model")
+    lines.append("try:")
+    lines.append("    from qiskit_aer import noise")
+    lines.append("    HAS_AER = True")
+    lines.append("except ImportError:")
+    lines.append("    HAS_AER = False")
+    lines.append("    noise_model = None")
+    lines.append("")
+    lines.append("if HAS_AER:")
+
+    if noise_model.kind == "depolarizing":
+        p = noise_model.parameter
+        lines.append(f"    depolarizing_error = noise.depolarizing_error({p}, 1)")
+        lines.append("    noise_model = noise.NoiseModel()")
+        lines.append("    noise_model.add_all_qubit_quantum_error(depolarizing_error, ['h', 'x', 'y', 'z', 'rx', 'ry', 'rz', 't', 's', 'cnot', 'cx', 'cz', 'swap'])")
+
+    elif noise_model.kind == "amplitude_damping":
+        gamma = noise_model.parameter
+        lines.append(f"    ad_error = noise.amplitude_damping_error({gamma})")
+        lines.append("    noise_model = noise.NoiseModel()")
+        lines.append("    noise_model.add_all_qubit_quantum_error(ad_error, ['h', 'x', 'y', 'z', 'rx', 'ry', 'rz', 't', 's', 'cnot', 'cx', 'cz', 'swap'])")
+
+    elif noise_model.kind == "phase_damping":
+        gamma = noise_model.parameter
+        lines.append(f"    pd_error = noise.phase_damping_error({gamma})")
+        lines.append("    noise_model = noise.NoiseModel()")
+        lines.append("    noise_model.add_all_qubit_quantum_error(pd_error, ['h', 'x', 'y', 'z', 'rx', 'ry', 'rz', 't', 's', 'cnot', 'cx', 'cz', 'swap'])")
+
+    elif noise_model.kind == "thermal":
+        lines.append(f"    # thermal noise not fully supported, using depolarizing")
+        lines.append(f"    thermal_error = noise.depolarizing_error({noise_model.parameter}, 1)")
+        lines.append("    noise_model = noise.NoiseModel()")
+        lines.append("    noise_model.add_all_qubit_quantum_error(thermal_error, ['h', 'x', 'y', 'z', 'rx', 'ry', 'rz', 't', 's', 'cnot', 'cx', 'cz', 'swap'])")
+
+    else:
+        lines.append("    noise_model = None")
+
+    return lines
+
+
 @dataclass
 class QSimulationOptions:
     analytic: bool = True
     shots: int = DEFAULT_SHOTS
     verbose: bool = False
     skip_qutip: bool = False
+    skip_noise: bool = False
     run: bool = False
 
 
@@ -116,6 +203,23 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
     lines.append(f"qc = QuantumCircuit({qubit_count})")
     lines.append("")
 
+    # Noise model from context
+    has_noise_model = False
+    if not options.skip_noise:
+        noise_models = _get_noise_models_from_context(machine)
+        if noise_models:
+            for nm in noise_models:
+                lines.extend(_emit_qiskit_noise_model_code(nm, qubit_count))
+                lines.append("")
+                has_noise_model = True
+
+    # Always define HAS_AER (needed by shots branch)
+    if not has_noise_model:
+        lines.append("# Noise model (none defined in context)")
+        lines.append("HAS_AER = False")
+        lines.append("noise_model = None")
+        lines.append("")
+
     gate_sequence = _extract_gate_sequence(machine)
 
     lines.append("# Gate sequence from state machine")
@@ -143,9 +247,19 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
         lines.append("qc_shots.compose(qc, inplace=True)")
         lines.append("for i in range(qubit_count):")
         lines.append("    qc_shots.measure(i, i)")
-        lines.append("backend = BasicSimulator()")
-        lines.append("job = backend.run(qc_shots, shots=shots)")
-        lines.append("counts = job.result().get_counts(qc_shots)")
+        lines.append("")
+        lines.append("# Run with noise model if available")
+        lines.append("if HAS_AER and noise_model is not None:")
+        lines.append("    from qiskit_aer import AerSimulator")
+        lines.append("    noisy_backend = AerSimulator(noise_model=noise_model)")
+        lines.append("    job = noisy_backend.run(qc_shots, shots=shots)")
+        lines.append("    counts = job.result().get_counts(qc_shots)")
+        lines.append("    simulation_method = 'noisy'")
+        lines.append("else:")
+        lines.append("    backend = BasicSimulator()")
+        lines.append("    job = backend.run(qc_shots, shots=shots)")
+        lines.append("    counts = job.result().get_counts(qc_shots)")
+        lines.append("    simulation_method = 'ideal'")
 
     if not options.skip_qutip:
         lines.append("")

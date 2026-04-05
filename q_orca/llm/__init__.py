@@ -8,7 +8,7 @@ from q_orca.llm.grok import GrokProvider
 from q_orca.config.types import ProviderType
 
 
-MINIMAX_BASE_URL = "https://api.minimax.io/anthropic"
+MINIMAX_BASE_URL = "https://api.minimaxi.chat/v1"
 MINIMAX_DEFAULT_MODEL = "MiniMax-M2.7"
 
 
@@ -25,7 +25,7 @@ def create_provider(type: ProviderType, config: LLMProviderConfig) -> LLMProvide
                 max_tokens=config.max_tokens,
                 temperature=config.temperature,
             )
-            return AnthropicProvider(minimax_config)
+            return OpenAIProvider(minimax_config)
         case "openai":
             return OpenAIProvider(config)
         case "ollama":

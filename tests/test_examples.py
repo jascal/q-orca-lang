@@ -12,6 +12,7 @@ EXAMPLE_FILES = {
     "deutsch-jozsa": "deutsch-jozsa.q.orca.md",
     "ghz-state": "ghz-state.q.orca.md",
     "quantum-teleportation": "quantum-teleportation.q.orca.md",
+    "vqe-heisenberg": "vqe-heisenberg.q.orca.md",
 }
 
 

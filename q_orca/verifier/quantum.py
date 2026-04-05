@@ -27,16 +27,29 @@ def _has_rule(machine: QMachineDef, kind: str) -> bool:
 
 
 def _count_qubits(machine: QMachineDef) -> int:
+    # First: check context fields for explicit qubit declarations
     for field in machine.context:
         if hasattr(field.type, "element_type") and field.type.element_type == "qubit":
+            # list<qubit> field — count from default value (e.g., [q0, q1] → 2 qubits)
+            if field.default_value:
+                indices = [int(m.group(1)) for m in re.finditer(r'q(\d+)', str(field.default_value))]
+                if indices:
+                    return max(indices) + 1
+            # Fallback: count from state ket notation
             max_bits = 0
             for s in machine.states:
                 m = re.search(r"\|([01]+)>", s.name)
                 if m:
                     max_bits = max(max_bits, len(m.group(1)))
-            return max_bits if max_bits > 0 else 0
+            if max_bits > 0:
+                return max_bits
         if hasattr(field.type, "kind") and field.type.kind == "qubit":
             return 1
+    # Fallback: count from state ket notation
+    for s in machine.states:
+        m = re.search(r"\|([01]+)>", s.name)
+        if m:
+            return len(m.group(1))
     return 0
 
 

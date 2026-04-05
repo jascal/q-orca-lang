@@ -509,7 +509,8 @@ def _parse_q_type_string(text: str) -> QType:
         return QTypeQubit()
     scalar_map = {"int": "int", "float": "float", "decimal": "float",
                   "bool": "bool", "string": "string", "complex": "complex",
-                  "state_vector": "state_vector", "density_matrix": "density_matrix"}
+                  "state_vector": "state_vector", "density_matrix": "density_matrix",
+                  "noise_model": "noise_model"}
     if text in scalar_map:
         return QTypeScalar(kind=text)
     return QTypeCustom(name=text)

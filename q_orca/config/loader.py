@@ -106,10 +106,22 @@ def load_config(config_path: str | None = None) -> QOrcaConfig:
             parsed = _interpolate_env_vars(parsed)
             configs.append(QOrcaConfig(**{k: v for k, v in parsed.items() if k in QOrcaConfig.__dataclass_fields__}))
 
+    # Merge YAML configs onto DEFAULT_CONFIG first
+    result = DEFAULT_CONFIG
+    for config in configs:
+        result = _deep_merge(result, config)
+
     # 3. Environment variable overrides (highest precedence)
+    #    Applied as dict overrides on the already-merged result to avoid
+    #    constructing a partial QOrcaConfig (which would fail since
+    #    provider and model are required positional args).
     env_overrides: dict = {}
     if os.environ.get("ORCA_PROVIDER"):
-        env_overrides["provider"] = os.environ["ORCA_PROVIDER"]
+        provider = os.environ["ORCA_PROVIDER"]
+        valid_providers = ("anthropic", "openai", "ollama", "grok", "minimax")
+        if provider not in valid_providers:
+            raise ValueError(f"ORCA_PROVIDER must be one of {valid_providers}")
+        env_overrides["provider"] = provider
     if os.environ.get("ORCA_MODEL"):
         env_overrides["model"] = os.environ["ORCA_MODEL"]
     if os.environ.get("ORCA_BASE_URL"):
@@ -124,17 +136,10 @@ def load_config(config_path: str | None = None) -> QOrcaConfig:
         env_overrides["temperature"] = float(os.environ["ORCA_TEMPERATURE"])
 
     if env_overrides:
-        # Validate provider is a valid literal
-        if "provider" in env_overrides:
-            valid_providers = ("anthropic", "openai", "ollama", "grok", "minimax")
-            if env_overrides["provider"] not in valid_providers:
-                raise ValueError(f"ORCA_PROVIDER must be one of {valid_providers}")
-        configs.append(QOrcaConfig(**env_overrides))
-
-    # Merge all configs in order
-    result = DEFAULT_CONFIG
-    for config in configs:
-        result = _deep_merge(result, config)
+        # Build final config by overlaying env overrides onto the merged result
+        result_dict = {k: getattr(result, k) for k in result.__dataclass_fields__}
+        result_dict.update(env_overrides)
+        result = QOrcaConfig(**result_dict)
 
     return result
 

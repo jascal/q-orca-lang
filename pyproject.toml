@@ -28,7 +28,7 @@ all = ["qiskit", "qutip", "pyyaml"]
 
 [project.scripts]
 q-orca = "q_orca.cli:main"
-q-orca-mcp = "q_orca.mcp_server:main"
+q-orca-mcp = "q_orca.mcp_server:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["q_orca"]

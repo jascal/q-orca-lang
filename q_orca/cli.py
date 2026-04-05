@@ -31,6 +31,7 @@ def main():
     v.add_argument("--json", action="store_true", help="Output as JSON")
     v.add_argument("--skip-completeness", action="store_true", help="Skip event completeness checks")
     v.add_argument("--skip-quantum", action="store_true", help="Skip quantum-specific checks")
+    v.add_argument("--strict", action="store_true", help="Treat warnings as errors (fail on any warning)")
 
     # compile
     c = sub.add_parser("compile", help="Compile to a target format")
@@ -42,7 +43,7 @@ def main():
     s.add_argument("file", nargs="?", help="Path to .q.orca.md file (or use --stdin)")
     s.add_argument("--run", action="store_true", help="Run simulation immediately")
     s.add_argument("--shots", type=int, default=1024, help="Number of shots for noisy simulation")
-    s.add_argument("--analytic", action="store_true", default=True, help="Exact statevector simulation (default)")
+    s.add_argument("--analytic", action="store_true", default=False, help="Exact statevector simulation (default: probabilistic via --shots)")
     s.add_argument("--json", action="store_true", help="Output results as JSON")
     s.add_argument("--verbose", action="store_true", help="Include stdout/stderr")
     s.add_argument("--skip-qutip", action="store_true", help="Skip QuTiP verification")
@@ -88,6 +89,12 @@ def _cmd_verify(parsed, args):
             skip_quantum=args.skip_quantum,
         )
         result = verify(machine, opts)
+
+        if args.strict:
+            warnings_as_errors = [e for e in result.errors if e.severity == "warning"]
+            errors_list = [e for e in result.errors if e.severity == "error"]
+            result.valid = result.valid and len(warnings_as_errors) == 0
+            result.errors = errors_list + warnings_as_errors
 
         if args.json:
             import json
@@ -145,7 +152,7 @@ def _cmd_simulate(parsed, args):
             sys.exit(1)
 
     options = QSimulationOptions(
-        analytic=not args.run or args.analytic,
+        analytic=args.analytic or not args.shots,
         shots=args.shots,
         verbose=args.verbose,
         skip_qutip=args.skip_qutip,
@@ -158,12 +165,23 @@ def _cmd_simulate(parsed, args):
 
             if args.json:
                 import json
+                qutip_dict = None
+                if result.qutip_verification:
+                    qv = result.qutip_verification
+                    qutip_dict = {
+                        "unitarityVerified": qv.unitarity_verified,
+                        "entanglementVerified": qv.entanglement_verified,
+                        "schmidtRank": qv.schmidt_rank,
+                        "schmidtNumbers": qv.schmidt_numbers,
+                        "purity": qv.purity,
+                        "errors": qv.errors,
+                    }
                 print(json.dumps({
                     "machine": machine.name,
                     "success": result.success,
                     "probabilities": result.probabilities,
                     "counts": result.counts,
-                    "qutipVerification": result.qutip_verification,
+                    "qutipVerification": qutip_dict,
                     "error": result.error,
                 }, indent=2))
             else:

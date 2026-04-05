@@ -73,6 +73,15 @@ class QTypeCustom(QType):
 
 
 @dataclass
+class NoiseModel:
+    """Quantum noise model specification."""
+    kind: str = ""  # 'depolarizing' | 'amplitude_damping' | 'phase_damping' | 'thermal'
+    parameter: float = 0.0  # noise probability or damping rate
+    parameter2: float = 0.01  # secondary parameter (e.g., thermal excitation probability)
+    qubits: list[int] = field(default_factory=list)  # target qubits (empty = all)
+
+
+@dataclass
 class ContextField:
     name: str
     type: QType

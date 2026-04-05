@@ -206,7 +206,7 @@ async def handle_request(request: dict) -> dict:
                     result = await call_tool(tool_name, arguments)
                     return resp({"content": format_result(result), "isError": False})
                 except Exception as e:
-                    return resp({"content": format_error(str(e)), "isError": True}, is_error=True)
+                    return resp({"content": format_error(str(e)), "isError": True})
 
             case "ping":
                 return resp({"pong": True})
@@ -224,41 +224,42 @@ async def handle_request(request: dict) -> dict:
 
 
 async def main():
-    """Read JSON-RPC requests from stdin, write responses to stdout."""
+    """Read newline-delimited JSON-RPC requests from stdin, write responses to stdout."""
     loop = asyncio.get_event_loop()
+    reader = asyncio.StreamReader()
+    await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
 
-    # Read all input from stdin
-    stdin_data = await loop.run_in_executor(None, sys.stdin.read)
-    if not stdin_data:
-        return
+    while True:
+        line = await reader.readline()
+        if not line:
+            break  # EOF
 
-    # Parse as JSON-RPC batch or single request
-    try:
-        parsed = json.loads(stdin_data)
-    except json.JSONDecodeError:
-        print(json.dumps({
-            "jsonrpc": "2.0",
-            "error": {"code": -32700, "message": "Invalid JSON"},
-            "id": None,
-        }), file=sys.stdout)
-        return
+        line = line.strip()
+        if not line:
+            continue
 
-    # Handle batch
-    if isinstance(parsed, list):
-        results = []
-        for req in parsed:
-            result = await handle_request(req)
-            if result is not None:
-                results.append(result)
-        for r in results:
-            print(json.dumps(r), file=sys.stdout)
-    else:
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            err = json.dumps({
+                "jsonrpc": "2.0",
+                "error": {"code": -32700, "message": "Invalid JSON"},
+                "id": None,
+            })
+            sys.stdout.write(err + "\n")
+            sys.stdout.flush()
+            continue
+
         result = await handle_request(parsed)
         if result is not None:
-            print(json.dumps(result), file=sys.stdout)
+            sys.stdout.write(json.dumps(result) + "\n")
+            sys.stdout.flush()
 
-    sys.stdout.flush()
+
+def run():
+    """Synchronous entry point for console_scripts."""
+    asyncio.run(main())
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    run()

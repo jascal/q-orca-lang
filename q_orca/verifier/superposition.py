@@ -16,8 +16,19 @@ SUPERPOSITION_PATTERNS = [
     re.compile(r"entangl", re.IGNORECASE),
 ]
 
-SUPERPOSITION_GATES = {"H", "Rx", "Ry", "Rz"}
+SUPERPOSITION_GATES = {"H", "Rx", "Ry", "Rz", "CNOT", "CZ", "SWAP", "CCNOT", "CSWAP"}
 COLLAPSE_SENSITIVE_GATES = {"CNOT", "CZ", "SWAP", "CCNOT", "CSWAP"}
+
+
+def _gate_kinds_in_effect(effect_str: str) -> set[str]:
+    """Extract all gate kind names from an effect string."""
+    if not effect_str:
+        return set()
+    kinds = set()
+    for name in SUPERPOSITION_GATES:
+        if name in effect_str:
+            kinds.add(name)
+    return kinds
 
 
 def infer_superposition_states(machine: QMachineDef) -> list[QStateDef]:
@@ -37,9 +48,15 @@ def infer_superposition_states(machine: QMachineDef) -> list[QStateDef]:
         for t in incoming:
             if t.action:
                 action = action_map.get(t.action)
-                if action and action.gate and action.gate.kind in SUPERPOSITION_GATES:
-                    superposition_states.append(state)
-                    break
+                if action:
+                    # Check action.gate (single gate from signature)
+                    if action.gate and action.gate.kind in SUPERPOSITION_GATES:
+                        superposition_states.append(state)
+                        break
+                    # Check action.effect string for multi-gate effects
+                    if action.effect and _gate_kinds_in_effect(action.effect):
+                        superposition_states.append(state)
+                        break
 
     return superposition_states
 
@@ -74,7 +91,7 @@ def check_superposition_leaks(machine: QMachineDef) -> QVerificationResult:
                             code="SUPERPOSITION_LEAK",
                             message=f"Measurement from superposition state '{state.name}' to final state will collapse superposition",
                             severity="warning",
-                            location={"state": state.name, "event": t.event, "transition": t},
+                            location={"state": state.name, "event": t.event, "transition": f"{t.source} -> {t.target}"},
                             suggestion="This is expected behavior for collapse-based protocols",
                         ))
                     else:
@@ -82,7 +99,7 @@ def check_superposition_leaks(machine: QMachineDef) -> QVerificationResult:
                             code="SUPERPOSITION_LEAK",
                             message=f"Unguarded measurement from non-final superposition state '{state.name}' may cause undefined behavior",
                             severity="warning",
-                            location={"state": state.name, "event": t.event, "transition": t},
+                            location={"state": state.name, "event": t.event, "transition": f"{t.source} -> {t.target}"},
                             suggestion="Add probability guards or ensure measurement is the terminal step",
                         ))
 

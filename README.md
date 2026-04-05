@@ -119,87 +119,274 @@ q-orca simulate examples/bell-entangler.q.orca.md --run --json
 | `quantum-teleportation.q.orca.md` | Teleports a qubit via Bell pair |
 | `deutsch-jozsa.q.orca.md` | Constant vs balanced oracle detection |
 | `ghz-state.q.orca.md` | 3-qubit GHZ state preparation |
+| `vqe-heisenberg.q.orca.md` | Variational quantum eigensolver for Heisenberg XXX Hamiltonian |
 
 ---
 
 ## Machine Format
 
-```mermaid
-stateDiagram-v2
-  direction LR
-
-  s00 : |00⟩
-  sPlus : |+0⟩ = (|0⟩+|1⟩)|0⟩/√2
-  sPsi : |ψ⟩ = (|00⟩+|11⟩)/√2
-  s00c : |00_collapsed⟩
-  s11c : |11_collapsed⟩
-
-  [*] --> s00
-  s00 --> sPlus : prepare_H / apply_H
-  sPlus --> sPsi : entangle / apply_CNOT
-  sPsi --> s00c : measure [p=0.5]
-  sPsi --> s11c : measure [p=0.5]
-  s00c --> [*]
-  s11c --> [*]
-```
-
-### Source
+The full source for every example is in [`examples/`](examples/). Here is `bell-entangler.q.orca.md`:
 
 ```markdown
 # machine BellEntangler
 
 ## context
-| Field   | Type        | Default |
-|---------|-------------|---------|
-| qubits  | list<qubit> |         |
+| Field      | Type          | Default          |
+|------------|---------------|------------------|
+| qubits     | list<qubit>   | [q0, q1]         |
+| outcome    | int           | -1               |
 
 ## events
 - prepare_H
 - entangle
 - measure_done
 
-## state |00> [initial]
-> Ground state
+## state |00>
+> Ground state, no entanglement yet
 
-## state |+0> = (|0> + |1>)|0>/√2
-> After Hadamard — superposition
+## state |+0> = (|0> + |1>)|00>/√2
+> After Hadamard on qubit 0 — superposition
 
 ## state |ψ> = (|00> + |11>)/√2
-> Bell state
+> Bell state after Hadamard + CNOT
 
 ## state |00_collapsed> [final]
-> Measured |00>
+> Collapsed to |00> after measurement
 
 ## state |11_collapsed> [final]
-> Measured |11>
+> Collapsed to |11> after measurement
 
 ## transitions
-| Source | Event        | Guard                   | Target         | Action              |
-|--------|--------------|-------------------------|----------------|---------------------|
-| |00>   | prepare_H    |                         | |+0>           | apply_H_on_q0      |
-| |+0>   | entangle     |                         | |ψ>            | apply_CNOT_q0_to_q1 |
-| |ψ>    | measure_done | prob_collapse('00')=0.5 | |00_collapsed> | set_outcome_0       |
-| |ψ>    | measure_done | prob_collapse('11')=0.5 | |11_collapsed> | set_outcome_1       |
+| Source          | Event        | Guard                  | Target              | Action                  |
+|-----------------|--------------|------------------------|---------------------|-------------------------|
+| |00>            | prepare_H    |                        | |+0>                | apply_H_on_q0           |
+| |+0>            | entangle     |                        | |ψ>                 | apply_CNOT_q0_to_q1     |
+| |ψ>             | measure_done | prob_collapse('00')=0.5| |00_collapsed>       | set_outcome_0           |
+| |ψ>             | measure_done | prob_collapse('11')=0.5| |11_collapsed>       | set_outcome_1           |
 
 ## guards
-| Name                | Expression                     |
-|---------------------|--------------------------------|
-| prob_collapse('00') | fidelity(|ψ>, |00>) ** 2 ≈ 0.5 |
-| prob_collapse('11') | fidelity(|ψ>, |11>) ** 2 ≈ 0.5 |
+| Name                | Expression                          |
+|---------------------|-------------------------------------|
+| prob_collapse('00') | fidelity(|ψ>, |00>) ** 2 ≈ 0.5     |
+| prob_collapse('11') | fidelity(|ψ>, |11>) ** 2 ≈ 0.5     |
 
 ## actions
-| Name                | Signature    | Effect             |
-|---------------------|--------------|--------------------|
-| apply_H_on_q0       | (qs) -> qs   | Hadamard(qs[0])    |
-| apply_CNOT_q0_to_q1 | (qs) -> qs   | CNOT(qs[0], qs[1]) |
-| set_outcome_0       | (ctx) -> ctx | ctx.outcome = 0    |
-| set_outcome_1       | (ctx) -> ctx | ctx.outcome = 1    |
+| Name                | Signature                          | Effect                     |
+|---------------------|------------------------------------|----------------------------|
+| apply_H_on_q0       | (qs) -> qs                         | Hadamard(qs[0])            |
+| apply_CNOT_q0_to_q1 | (qs) -> qs                         | CNOT(qs[0], qs[1])         |
+| set_outcome_0       | (ctx, val) -> Context              | ctx.outcome = 0            |
+| set_outcome_1       | (ctx, val) -> Context              | ctx.outcome = 1            |
+
+## effects
+| Name          | Input                  | Output            |
+|---------------|------------------------|-------------------|
+| collapse      | state vector           | classical bit     |
 
 ## verification rules
 - unitarity: all gates preserve norm
-- entanglement: Bell state has Schmidt rank > 1
-- completeness: all collapse branches covered
-- no-cloning: no copy operations
+- entanglement: final state must have Schmidt rank >1 before measure
+- completeness: all possible collapses covered (no missing branches)
+- no-cloning: no copy ops allowed
+```
+
+> **Full source:** [`examples/bell-entangler.q.orca.md`](examples/bell-entangler.q.orca.md) — or view all examples in [`examples/`](examples/)
+
+---
+
+### Verify output (5-stage pipeline)
+
+```bash
+$ q-orca verify examples/bell-entangler.q.orca.md --json
+```
+```json
+{
+  "machine": "BellEntangler",
+  "valid": true,
+  "errors": []
+}
+```
+
+All 5 stages pass silently. To see individual stage results, use the Python API:
+
+```python
+from q_orca.skills import verify_skill
+
+result = verify_skill({"file": "examples/bell-entangler.q.orca.md"})
+# result = {
+#   "status": "valid",    ← all 5 stages passed
+#   "machine": "BellEntangler",
+#   "states": 5,
+#   "events": 3,
+#   "transitions": 4,
+#   "errors": []
+# }
+```
+
+The 5 verification stages are:
+
+| Stage | Module | Checks |
+|-------|--------|--------|
+| 1 Structural | `structural.py` | Reachability, deadlocks, orphan states |
+| 2 Completeness | `completeness.py` | Every (state, event) pair has a transition |
+| 3 Determinism | `determinism.py` | Guards are mutually exclusive |
+| 4 Quantum | `quantum.py` + `dynamic.py` | Unitarity, no-cloning, entanglement (QuTiP), collapse completeness |
+| 5 Superposition | `superposition.py` | No superposition coherence leaks |
+
+---
+
+### Compile to Mermaid diagram
+
+```bash
+$ q-orca compile mermaid examples/bell-entangler.q.orca.md
+```
+```mermaid
+stateDiagram-v2
+  direction LR
+
+  00 : |00>
+  0 : |+0> = (|0> + |1>)|00>/√2
+  unnamed : |ψ> = (|00> + |11>)/√2
+  00_collapsed : |00_collapsed>
+  11_collapsed : |11_collapsed>
+
+  [*] --> 00
+  00_collapsed --> [*]
+  11_collapsed --> [*]
+
+  00 --> 0 : prepare_H / apply_H_on_q0
+  0 --> unnamed : entangle / apply_CNOT_q0_to_q1
+  unnamed --> 00_collapsed : measure_done [prob_collapse('00')] / set_outcome_0
+  unnamed --> 11_collapsed : measure_done [prob_collapse('11')] / set_outcome_1
+
+  note right of 00
+    Verification Rules:
+    - unitarity: all gates preserve norm
+    - entanglement: final state must have Schmidt rank >1 before measure
+    - completeness: all possible collapses covered (no missing branches)
+    - no_cloning: no copy ops allowed
+  end note
+```
+
+---
+
+### Compile to OpenQASM 3.0
+
+```bash
+$ q-orca compile qasm examples/bell-entangler.q.orca.md
+```
+```qasm
+// Generated by Q-Orca compiler
+// Machine: BellEntangler
+OPENQASM 3.0;
+include "stdgates.inc";
+
+qubit[2] q;
+bit[2] c;
+
+int outcome = -1;
+
+// Gate sequence derived from state machine transitions
+// |00> -> |+0> via prepare_H
+h q[0];
+// |+0> -> |ψ> via entangle
+cx q[0], q[1];
+// |ψ> -> |00_collapsed> via measure_done
+// |ψ> -> |11_collapsed> via measure_done
+
+// Measurement
+c[0] = measure q[0];
+c[1] = measure q[1];
+```
+
+---
+
+### Simulate with Qiskit
+
+**Analytic (statevector) — fidelity + entanglement verification:**
+
+```bash
+$ q-orca simulate examples/bell-entangler.q.orca.md --run
+```
+```
+  Machine: BellEntangler
+  Success: True
+  Probabilities:
+    00: 50.00%
+    01: 0.00%
+    10: 0.00%
+    11: 50.00%
+  QuTiP Verification:
+    Unitarity: VERIFIED
+    Entanglement: VERIFIED
+    Schmidt Rank: 2
+```
+
+**Probabilistic (shots) — observed counts:**
+
+```bash
+$ q-orca simulate examples/bell-entangler.q.orca.md --run --shots 512
+```
+```
+  Machine: BellEntangler
+  Success: True
+  Counts: {'11': 269, '00': 243}
+```
+
+**JSON output** (useful for tooling):
+
+```bash
+$ q-orca simulate examples/bell-entangler.q.orca.md --run --json
+```
+```json
+{
+  "machine": "BellEntangler",
+  "success": true,
+  "probabilities": {
+    "00": 0.5,
+    "01": 0.0,
+    "10": 0.0,
+    "11": 0.5
+  },
+  "counts": null,
+  "qutipVerification": {
+    "unitarityVerified": true,
+    "entanglementVerified": true,
+    "schmidtRank": 2,
+    "errors": []
+  }
+}
+```
+
+---
+
+### Generated Qiskit script snippet
+
+```python
+# Generated by Q-Orca compiler
+# Machine: BellEntangler
+
+from qiskit import QuantumCircuit
+from qiskit.quantum_info import Statevector, Operator
+from qiskit.providers.basic_provider import BasicSimulator
+
+qubit_count = 2
+qc = QuantumCircuit(2)
+
+# Gate sequence from state machine
+qc.h(0)        # |00> --prepare_H--> |+0>
+qc.cx(0, 1)    # |+0> --entangle--> |ψ>
+
+# Simulation (analytic)
+sv = Statevector(qc)
+probs = sv.probabilities()
+# ...
+
+# QuTiP Verification
+unitary_matrix = Operator(qc).data.tolist()
+U = np.array(unitary_matrix)
+# Unitarity: U U† ≈ I
+# Entanglement: Schmidt rank across Bell partition
 ```
 
 ---
@@ -292,6 +479,62 @@ Provider-specific keys (`ANTHROPIC_API_KEY`, `MINIMAX_API_KEY`, `OPENAI_API_KEY`
 
 ## Architecture
 
+```mermaid
+flowchart TD
+    subgraph Input
+        MD[".q.orca.md file"]
+        NL[Natural Language]
+    end
+
+    MD --> Parser
+
+    subgraph Parser
+        MP[markdown_parser.py<br/>Two-phase parse]
+    end
+
+    Parser --> AST[AST: QMachineDef]
+
+    subgraph "Verifier (5 stages)"
+        V1[structural.py<br/>Reachability, deadlocks, orphans]
+        V2[completeness.py<br/>(state, event) coverage]
+        V3[determinism.py<br/>Guard mutual exclusion]
+        V4[quantum.py<br/>Unitarity, no-cloning, entanglement]
+        V4D[dynamic.py<br/>QuTiP: Schmidt rank, entropy]
+        V5[superposition.py<br/>Superposition coherence leak]
+        V1 --> V2 --> V3 --> V4 --> V4D --> V5
+    end
+
+    AST --> Verifier
+    Verifier --> VResult{Valid?}
+
+    VResult -->|Yes| Compiler
+    VResult -->|No| Refine[refine_skill<br/>LLM fix loop]
+
+    Refine -->|Fixed source| Parser
+    NL --> Generate[generate_skill<br/>LLM generation]
+    Generate -->|Raw .q.orca.md| Parser
+
+    subgraph Compiler
+        CM[Mermaid]
+        CQ[QASM 3.0]
+        CK[Qiskit script]
+    end
+
+    Compiler --> MermaidDiagram[Rendered state diagram]
+    Compiler --> QASMCode[Quantum circuit code]
+    Compiler --> QiskitScript[Python simulation]
+
+    QiskitScript --> Runtime[Python runtime]
+    Runtime --> SimResult[Counts, Probabilities, Fidelity]
+
+    style Verifier fill:#1b4f72,color:#fff
+    style Compiler fill:#27ae60,color:#fff
+    style Runtime fill:#8e44ad,color:#fff
+    style NL fill:#f39c12,color:#fff
+```
+
+### Directory structure
+
 ```
 q_orca/
 ├── __init__.py            # Package exports
@@ -308,7 +551,8 @@ q_orca/
 │   ├── completeness.py    # (state, event) coverage
 │   ├── determinism.py     # Guard mutual exclusion
 │   ├── quantum.py         # Unitarity, no-cloning, entanglement
-│   └── superposition.py   # Superposition coherence leak
+│   ├── superposition.py   # Superposition coherence leak
+│   └── dynamic.py         # QuTiP circuit simulation
 ├── compiler/
 │   ├── mermaid.py         # Mermaid state diagram
 │   ├── qasm.py            # OpenQASM 3.0
