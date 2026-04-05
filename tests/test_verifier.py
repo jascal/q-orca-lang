@@ -1,5 +1,7 @@
 """Tests for Q-Orca verification pipeline."""
 
+import unicodedata
+
 from q_orca.parser.markdown_parser import parse_q_orca_markdown
 from q_orca.verifier import verify, VerifyOptions
 from q_orca.verifier.structural import check_structural, analyze_machine
@@ -137,6 +139,116 @@ class TestAnalyzeMachine:
         analysis = analyze_machine(machine)
         psi_info = analysis.state_map["|ψ>"]
         assert len(psi_info.outgoing) == 2
+
+
+class TestUnicodeStateNames:
+    """Bug 1 regression: Unicode state names must not cause UNDECLARED_STATE."""
+
+    def test_phi_plus_state_name(self):
+        """State named |Φ⁺> should be recognized in both heading and transitions."""
+        source = """\
+# machine BellPhiPlus
+
+## events
+- prepare
+- measure_done
+
+## state |Φ⁺> [initial]
+> Bell state phi-plus
+
+## state |done> [final]
+> Measured
+
+## transitions
+| Source | Event        | Guard | Target  | Action |
+|--------|--------------|-------|---------|--------|
+| |Φ⁺>   | prepare      |       | |Φ⁺>    |        |
+| |Φ⁺>   | measure_done |       | |done>  |        |
+"""
+        machine = _machine(source)
+        result = check_structural(machine)
+        error_codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "UNDECLARED_STATE" not in error_codes, (
+            f"Unicode state |Φ⁺> falsely flagged as undeclared: {result.errors}"
+        )
+        assert "UNREACHABLE_STATE" not in error_codes, (
+            f"Unicode state |Φ⁺> falsely flagged as unreachable: {result.errors}"
+        )
+
+    def test_psi_state_name(self):
+        """State named |ψ> (Greek small psi) should pass structural checks."""
+        source = """\
+# machine PsiMachine
+
+## events
+- go
+
+## state |ψ> [initial]
+> Psi state
+
+## state |done> [final]
+> End
+
+## transitions
+| Source | Event | Guard | Target  | Action |
+|--------|-------|-------|---------|--------|
+| |ψ>    | go    |       | |done>  |        |
+"""
+        machine = _machine(source)
+        result = check_structural(machine)
+        error_codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "UNDECLARED_STATE" not in error_codes
+        assert result.valid
+
+    def test_plus_minus_state_name(self):
+        """State named |+-> should parse correctly from both heading and table."""
+        source = """\
+# machine PlusMinus
+
+## events
+- rotate
+
+## state |+-> [initial]
+> Plus-minus superposition
+
+## state |done> [final]
+> End
+
+## transitions
+| Source | Event  | Guard | Target  | Action |
+|--------|--------|-------|---------|--------|
+| |+->   | rotate |       | |done>  |        |
+"""
+        machine = _machine(source)
+        result = check_structural(machine)
+        error_codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "UNDECLARED_STATE" not in error_codes
+        assert result.valid
+
+    def test_nfc_nfd_normalization_consistency(self):
+        """State name encoded as NFD in heading and NFC in table must still match."""
+        # 'é' in NFD = U+0065 (e) + U+0301 (combining acute accent)
+        # 'é' in NFC = U+00E9
+        nfd_e = unicodedata.normalize("NFD", "\u00e9")  # é in NFD form
+        nfc_e = unicodedata.normalize("NFC", "\u00e9")  # é in NFC form
+
+        # Build source with NFD in heading and NFC in table
+        source = (
+            f"# machine NormTest\n\n"
+            f"## events\n- go\n\n"
+            f"## state |{nfd_e}+> [initial]\n> NFD heading\n\n"
+            f"## state |done> [final]\n> End\n\n"
+            f"## transitions\n"
+            f"| Source | Event | Guard | Target  | Action |\n"
+            f"|--------|-------|-------|---------|--------|\n"
+            f"| |{nfc_e}+>   | go    |       | |done>  |        |\n"
+        )
+        machine = _machine(source)
+        result = check_structural(machine)
+        error_codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "UNDECLARED_STATE" not in error_codes, (
+            f"NFC/NFD mismatch caused UNDECLARED_STATE — normalization not applied: {result.errors}"
+        )
 
 
 class TestCompletenessVerification:

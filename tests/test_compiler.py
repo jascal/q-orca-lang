@@ -88,6 +88,90 @@ class TestQASMCompiler:
         output = compile_to_qasm(machine)
         assert "BellEntangler" in output
 
+    def test_custom_measurement_gate_declares_bit_register(self):
+        """Bug 2 regression: M(q[0]) custom measurement must emit bit[] declaration."""
+        source = """\
+# machine CustomMeasure
+
+## context
+| Field  | Type        | Default |
+|--------|-------------|---------|
+| qubits | list<qubit> | [q0]    |
+
+## events
+- init
+- done
+
+## state |0> [initial]
+> Ground
+
+## state |+>
+> Superposition
+
+## state |result> [final]
+> Measured
+
+## transitions
+| Source | Event | Guard | Target   | Action  |
+|--------|-------|-------|----------|---------|
+| |0>    | init  |       | |+>      | do_H    |
+| |+>    | done  |       | |result> | do_M    |
+
+## actions
+| Name | Signature    | Effect       |
+|------|--------------|--------------|
+| do_H | (qs) -> qs  | Hadamard(qs[0]) |
+| do_M | (qs) -> bit | M(qs[0])     |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        machine = _machine(source)
+        output = compile_to_qasm(machine)
+        assert "bit[" in output, (
+            "QASM output missing 'bit[' register declaration for M(q[0]) measurement action"
+        )
+        assert "measure" in output, (
+            "QASM output missing measurement instruction for M(q[0]) action"
+        )
+
+    def test_standard_measure_still_works(self, bell_source):
+        """The standard measure(...) pattern must still produce bit[] declaration."""
+        source = """\
+# machine StandardMeasure
+
+## context
+| Field  | Type        | Default |
+|--------|-------------|---------|
+| qubits | list<qubit> | [q0]    |
+
+## events
+- init
+- collapse
+
+## state |0> [initial]
+> Ground
+
+## state |result> [final]
+> Measured
+
+## transitions
+| Source | Event    | Guard | Target   | Action  |
+|--------|----------|-------|----------|---------|
+| |0>    | init     |       | |result> | do_meas |
+
+## actions
+| Name    | Signature    | Effect            |
+|---------|--------------|-------------------|
+| do_meas | (qs) -> bit | measure(qs[0])    |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        machine = _machine(source)
+        output = compile_to_qasm(machine)
+        assert "bit[" in output
+
 
 class TestInferQubitCount:
     """Tests for _infer_qubit_count function."""

@@ -1,6 +1,7 @@
 """Q-Orca Markdown Parser — two-phase: structural markdown -> quantum-semantic AST."""
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Optional
 
@@ -326,10 +327,10 @@ def _parse_state_heading(heading_text: str, elements: list[MdElement], current_i
     eq_index = rest.find("=")
 
     if eq_index > 0 and ket_close > 0 and eq_index > ket_close:
-        state_name = rest[:eq_index].strip()
+        state_name = _normalize_state_name(rest[:eq_index])
         state_expression = rest[eq_index + 1:].strip()
     else:
-        state_name = rest.strip()
+        state_name = _normalize_state_name(rest)
         state_expression = None
 
     # Look for blockquote description
@@ -362,10 +363,10 @@ def _parse_transitions_table(table: MdTable) -> list[QTransition]:
     action_idx = _find_column_index(table.headers, "action")
 
     for row in table.rows:
-        source = row[source_idx].strip() if source_idx >= 0 else ""
+        source = _normalize_state_name(row[source_idx]) if source_idx >= 0 else ""
         event = row[event_idx].strip() if event_idx >= 0 else ""
         guard_str = row[guard_idx].strip() if guard_idx >= 0 else ""
-        target = row[target_idx].strip() if target_idx >= 0 else ""
+        target = _normalize_state_name(row[target_idx]) if target_idx >= 0 else ""
         action = row[action_idx].strip() if action_idx >= 0 else ""
 
         if not source or not event or not target:
@@ -502,6 +503,16 @@ def _strip_backticks(text: str) -> str:
     if text.startswith("`") and text.endswith("`"):
         return text[1:-1]
     return text
+
+
+def _normalize_state_name(name: str) -> str:
+    """NFC-normalize and strip a state name so heading and table lookups always agree.
+
+    Applies Unicode NFC normalization (e.g. é as U+00E9 vs e + combining acute)
+    and strips surrounding whitespace. Unicode characters are preserved — this
+    function must never ASCII-ify or transliterate the content.
+    """
+    return unicodedata.normalize("NFC", name.strip())
 
 
 def _find_column_index(headers: list[str], name: str) -> int:
@@ -652,7 +663,9 @@ def _parse_gate_from_effect(effect_str: str) -> Optional[QuantumGate]:
 def _parse_measurement_from_effect(effect_str: str) -> Optional[Measurement]:
     if not effect_str:
         return None
-    m = re.search(r"measure\(\s*\w+\[([^\]]+)\]\s*\)", effect_str, re.IGNORECASE)
+    # Match 'measure(q[i])' (standard) OR 'M(q[i])' (custom quantum notation).
+    # 'M' is the conventional single-letter symbol for measurement in quantum circuits.
+    m = re.search(r"(?:measure|M)\(\s*\w+\[([^\]]+)\]\s*\)", effect_str, re.IGNORECASE)
     if m:
         indices = [int(x.strip()) for x in m.group(1).split(",")]
         return Measurement(qubits=indices, basis="computational")
