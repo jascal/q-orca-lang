@@ -152,7 +152,7 @@ def _emit_qiskit_noise_model_code(noise_model: NoiseModel, qubit_count: int) -> 
         lines.append("    noise_model.add_all_qubit_quantum_error(pd_error, ['h', 'x', 'y', 'z', 'rx', 'ry', 'rz', 't', 's', 'cnot', 'cx', 'cz', 'swap'])")
 
     elif noise_model.kind == "thermal":
-        lines.append(f"    # thermal noise not fully supported, using depolarizing")
+        lines.append("    # thermal noise not fully supported, using depolarizing")
         lines.append(f"    thermal_error = noise.depolarizing_error({noise_model.parameter}, 1)")
         lines.append("    noise_model = noise.NoiseModel()")
         lines.append("    noise_model.add_all_qubit_quantum_error(thermal_error, ['h', 'x', 'y', 'z', 'rx', 'ry', 'rz', 't', 's', 'cnot', 'cx', 'cz', 'swap'])")

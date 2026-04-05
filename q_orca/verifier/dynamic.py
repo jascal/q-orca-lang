@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from q_orca.ast import QMachineDef, QuantumGate
+from q_orca.ast import QMachineDef
 from q_orca.verifier.types import QVerificationError, QVerificationResult
 
 # QuTiP imports with graceful fallback
@@ -263,7 +263,6 @@ def _check_dynamic_entanglement(
     tolerance: float = 1e-8,
 ) -> Dict[str, Any]:
     """Core dynamic entanglement check."""
-    import numpy as np
 
     if not QUTIP_AVAILABLE:
         return {"skipped": True, "reason": "QuTiP not available", "passed": True}
