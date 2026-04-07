@@ -270,6 +270,77 @@ q-orca simulate examples/bell-entangler.q.orca.md --run --json
 | `ghz-state.q.orca.md` | 3-qubit GHZ state preparation |
 | `vqe-heisenberg.q.orca.md` | Variational quantum eigensolver for Heisenberg XXX Hamiltonian |
 
+### Hybrid Classical + Quantum Demo
+
+The `demos/hybrid_quantum_controller/` demo shows a classical [Orca](https://github.com/orca-lang/orca-lang) state machine orchestrating a Q-Orca quantum circuit through design, verification, refinement, and compilation.
+
+**Architecture:**
+
+- **Outer loop** — A classical `QuantumExperimentController` state machine (`orca-runtime-python`) manages the experiment lifecycle: `idle -> designing -> verifying -> refining -> compiling -> analyzing -> complete`
+- **Inner loop** — Q-Orca parses, verifies, and compiles quantum circuits. When verification fails (e.g. a deadlock in the Bell entangler), the refinement step fixes the machine and re-verifies.
+
+**Running:**
+
+```bash
+# Install both runtimes (into the project venv)
+pip install orca-runtime-python
+pip install q-orca[quantum]
+
+# Run the demo
+python demos/hybrid_quantum_controller/demo.py
+```
+
+**What it does:**
+
+1. Parses a classical controller machine from `controller.orca.md`
+2. Loads a deliberately broken Bell entangler (missing measurement transitions)
+3. Q-Orca verification catches a `DEADLOCK` error on the `|psi>` state
+4. The refinement step adds collapse branches (`|00_collapsed>`, `|11_collapsed>`)
+5. Re-verification passes
+6. Compiles the fixed circuit to OpenQASM 3.0, Mermaid, and Qiskit
+
+The action handlers registered on the classical machine call Q-Orca's Python API directly (`parse_q_orca_markdown`, `verify`, `compile_to_qasm`, etc.), showing how the two runtimes compose.
+
+### Quantum Evolve — Genetic Algorithm Demo
+
+The `demos/quantum_evolve/` demo runs a genetic algorithm whose population consists of Q-Orca quantum state machines, evolved by an LLM.
+
+**Architecture:**
+
+- **Outer loop** — A classical `QuantumEvolver` state machine (`orca-runtime-python`) drives the GA lifecycle: `idle -> initializing -> evaluating -> selecting -> breeding -> ... -> converged | exhausted`
+- **Population** — Each individual is a Q-Orca machine generated and scored by the LLM
+- **Genetic operators** — LLM-assisted crossover (combine best elements of two parents), mutation (small structural changes), and fitness evaluation (scored 0–100 against a design goal)
+- **Validation** — Invalid individuals are refined using Q-Orca's `refine_skill` before being discarded. Every generation contains only valid, unique machines.
+
+**Running:**
+
+```bash
+# Install both runtimes
+pip install orca-runtime-python
+pip install q-orca[quantum]
+
+# Run with defaults (3-qubit bit-flip code, population=3, generations=3)
+python demos/quantum_evolve/demo.py
+
+# Custom parameters
+python demos/quantum_evolve/demo.py --population 5 --generations 5 --fitness-target 90
+
+# Custom design goal
+python demos/quantum_evolve/demo.py --goal "Design a quantum teleportation circuit with 3 qubits"
+python demos/quantum_evolve/demo.py --goal-file my_goal.txt
+```
+
+**What it does:**
+
+1. Parses a classical GA controller from `evolve.orca.md`
+2. Seeds a population of N valid Q-Orca machines via LLM generation (with refinement for invalid outputs)
+3. Each generation: LLM evaluates fitness → tournament selection → LLM-assisted crossover and mutation → Q-Orca verification
+4. Elite carry-over preserves the best individual across generations
+5. Converges when an individual meets the fitness target, or exhausts max generations
+6. Reports the best machine with compiled OpenQASM 3.0 and Mermaid output
+
+> **Note:** This demo requires an LLM API key. Set `api_key` in `orca.yaml` or export `ORCA_API_KEY`. Runtime depends on LLM speed — expect 1–5 minutes per generation.
+
 ---
 
 ## Machine Format
