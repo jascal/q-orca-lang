@@ -8,13 +8,13 @@ dynamic = ["version"]
 description = "Q-Orca — Quantum Orchestrated State Machine Language"
 readme = "README.md"
 requires-python = ">=3.10"
-license = "MIT"
+license = "Apache-2.0"
 authors = [
     { name = "Allan" }
 ]
 keywords = ["quantum", "state-machine", "qiskit", "qutip", "llm"]
 classifiers = [
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
