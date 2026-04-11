@@ -127,9 +127,9 @@ class TestBug1QiskitGateEmission:
         assert len(gate_lines) >= 2, f"Expected at least 2 gate calls, got: {gate_lines}"
 
     def test_rx_ry_rz_parsed(self):
-        """RX/RY/RZ(angle, qs[N]) must be parsed into the correct gate kind."""
-        for axis in ("X", "Y", "Z"):
-            gates = _parse_effect_string(f"R{axis}(0.5, qs[0])")
+        """Rx/Ry/Rz(qs[N], angle) canonical qubit-first form must parse correctly."""
+        for axis in ("x", "y", "z"):
+            gates = _parse_effect_string(f"R{axis}(qs[0], 0.5)")
             assert len(gates) == 1
             assert gates[0].kind == f"R{axis}"
             assert gates[0].targets == [0]

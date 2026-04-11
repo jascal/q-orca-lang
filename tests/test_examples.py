@@ -13,6 +13,7 @@ EXAMPLE_FILES = {
     "ghz-state": "ghz-state.q.orca.md",
     "quantum-teleportation": "quantum-teleportation.q.orca.md",
     "vqe-heisenberg": "vqe-heisenberg.q.orca.md",
+    "vqe-rotation": "vqe-rotation.q.orca.md",
 }
 
 

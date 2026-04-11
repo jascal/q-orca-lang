@@ -11,6 +11,7 @@ These tests verify that the verifier correctly catches:
 - Quantum-specific violations (bad qubit index)
 """
 
+import math
 import json
 from pathlib import Path
 
@@ -573,3 +574,69 @@ class TestFullPipelineRegression:
         assert result.valid
         error_codes = [e.code for e in result.errors if e.severity == "error"]
         assert len(error_codes) == 0, f"VQEH had errors: {error_codes}"
+
+
+_ROTATION_MACHINE_SOURCE = """\
+# machine RotationRegression
+
+## context
+| Field  | Type        | Default |
+|--------|-------------|---------|
+| qubits | list<qubit> | [q0]    |
+
+## events
+- rotate
+
+## state |0> [initial]
+> Ground state
+
+## state |theta> [final]
+> Rotated state
+
+## transitions
+| Source | Event  | Guard | Target   | Action    |
+|--------|--------|-------|----------|-----------|
+| |0>    | rotate |       | |theta>  | rotate_q0 |
+
+## actions
+| Name      | Signature  | Effect             |
+|-----------|------------|--------------------|
+| rotate_q0 | (qs) -> qs | Rx(qs[0], pi/4)    |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+
+
+class TestRotationGateRoundTrip:
+    """Regression: rotation machine parses, compiles to QASM and Qiskit correctly."""
+
+    def test_parse_populates_gate_parameter(self):
+        result = parse_q_orca_markdown(_ROTATION_MACHINE_SOURCE)
+        assert result.errors == [], f"Unexpected parse errors: {result.errors}"
+        machine = result.file.machines[0]
+        action = next(a for a in machine.actions if a.name == "rotate_q0")
+        assert action.gate is not None
+        assert action.gate.kind == "Rx"
+        assert action.gate.parameter == pytest.approx(math.pi / 4)
+
+    def test_compile_to_qasm_emits_rx(self):
+        from q_orca.compiler.qasm import compile_to_qasm
+        machine = _machine(_ROTATION_MACHINE_SOURCE)
+        qasm = compile_to_qasm(machine)
+        assert "rx(" in qasm
+        # The emitted float should be approximately pi/4
+        import re
+        m = re.search(r"rx\(([\d.]+)\)", qasm)
+        assert m, f"No rx() gate in QASM output:\n{qasm}"
+        assert float(m.group(1)) == pytest.approx(math.pi / 4, rel=1e-6)
+
+    def test_compile_to_qiskit_emits_rx(self):
+        from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
+        machine = _machine(_ROTATION_MACHINE_SOURCE)
+        qiskit_code = compile_to_qiskit(machine, QSimulationOptions())
+        assert "qc.rx(" in qiskit_code
+        import re
+        m = re.search(r"qc\.rx\(([\d.]+),\s*\d+\)", qiskit_code)
+        assert m, f"No qc.rx() in Qiskit output:\n{qiskit_code}"
+        assert float(m.group(1)) == pytest.approx(math.pi / 4, rel=1e-6)
