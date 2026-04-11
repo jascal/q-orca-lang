@@ -31,3 +31,7 @@ htmlcov/
 .env.local
 orca.yaml
 .mcp.json
+
+# Local tooling
+.claude/
+.serena/
