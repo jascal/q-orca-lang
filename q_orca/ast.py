@@ -260,3 +260,4 @@ class QOrcaFile:
 @dataclass
 class QParseResult:
     file: QOrcaFile
+    errors: list[str] = field(default_factory=list)

@@ -5,6 +5,8 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Optional
 
+from q_orca.angle import evaluate_angle as _evaluate_angle
+
 from q_orca.ast import (
     QMachineDef, QOrcaFile, QParseResult, ContextField, EventDef, QStateDef,
     QTransition, QGuardDef, QActionSignature, QEffectDef, VerificationRule, Invariant,
@@ -149,14 +151,15 @@ def _parse_table_row(line: str) -> list[str]:
 def parse_q_orca_markdown(source: str) -> QParseResult:
     elements = parse_markdown_structure(source)
     machines = []
+    errors: list[str] = []
 
     chunks = _split_by_separator(elements)
     for chunk in chunks:
-        machine = _parse_machine_chunk(chunk)
+        machine = _parse_machine_chunk(chunk, errors)
         if machine:
             machines.append(machine)
 
-    return QParseResult(file=QOrcaFile(machines=machines))
+    return QParseResult(file=QOrcaFile(machines=machines), errors=errors)
 
 
 def _split_by_separator(elements: list[MdElement]) -> list[list[MdElement]]:
@@ -169,7 +172,7 @@ def _split_by_separator(elements: list[MdElement]) -> list[list[MdElement]]:
     return [c for c in chunks if c]
 
 
-def _parse_machine_chunk(elements: list[MdElement]) -> Optional[QMachineDef]:
+def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = None) -> Optional[QMachineDef]:
     name = ""
     context: list[ContextField] = []
     events: list[EventDef] = []
@@ -231,7 +234,7 @@ def _parse_machine_chunk(elements: list[MdElement]) -> Optional[QMachineDef]:
             if section_name_lower == "actions":
                 i += 1
                 if i < len(elements) and isinstance(elements[i], MdTable):
-                    actions = _parse_actions_table(elements[i])
+                    actions = _parse_actions_table(elements[i], errors)
                     i += 1
                 continue
 
@@ -401,7 +404,7 @@ def _parse_guards_table(table: MdTable) -> list[QGuardDef]:
     return guards
 
 
-def _parse_actions_table(table: MdTable) -> list[QActionSignature]:
+def _parse_actions_table(table: MdTable, errors: list[str] | None = None) -> list[QActionSignature]:
     actions: list[QActionSignature] = []
     name_idx = _find_column_index(table.headers, "name")
     sig_idx = _find_column_index(table.headers, "signature")
@@ -416,7 +419,7 @@ def _parse_actions_table(table: MdTable) -> list[QActionSignature]:
             continue
 
         params, return_type = _parse_signature(sig_str)
-        gate = _parse_gate_from_effect(effect_str)
+        gate = _parse_gate_from_effect(effect_str, errors, action_name=name)
         measurement = _parse_measurement_from_effect(effect_str)
 
         actions.append(QActionSignature(
@@ -635,7 +638,11 @@ def _parse_signature(text: str) -> tuple[list[str], str]:
     return [], "void"
 
 
-def _parse_gate_from_effect(effect_str: str) -> Optional[QuantumGate]:
+def _parse_gate_from_effect(
+    effect_str: str,
+    errors: list[str] | None = None,
+    action_name: str = "",
+) -> Optional[QuantumGate]:
     if not effect_str:
         return None
 
@@ -649,6 +656,35 @@ def _parse_gate_from_effect(effect_str: str) -> Optional[QuantumGate]:
     m = re.search(r"CNOT\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*\)", effect_str, re.IGNORECASE)
     if m:
         return QuantumGate(kind="CNOT", targets=[int(m.group(2))], controls=[int(m.group(1))])
+
+    # Rotation gates canonical form: Rx(qs[N], <angle>), Ry(qs[N], <angle>), Rz(qs[N], <angle>)
+    m = re.search(r"R([XYZ])\(\s*\w+\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
+    if m:
+        axis = m.group(1).upper()  # 'X', 'Y', or 'Z'
+        # Canonical GateKind is 'Rx'/'Ry'/'Rz' (capital R, lowercase axis)
+        axis = axis.lower()
+        idx = int(m.group(2))
+        angle_str = m.group(3).strip()
+        try:
+            theta = _evaluate_angle(angle_str)
+        except ValueError as exc:
+            if errors is not None:
+                prefix = f"action {action_name!r}: " if action_name else ""
+                errors.append(f"{prefix}rotation gate R{axis} has unrecognized angle {angle_str!r}. {exc}")
+            return None
+        return QuantumGate(kind=f"R{axis}", targets=[idx], parameter=theta)
+
+    # Detect angle-first rotation syntax (wrong order) and produce an error
+    m_wrong = re.search(r"R([XYZ])\(\s*([^,)]+)\s*,\s*\w+\[\d+\]\s*\)", effect_str, re.IGNORECASE)
+    if m_wrong:
+        axis = m_wrong.group(1).upper()
+        if errors is not None:
+            prefix = f"action {action_name!r}: " if action_name else ""
+            errors.append(
+                f"{prefix}rotation gate R{axis} uses angle-first argument order. "
+                "The canonical form is qubit-first: R{axis}(qs[N], <angle>)."
+            )
+        return None
 
     # Generic gate: X(qs[N]), Z(qs[N]), etc.
     m = re.search(r"^([A-Z][a-z]*)\(\s*\w+\[(\d+)\]\s*\)", effect_str)

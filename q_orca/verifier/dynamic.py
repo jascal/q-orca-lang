@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from q_orca.angle import evaluate_angle
 from q_orca.ast import QMachineDef
 from q_orca.verifier.types import QVerificationError, QVerificationResult
 
@@ -140,11 +141,15 @@ def _parse_single_gate_to_dict(effect_str: str) -> Optional[Dict[str, Any]]:
     if m:
         return {"name": m.group(1), "targets": [int(m.group(3))], "controls": [], "params": {}}
 
-    # Rx(qs[N], theta), Ry(qs[N], theta), Rz(qs[N], theta)
-    m = re.search(r"(Rx|Ry|Rz)\((\w+)\[(\d+)\]\s*,\s*([\w.]+)\s*\)", effect_str, re.IGNORECASE)
+    # Rx(qs[N], <angle>), Ry(qs[N], <angle>), Rz(qs[N], <angle>) — canonical qubit-first
+    m = re.search(r"(Rx|Ry|Rz)\((\w+)\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
     if m:
         kind = m.group(1).lower()
-        theta = float(m.group(4))
+        angle_str = m.group(4).strip()
+        try:
+            theta = evaluate_angle(angle_str)
+        except ValueError:
+            theta = 0.0
         return {"name": kind.upper(), "targets": [int(m.group(3))], "controls": [], "params": {"theta": theta}}
 
     # Generic single-qubit: GateName(qs[N])

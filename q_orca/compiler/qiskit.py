@@ -1,9 +1,10 @@
 """Q-Orca Qiskit compiler — compiles QMachineDef → Qiskit Python script."""
 
 import re
-
-from q_orca.ast import QMachineDef, QuantumGate, QTypeQubit, QTypeScalar, QTypeList, NoiseModel
 from dataclasses import dataclass
+
+from q_orca.angle import evaluate_angle
+from q_orca.ast import QMachineDef, QuantumGate, QTypeQubit, QTypeScalar, QTypeList, NoiseModel
 
 
 def _parse_effect_string(effect_str: str) -> list[QuantumGate]:
@@ -54,16 +55,16 @@ def _parse_single_gate(effect_str: str) -> QuantumGate | None:
         idx2 = int(m.group(4))
         return QuantumGate(kind="SWAP", targets=[idx1, idx2])
 
-    # RX/RY/RZ(angle, qs[N]) — angle may be a float literal or a symbolic name
-    m = re.search(r"R([XYZ])\(\s*([\w./\-]+)\s*,\s*\w+\[(\d+)\]\s*\)", effect_str, re.IGNORECASE)
+    # Rx/Ry/Rz(qs[N], <angle>) — canonical qubit-first, angle-second
+    m = re.search(r"R([XYZ])\(\s*\w+\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
     if m:
-        axis = m.group(1).upper()
-        param_str = m.group(2).strip()
-        idx = int(m.group(3))
+        axis = m.group(1).lower()  # canonical GateKind: 'Rx'/'Ry'/'Rz'
+        idx = int(m.group(2))
+        angle_str = m.group(3).strip()
         try:
-            theta = float(param_str)
+            theta = evaluate_angle(angle_str)
         except ValueError:
-            theta = 0.0  # symbolic parameter — use 0.0 as placeholder
+            theta = 0.0  # symbolic parameter — caller should validate upstream
         return QuantumGate(kind=f"R{axis}", targets=[idx], parameter=theta)
 
     # X(qs[N]), Y(qs[N]), Z(qs[N]), T(qs[N]), S(qs[N])

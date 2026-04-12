@@ -797,7 +797,7 @@ q_orca/
 ## Roadmap
 
 **Near-term**
-- **Parameterized gates** — `Rx(θ)`, `Ry(θ)`, `Rz(θ)` with symbolic angles in the Markdown action table and invariant expressions (e.g. `theta = pi/4`)
+- ~~**Parameterized gates** — `Rx(θ)`, `Ry(θ)`, `Rz(θ)` with symbolic angles in the Markdown action table~~ **Shipped** — see [CHANGELOG](CHANGELOG.md) for the `0.3.3` entry
 - **Noise models** — depolarizing, amplitude damping, thermal noise in `## context`; propagate into Qiskit noise simulation
 - **QASM 3.0 import** — parse existing `.qasm` files and lift them into Q-Orca state machines
 

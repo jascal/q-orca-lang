@@ -1,5 +1,10 @@
 """Tests for Q-Orca markdown parser."""
 
+import math
+
+import pytest
+
+from q_orca.angle import evaluate_angle
 from q_orca.parser.markdown_parser import (
     parse_q_orca_markdown,
     parse_markdown_structure,
@@ -199,3 +204,117 @@ class TestKetToIdentifier:
         result = ket_to_identifier("|00_collapsed>")
         assert result.startswith("ket_")
         assert "00" in result
+
+
+class TestEvaluateAngle:
+    """Unit tests for the symbolic angle evaluator."""
+
+    @pytest.mark.parametrize("text,expected", [
+        ("1.5708", 1.5708),
+        ("-0.5", -0.5),
+        ("3.14159", 3.14159),
+        ("0", 0.0),
+        ("pi", math.pi),
+        ("-pi", -math.pi),
+        ("pi/2", math.pi / 2),
+        ("pi/4", math.pi / 4),
+        ("pi/8", math.pi / 8),
+        ("-pi/4", -math.pi / 4),
+        ("2*pi", 2 * math.pi),
+        ("2pi", 2 * math.pi),
+        ("-2*pi", -2 * math.pi),
+        ("3*pi/4", 3 * math.pi / 4),
+        ("-3*pi/4", -3 * math.pi / 4),
+    ])
+    def test_valid_angle_forms(self, text, expected):
+        assert evaluate_angle(text) == pytest.approx(expected, rel=1e-9)
+
+    def test_bare_identifier_raises(self):
+        with pytest.raises(ValueError, match="Unrecognized angle expression"):
+            evaluate_angle("theta_custom")
+
+    def test_context_ref_raises(self):
+        with pytest.raises(ValueError):
+            evaluate_angle("ctx.angle")
+
+
+_ROTATION_MACHINE = """\
+# machine RotationTest
+
+## context
+| Field  | Type        | Default |
+|--------|-------------|---------|
+| qubits | list<qubit> | [q0]    |
+
+## events
+- rotate
+
+## state |0> [initial]
+> Ground state
+
+## state |θ> [final]
+> Rotated state
+
+## transitions
+| Source | Event  | Guard | Target | Action    |
+|--------|--------|-------|--------|-----------|
+| |0>    | rotate |       | |θ>    | rotate_q0 |
+
+## actions
+| Name      | Signature         | Effect            |
+|-----------|-------------------|-------------------|
+| rotate_q0 | (qs) -> qs        | {effect}          |
+"""
+
+
+class TestRotationGateParsing:
+    """Tests for rotation gate parsing in the actions table."""
+
+    def _machine(self, effect: str):
+        source = _ROTATION_MACHINE.format(effect=effect)
+        return parse_q_orca_markdown(source)
+
+    def test_rx_decimal_angle(self):
+        result = self._machine("Rx(qs[0], 1.5708)")
+        machine = result.file.machines[0]
+        action = machine.actions[0]
+        assert action.gate is not None
+        assert action.gate.kind == "Rx"
+        assert action.gate.targets == [0]
+        assert action.gate.parameter == pytest.approx(1.5708)
+        assert result.errors == []
+
+    def test_ry_symbolic_pi_over_4(self):
+        result = self._machine("Ry(qs[0], pi/4)")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is not None
+        assert action.gate.kind == "Ry"
+        assert action.gate.parameter == pytest.approx(math.pi / 4)
+        assert result.errors == []
+
+    def test_rz_compound_symbolic(self):
+        result = self._machine("Rz(qs[0], 3*pi/4)")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is not None
+        assert action.gate.kind == "Rz"
+        assert action.gate.parameter == pytest.approx(3 * math.pi / 4)
+        assert result.errors == []
+
+    def test_rx_negative_angle(self):
+        result = self._machine("Rx(qs[0], -pi/2)")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is not None
+        assert action.gate.parameter == pytest.approx(-math.pi / 2)
+        assert result.errors == []
+
+    def test_wrong_argument_order_produces_error(self):
+        result = self._machine("Rx(1.5708, qs[0])")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is None
+        assert any("angle-first" in e for e in result.errors)
+
+    def test_unrecognized_symbolic_angle_produces_error(self):
+        result = self._machine("Rx(qs[0], theta_custom)")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is None
+        assert any("theta_custom" in e for e in result.errors)
