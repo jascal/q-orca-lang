@@ -11,7 +11,7 @@
 - entangle
 - measure_done
 
-## state |00>
+## state |00> [initial]
 > Ground state, no entanglement yet
 
 ## state |+0> = (|0> + |1>)|00>/√2
@@ -35,10 +35,10 @@
 | |ψ>             | measure_done | prob_collapse('11')=0.5| |11_collapsed>       | set_outcome_1           |
 
 ## guards
-| Name                | Expression                          |
-|---------------------|-------------------------------------|
-| prob_collapse('00') | fidelity(|ψ>, |00>) ** 2 ≈ 0.5     |
-| prob_collapse('11') | fidelity(|ψ>, |11>) ** 2 ≈ 0.5     |
+| Name                | Expression          |
+|---------------------|---------------------|
+| prob_collapse('00') | prob('00') ≈ 0.5    |
+| prob_collapse('11') | prob('11') ≈ 0.5    |
 
 ## actions
 | Name                | Signature                          | Effect                     |
