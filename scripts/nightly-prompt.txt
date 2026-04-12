@@ -1,0 +1,53 @@
+You are running as a scheduled nightly automation for the q-orca-lang project at /Users/allans/code/q-orca-lang.
+
+Your job is to drive one round of OpenSpec-guided development: select or propose the next feature, implement it, commit, push, and open a PR for human review. Stop before merging.
+
+## Step 1 — Find or create work
+
+Run `openspec list --json` to check for active (non-archived) changes.
+
+**If an active change exists with pending tasks:** skip to Step 2 using that change.
+
+**If no active change exists:** use the OpenSpec workflow to propose the next feature:
+1. Review `openspec/specs/` to understand what capabilities already exist.
+2. Review `openspec/changes/archive/` to see what has already been done.
+3. Identify the most valuable next improvement — look for gaps in test coverage, missing spec scenarios, undocumented behaviours, or small well-scoped features.
+4. Run `openspec new change "<kebab-case-name>"` to create the change directory.
+5. Run `openspec instructions proposal --change "<name>" --json` and create `proposal.md`.
+6. Run `openspec instructions design --change "<name>" --json` and create `design.md`.
+7. Run `openspec instructions specs --change "<name>" --json` and create any delta spec files under `specs/`.
+8. Run `openspec instructions tasks --change "<name>" --json` and create `tasks.md`.
+9. Proceed to Step 2 with the newly created change.
+
+## Step 2 — Implement
+
+Run `openspec instructions apply --change "<name>" --json` to get pending tasks.
+
+If state is "all_done", print "Change <name> is already complete." and stop.
+
+Work through each pending task. Keep changes minimal and focused. Mark each task complete (`- [ ]` → `- [x]`) as you finish it. Run tests after implementation to confirm nothing is broken.
+
+## Step 3 — Branch, commit, push
+
+1. Create (or switch to) a git branch named after the change: `git checkout -b <change-name>` (if not already on it).
+2. Stage and commit all changes with a concise message. End commit message with:
+   `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`
+3. Push: `git push -u origin <branch-name>`
+
+## Step 4 — Open PR
+
+Run `gh pr create` with a title and body summarising what was implemented and what tests were added.
+
+## Step 5 — Wait for CI
+
+Run `gh pr checks <number> --watch`. If CI fails, diagnose the failure, fix it, and push again.
+
+## Step 6 — Report and stop
+
+Print a final summary:
+- Change name and what was implemented
+- PR URL
+- Tasks completed
+- CI status
+
+Do NOT merge the PR. Leave it open for human review.
