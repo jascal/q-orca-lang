@@ -111,12 +111,13 @@ def _parse_noise_model_string(text: str) -> NoiseModel | None:
     if m:
         return NoiseModel(kind="phase_damping", parameter=float(m.group(1)))
 
-    # thermal(depol_prob, p_err) or thermal(p_err)
+    # thermal(T1) or thermal(T1, T2) — relaxation times in nanoseconds
+    # parameter2=0.0 means T2 defaults to T1 at emission time
     m = re.match(r"thermal\(\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)", text, re.IGNORECASE)
     if m:
-        param1 = float(m.group(1))
-        param2 = float(m.group(2)) if m.group(2) else 0.01
-        return NoiseModel(kind="thermal", parameter=param1, parameter2=param2)
+        t1 = float(m.group(1))
+        t2 = float(m.group(2)) if m.group(2) else 0.0
+        return NoiseModel(kind="thermal", parameter=t1, parameter2=t2)
 
     return None
 
@@ -165,10 +166,13 @@ def _emit_qiskit_noise_model_code(noise_model: NoiseModel, qubit_count: int) -> 
         lines.append("    noise_model.add_all_qubit_quantum_error(pd_error, ['h', 'x', 'y', 'z', 'rx', 'ry', 'rz', 't', 's', 'cnot', 'cx', 'cz', 'swap'])")
 
     elif noise_model.kind == "thermal":
-        lines.append("    # thermal noise not fully supported, using depolarizing")
-        lines.append(f"    thermal_error = noise.depolarizing_error({noise_model.parameter}, 1)")
+        t1 = noise_model.parameter
+        t2 = noise_model.parameter2 if noise_model.parameter2 > 0 else t1
+        gate_time = 50  # ns — assumed single-qubit gate time
+        lines.append(f"    thermal_error = noise.thermal_relaxation_error({t1}, {t2}, {gate_time})")
         lines.append("    noise_model = noise.NoiseModel()")
-        lines.append("    noise_model.add_all_qubit_quantum_error(thermal_error, ['h', 'x', 'y', 'z', 'rx', 'ry', 'rz', 't', 's', 'cnot', 'cx', 'cz', 'swap'])")
+        lines.append("    # thermal_relaxation_error is a single-qubit channel; applied to single-qubit gates only")
+        lines.append("    noise_model.add_all_qubit_quantum_error(thermal_error, ['h', 'x', 'y', 'z', 'rx', 'ry', 'rz', 't', 's'])")
 
     else:
         lines.append("    noise_model = None")

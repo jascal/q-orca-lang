@@ -76,8 +76,8 @@ class QTypeCustom(QType):
 class NoiseModel:
     """Quantum noise model specification."""
     kind: str = ""  # 'depolarizing' | 'amplitude_damping' | 'phase_damping' | 'thermal'
-    parameter: float = 0.0  # noise probability or damping rate
-    parameter2: float = 0.01  # secondary parameter (e.g., thermal excitation probability)
+    parameter: float = 0.0  # noise probability / damping rate / T1 relaxation time (ns)
+    parameter2: float = 0.0  # T2 relaxation time (ns); 0.0 means default to T1
     qubits: list[int] = field(default_factory=list)  # target qubits (empty = all)
 
 
