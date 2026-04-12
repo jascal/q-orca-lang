@@ -2,6 +2,21 @@
 
 ## 0.3.3 (unreleased)
 
+### Changed (noise models)
+
+- **Breaking**: `thermal(T1, T2)` now takes relaxation times in nanoseconds
+  and emits `noise.thermal_relaxation_error(T1, T2, 50)` (50 ns gate time).
+  Previously `thermal(p, q)` silently fell back to `depolarizing_error(p, 1)`.
+  Update any context fields using `thermal(...)` accordingly.
+- `thermal` noise is applied to single-qubit gates only (`h, x, y, z, rx, ry,
+  rz, t, s`); two-qubit gates are excluded because `thermal_relaxation_error`
+  returns a single-qubit channel.
+- `thermal(T1)` with one parameter defaults T2 = T1 (physical upper bound).
+- `NoiseModel.parameter2` default changed from `0.01` to `0.0` (sentinel
+  meaning "T2 defaults to T1").
+
+
+
 ### Added
 
 - **Parameterized single-qubit rotation gates** (`Rx`, `Ry`, `Rz`) are now
