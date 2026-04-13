@@ -8,31 +8,40 @@ Run `openspec list --json` to check for active (non-archived) changes.
 
 **If an active change exists with pending tasks:** skip to Step 2 using that change.
 
+**If all active changes report state "all_done" but have NO corresponding git branch or PR:** treat them as stale — their tasks.md was pre-checked without real implementation. Reset by running `openspec status --change "<name>" --json` and checking whether the code files listed in the tasks actually exist and the test suite passes. If tests fail or files are missing, uncheck the relevant tasks (`- [x]` → `- [ ]`) and proceed to Step 2.
+
 **If no active change exists:** use the OpenSpec workflow to propose the next feature:
 1. Review `openspec/specs/` to understand what capabilities already exist.
 2. Review `openspec/changes/archive/` to see what has already been done.
-3. Identify the most valuable next improvement — look for gaps in test coverage, missing spec scenarios, undocumented behaviours, or small well-scoped features.
-4. Run `openspec new change "<kebab-case-name>"` to create the change directory.
-5. Run `openspec instructions proposal --change "<name>" --json` and create `proposal.md`.
-6. Run `openspec instructions design --change "<name>" --json` and create `design.md`.
-7. Run `openspec instructions specs --change "<name>" --json` and create any delta spec files under `specs/`.
-8. Run `openspec instructions tasks --change "<name>" --json` and create `tasks.md`.
-9. Proceed to Step 2 with the newly created change.
+3. Review `docs/specs/` for any raw feature specs that need converting to OpenSpec changes.
+4. Identify the most valuable next improvement.
+5. Run `openspec new change "<kebab-case-name>"` to create the change directory.
+6. Run `openspec instructions proposal --change "<name>" --json` and create `proposal.md`.
+7. Run `openspec instructions design --change "<name>" --json` and create `design.md`.
+8. Run `openspec instructions specs --change "<name>" --json` and create any delta spec files under `specs/`.
+9. Run `openspec instructions tasks --change "<name>" --json` and create `tasks.md`.
+10. Proceed to Step 2 with the newly created change.
 
 ## Step 2 — Implement
 
 Run `openspec instructions apply --change "<name>" --json` to get pending tasks.
 
-If state is "all_done", print "Change <name> is already complete." and stop.
+Work through each pending task. Keep changes minimal and focused.
 
-Work through each pending task. Keep changes minimal and focused. Mark each task complete (`- [ ]` → `- [x]`) as you finish it. Run tests after implementation to confirm nothing is broken.
+**CRITICAL: Only mark a task complete (`- [ ]` → `- [x]`) AFTER:**
+1. The code change has been written to disk (Read the file to confirm)
+2. `pytest` passes (run the full suite or the relevant test file)
+
+Never pre-check tasks. A task is done when the tests prove it, not before.
 
 ## Step 3 — Branch, commit, push
 
-1. Create (or switch to) a git branch named after the change: `git checkout -b <change-name>` (if not already on it).
-2. Stage and commit all changes with a concise message. End commit message with:
+1. Run `git status` to confirm there are actual file changes before proceeding.
+2. If no files were changed, stop and report — do not commit an empty branch.
+3. Create (or switch to) a git branch named after the change: `git checkout -b <change-name>`
+4. Stage and commit all changes. End commit message with:
    `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`
-3. Push: `git push -u origin <branch-name>`
+5. Push: `git push -u origin <branch-name>`
 
 ## Step 4 — Open PR
 

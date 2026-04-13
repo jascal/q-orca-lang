@@ -55,6 +55,24 @@ def _parse_single_gate(effect_str: str) -> QuantumGate | None:
         idx2 = int(m.group(4))
         return QuantumGate(kind="SWAP", targets=[idx1, idx2])
 
+    # Two-qubit parameterized gates: CRx/CRy/CRz/RXX/RYY/RZZ(qs[i], qs[j], angle)
+    m = re.search(r"(CRx|CRy|CRz|RXX|RYY|RZZ)\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
+    if m:
+        raw_kind = m.group(1).upper()
+        canonical_map = {"CRX": "CRx", "CRY": "CRy", "CRZ": "CRz", "RXX": "RXX", "RYY": "RYY", "RZZ": "RZZ"}
+        kind = canonical_map.get(raw_kind, raw_kind)
+        i = int(m.group(2))
+        j = int(m.group(3))
+        angle_str = m.group(4).strip()
+        try:
+            theta = evaluate_angle(angle_str)
+        except ValueError:
+            return None
+        if kind in ("CRx", "CRy", "CRz"):
+            return QuantumGate(kind=kind, targets=[j], controls=[i], parameter=theta)
+        else:
+            return QuantumGate(kind=kind, targets=[i, j], parameter=theta)
+
     # Rx/Ry/Rz(qs[N], <angle>) — canonical qubit-first, angle-second
     m = re.search(r"R([XYZ])\(\s*\w+\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
     if m:
@@ -414,6 +432,21 @@ def _gate_to_qiskit(gate: QuantumGate) -> str:
         return f"qc.ry({gate.parameter or 0}, {gate.targets[0]})"
     if gate.kind == "Rz":
         return f"qc.rz({gate.parameter or 0}, {gate.targets[0]})"
+    if gate.kind == "CRx":
+        ctrl = gate.controls[0] if gate.controls else 0
+        return f"qc.crx({gate.parameter or 0}, {ctrl}, {gate.targets[0]})"
+    if gate.kind == "CRy":
+        ctrl = gate.controls[0] if gate.controls else 0
+        return f"qc.cry({gate.parameter or 0}, {ctrl}, {gate.targets[0]})"
+    if gate.kind == "CRz":
+        ctrl = gate.controls[0] if gate.controls else 0
+        return f"qc.crz({gate.parameter or 0}, {ctrl}, {gate.targets[0]})"
+    if gate.kind == "RXX":
+        return f"qc.rxx({gate.parameter or 0}, {gate.targets[0]}, {gate.targets[1] if len(gate.targets) > 1 else 1})"
+    if gate.kind == "RYY":
+        return f"qc.ryy({gate.parameter or 0}, {gate.targets[0]}, {gate.targets[1] if len(gate.targets) > 1 else 1})"
+    if gate.kind == "RZZ":
+        return f"qc.rzz({gate.parameter or 0}, {gate.targets[0]}, {gate.targets[1] if len(gate.targets) > 1 else 1})"
     if gate.kind == "CCNOT":
         ctrls = gate.controls or [0, 1]
         c1 = ctrls[1] if len(ctrls) > 1 else 1

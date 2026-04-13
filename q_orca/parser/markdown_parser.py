@@ -657,6 +657,29 @@ def _parse_gate_from_effect(
     if m:
         return QuantumGate(kind="CNOT", targets=[int(m.group(2))], controls=[int(m.group(1))])
 
+    # Two-qubit parameterized gates: CRx/CRy/CRz/RXX/RYY/RZZ(qs[i], qs[j], angle)
+    m = re.search(r"(CRx|CRy|CRz|RXX|RYY|RZZ)\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
+    if m:
+        raw_kind = m.group(1).upper()
+        # Normalize to canonical forms: CRx/CRy/CRz (capital C+R, lowercase axis)
+        canonical_map = {"CRX": "CRx", "CRY": "CRy", "CRZ": "CRz", "RXX": "RXX", "RYY": "RYY", "RZZ": "RZZ"}
+        kind = canonical_map.get(raw_kind, raw_kind)
+        ctrl_or_i = int(m.group(2))
+        tgt_or_j = int(m.group(3))
+        angle_str = m.group(4).strip()
+        try:
+            theta = _evaluate_angle(angle_str)
+        except ValueError as exc:
+            if errors is not None:
+                prefix = f"action {action_name!r}: " if action_name else ""
+                errors.append(f"{prefix}two-qubit gate {kind} has unrecognized angle {angle_str!r}. {exc}")
+            return None
+        # Controlled forms use controls=[ctrl], targets=[tgt]; symmetric forms use targets=[i,j]
+        if kind in ("CRx", "CRy", "CRz"):
+            return QuantumGate(kind=kind, targets=[tgt_or_j], controls=[ctrl_or_i], parameter=theta)
+        else:
+            return QuantumGate(kind=kind, targets=[ctrl_or_i, tgt_or_j], parameter=theta)
+
     # Rotation gates canonical form: Rx(qs[N], <angle>), Ry(qs[N], <angle>), Rz(qs[N], <angle>)
     m = re.search(r"R([XYZ])\(\s*\w+\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
     if m:

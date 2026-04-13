@@ -2,6 +2,7 @@
 # Q-Orca nightly development run
 # Runs at 2:07am, implements next pending OpenSpec change, opens PR for review.
 
+export HOME="/Users/allans"
 export PATH="/Users/allans/.local/bin:/usr/local/bin:/usr/bin:/bin"
 LOG_DIR="/Users/allans/code/q-orca-lang/logs"
 mkdir -p "$LOG_DIR"

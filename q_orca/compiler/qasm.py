@@ -125,6 +125,40 @@ def _gate_to_qasm(gate: QuantumGate, qubit_count: int) -> str:
     if gate.kind == "CSWAP":
         ctrl = gate.controls[0] if gate.controls else 0
         return f"cswap {t(ctrl)}, {t(gate.targets[0])}, {t(gate.targets[1] if len(gate.targets) > 1 else 2)};"
+    # Two-qubit parameterized gates — CRx/CRy/CRz are in stdgates.inc; RXX/RYY/RZZ are decomposed
+    if gate.kind == "CRx":
+        ctrl = gate.controls[0] if gate.controls else 0
+        return f"crx({gate.parameter or 0}) {t(ctrl)}, {t(gate.targets[0])};"
+    if gate.kind == "CRy":
+        ctrl = gate.controls[0] if gate.controls else 0
+        return f"cry({gate.parameter or 0}) {t(ctrl)}, {t(gate.targets[0])};"
+    if gate.kind == "CRz":
+        ctrl = gate.controls[0] if gate.controls else 0
+        return f"crz({gate.parameter or 0}) {t(ctrl)}, {t(gate.targets[0])};"
+    if gate.kind == "RZZ":
+        # RZZ(θ) q0,q1 → cx q0,q1; rz(θ) q1; cx q0,q1;
+        q0 = gate.targets[0]
+        q1 = gate.targets[1] if len(gate.targets) > 1 else 1
+        theta = gate.parameter or 0
+        return f"cx {t(q0)}, {t(q1)}; rz({theta}) {t(q1)}; cx {t(q0)}, {t(q1)};"
+    if gate.kind == "RXX":
+        # RXX(θ) q0,q1 → h q0; h q1; cx q0,q1; rz(θ) q1; cx q0,q1; h q0; h q1;
+        q0 = gate.targets[0]
+        q1 = gate.targets[1] if len(gate.targets) > 1 else 1
+        theta = gate.parameter or 0
+        return (
+            f"h {t(q0)}; h {t(q1)}; cx {t(q0)}, {t(q1)}; "
+            f"rz({theta}) {t(q1)}; cx {t(q0)}, {t(q1)}; h {t(q0)}; h {t(q1)};"
+        )
+    if gate.kind == "RYY":
+        # RYY(θ) q0,q1 → rx(pi/2) q0; rx(pi/2) q1; cx q0,q1; rz(θ) q1; cx q0,q1; rx(-pi/2) q0; rx(-pi/2) q1;
+        q0 = gate.targets[0]
+        q1 = gate.targets[1] if len(gate.targets) > 1 else 1
+        theta = gate.parameter or 0
+        return (
+            f"rx(pi/2) {t(q0)}; rx(pi/2) {t(q1)}; cx {t(q0)}, {t(q1)}; "
+            f"rz({theta}) {t(q1)}; cx {t(q0)}, {t(q1)}; rx(-pi/2) {t(q0)}; rx(-pi/2) {t(q1)};"
+        )
     if gate.kind == "custom":
         return f"// custom gate: {gate.custom_name or 'unknown'} on {', '.join(t(idx) for idx in gate.targets)};"
 
