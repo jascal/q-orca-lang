@@ -9,7 +9,7 @@ from typing import Optional
 # ============================================================
 
 
-GateKind = str  # 'H' | 'X' | 'Y' | 'Z' | 'CNOT' | 'CZ' | 'SWAP' | 'T' | 'S' | 'Rx' | 'Ry' | 'Rz' | 'CCNOT' | 'CSWAP' | 'custom'
+GateKind = str  # 'H' | 'X' | 'Y' | 'Z' | 'CNOT' | 'CZ' | 'SWAP' | 'T' | 'S' | 'Rx' | 'Ry' | 'Rz' | 'CCNOT' | 'CSWAP' | 'CRx' | 'CRy' | 'CRz' | 'RXX' | 'RYY' | 'RZZ' | 'custom'
 
 
 @dataclass
