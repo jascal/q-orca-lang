@@ -7,7 +7,7 @@ from q_orca.verifier.structural import analyze_machine
 
 def has_quantum_preparation_path(machine: QMachineDef) -> bool:
     has_measure = any(
-        "measure" in e.name.lower() or "collapse" in e.name.lower()
+        "measure" in e.name.lower() or "collapse" in e.name.lower() or "readout" in e.name.lower()
         for e in machine.events
     )
     if not has_measure:

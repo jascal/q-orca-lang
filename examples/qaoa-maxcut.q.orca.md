@@ -12,7 +12,7 @@
 - init
 - apply_cost
 - apply_mixer
-- measure
+- readout
 
 ## state |000> [initial]
 > All qubits in |0> — ground state before ansatz
@@ -35,7 +35,7 @@
 | |000>           | init         |       | |+++ >          | hadamard_layer   |
 | |+++ >          | apply_cost   |       | |cost_applied>  | cost_unitary     |
 | |cost_applied>  | apply_mixer  |       | |mixed>         | mixer_unitary    |
-| |mixed>         | measure      |       | |measured>      |                  |
+| |mixed>         | readout      |       | |measured>      |                  |
 
 ## actions
 | Name            | Signature     | Effect                                                                      |
@@ -46,4 +46,3 @@
 
 ## verification rules
 - unitarity: all gates preserve norm
-- entanglement: Bell state has Schmidt rank > 1
