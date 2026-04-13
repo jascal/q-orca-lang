@@ -67,7 +67,7 @@ def _parse_single_gate(effect_str: str) -> QuantumGate | None:
         try:
             theta = evaluate_angle(angle_str)
         except ValueError:
-            theta = 0.0
+            return None
         if kind in ("CRx", "CRy", "CRz"):
             return QuantumGate(kind=kind, targets=[j], controls=[i], parameter=theta)
         else:

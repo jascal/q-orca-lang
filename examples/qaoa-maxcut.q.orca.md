@@ -41,7 +41,7 @@
 | Name            | Signature     | Effect                                                                      |
 |-----------------|---------------|-----------------------------------------------------------------------------|
 | hadamard_layer  | (qs) -> qs    | Hadamard(qs[0]); Hadamard(qs[1]); Hadamard(qs[2])                           |
-| cost_unitary    | (qs) -> qs    | RZZ(qs[0], qs[1], pi/4); RZZ(qs[1], qs[2], pi/4)                           |
+| cost_unitary    | (qs) -> qs    | RZZ(qs[0], qs[1], pi/4); RZZ(qs[1], qs[2], pi/4); RZZ(qs[0], qs[2], pi/4) |
 | mixer_unitary   | (qs) -> qs    | Rx(qs[0], pi/8); Rx(qs[1], pi/8); Rx(qs[2], pi/8)                          |
 
 ## verification rules
