@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 
 from q_orca.angle import evaluate_angle
-from q_orca.ast import QMachineDef, QuantumGate, QTypeQubit, QTypeScalar, QTypeList, NoiseModel
+from q_orca.ast import QMachineDef, QuantumGate, QTypeQubit, QTypeScalar, QTypeList, NoiseModel, QEffectMeasure, QEffectConditional
 
 
 def _parse_effect_string(effect_str: str) -> list[QuantumGate]:
@@ -234,8 +234,13 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
         lines.append("")
 
     qubit_count = _infer_qubit_count(machine)
+    bit_count = _infer_bit_count(machine)
     lines.append(f"qubit_count = {qubit_count}")
-    lines.append(f"qc = QuantumCircuit({qubit_count})")
+    if bit_count > 0:
+        lines.append(f"bit_count = {bit_count}")
+        lines.append(f"qc = QuantumCircuit({qubit_count}, {bit_count})")
+    else:
+        lines.append(f"qc = QuantumCircuit({qubit_count})")
     lines.append("")
 
     # Noise model from context
@@ -257,11 +262,20 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
 
     gate_sequence = _extract_gate_sequence(machine)
 
+    action_map = {a.name: a for a in machine.actions}
     lines.append("# Gate sequence from state machine")
     for action_name, gates, comment in gate_sequence:
         if comment:
             lines.append(f"# {comment}")
-        if gates:
+        action = action_map.get(action_name)
+        if action and action.mid_circuit_measure is not None:
+            mcm = action.mid_circuit_measure
+            lines.append(f"qc.measure({mcm.qubit_idx}, {mcm.bit_idx})")
+        elif action and action.conditional_gate is not None:
+            cg = action.conditional_gate
+            lines.append(f"with qc.if_test((qc.clbits[{cg.bit_idx}], {cg.value})):")
+            lines.append(f"    {_gate_to_qiskit(cg.gate)}")
+        elif gates:
             for gate in gates:
                 lines.append(_gate_to_qiskit(gate))
 
@@ -398,8 +412,18 @@ def _extract_gate_sequence(machine: QMachineDef) -> list:
                     # Append (action_name, [gates], comment) for each action
                     steps.append((t.action, gates, comment))
 
-            is_measure = "measure" in t.event.lower() or "collapse" in t.event.lower()
-            if not is_measure and t.target not in visited:
+            # Stop BFS at terminal (end-of-circuit) measurement events, but
+            # continue past mid-circuit measurement events.
+            transition_action = action_map.get(t.action) if t.action else None
+            is_mid_circuit = (
+                transition_action is not None
+                and transition_action.mid_circuit_measure is not None
+            )
+            is_terminal_measure = (
+                ("measure" in t.event.lower() or "collapse" in t.event.lower())
+                and not is_mid_circuit
+            )
+            if not is_terminal_measure and t.target not in visited:
                 queue.append(t.target)
 
     return steps
@@ -458,6 +482,26 @@ def _gate_to_qiskit(gate: QuantumGate) -> str:
     if gate.kind == "custom":
         return f"# custom gate: {gate.custom_name or 'unknown'} on qubits {gate.targets}"
     return f"# unknown gate: {gate.kind}"
+
+
+def _infer_bit_count(machine: QMachineDef) -> int:
+    """Count classical bits from list<bit> context fields."""
+    for field in machine.context:
+        if isinstance(field.type, QTypeList) and field.type.element_type == "bit":
+            if field.default_value:
+                items = re.findall(r"b\d+", field.default_value)
+                if items:
+                    return len(items)
+            # No default — count from mid_circuit_measure actions
+            break
+    # Infer bit count from max bit_idx in mid_circuit_measure actions
+    max_bit = -1
+    for action in machine.actions:
+        if action.mid_circuit_measure is not None:
+            max_bit = max(max_bit, action.mid_circuit_measure.bit_idx)
+        if action.conditional_gate is not None:
+            max_bit = max(max_bit, action.conditional_gate.bit_idx)
+    return max_bit + 1 if max_bit >= 0 else 0
 
 
 def _infer_qubit_count(machine: QMachineDef) -> int:

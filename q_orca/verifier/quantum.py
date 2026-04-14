@@ -22,7 +22,10 @@ ENTANGLED_PATTERNS = [
 
 def _has_rule(machine: QMachineDef, kind: str) -> bool:
     return any(
-        r.kind == kind or r.kind == kind.replace("_", "-")
+        r.kind == kind
+        or r.kind == kind.replace("_", "-")
+        or r.custom_name == kind
+        or r.custom_name == kind.replace("_", "-")
         for r in machine.verification_rules
     )
 
@@ -243,12 +246,115 @@ def check_collapse_completeness(machine: QMachineDef) -> QVerificationResult:
     )
 
 
+def check_mid_circuit_coherence(machine: QMachineDef) -> QVerificationResult:
+    """Activated by 'mid_circuit_coherence' rule.
+
+    Errors if any action applies a unitary gate to a qubit that was already
+    measured mid-circuit by a prior action in the BFS gate sequence (without a
+    reset in between).
+    """
+    errors: list[QVerificationError] = []
+
+    if not _has_rule(machine, "mid_circuit_coherence"):
+        return QVerificationResult(valid=True, errors=errors)
+
+    action_map = {a.name: a for a in machine.actions}
+    measured_qubits: set[int] = set()
+
+    initial = next((s for s in machine.states if s.is_initial), None)
+    if not initial:
+        return QVerificationResult(valid=True, errors=errors)
+
+    visited: set[str] = set()
+    queue = [initial.name]
+
+    while queue:
+        current = queue.pop(0)
+        if current in visited:
+            continue
+        visited.add(current)
+
+        for t in machine.transitions:
+            if t.source != current:
+                continue
+            if t.action:
+                action = action_map.get(t.action)
+                if action:
+                    if action.mid_circuit_measure is not None:
+                        measured_qubits.add(action.mid_circuit_measure.qubit_idx)
+                    elif action.gate is not None:
+                        for idx in action.gate.targets:
+                            if idx in measured_qubits:
+                                errors.append(QVerificationError(
+                                    code="MID_CIRCUIT_COHERENCE_VIOLATION",
+                                    message=(
+                                        f"Action '{action.name}' applies gate "
+                                        f"'{action.gate.kind}' to qubit {idx} which "
+                                        "was already measured mid-circuit without a reset"
+                                    ),
+                                    severity="error",
+                                    location={"action": action.name},
+                                    suggestion="Add a reset gate before reusing a measured qubit, or use a fresh qubit",
+                                ))
+
+            is_measure = "measure" in t.event.lower() or "collapse" in t.event.lower()
+            if not is_measure and t.target not in visited:
+                queue.append(t.target)
+
+    return QVerificationResult(
+        valid=not any(e.severity == "error" for e in errors),
+        errors=errors,
+    )
+
+
+def check_feedforward_completeness(machine: QMachineDef) -> QVerificationResult:
+    """Activated by 'feedforward_completeness' rule.
+
+    Warns if the machine has mid-circuit measurements but no conditional gate
+    (feedforward) action uses the measured bit — i.e. the measurement result
+    is discarded.
+    """
+    errors: list[QVerificationError] = []
+
+    if not _has_rule(machine, "feedforward_completeness"):
+        return QVerificationResult(valid=True, errors=errors)
+
+    measured_bits: set[int] = set()
+    feedforward_bits: set[int] = set()
+
+    for action in machine.actions:
+        if action.mid_circuit_measure is not None:
+            measured_bits.add(action.mid_circuit_measure.bit_idx)
+        if action.conditional_gate is not None:
+            feedforward_bits.add(action.conditional_gate.bit_idx)
+
+    unused = measured_bits - feedforward_bits
+    for bit_idx in sorted(unused):
+        errors.append(QVerificationError(
+            code="FEEDFORWARD_UNUSED",
+            message=(
+                f"Classical bit {bit_idx} is written by a mid-circuit measurement "
+                "but never read by a conditional gate (feedforward unused)"
+            ),
+            severity="warning",
+            location={"bit_idx": bit_idx},
+            suggestion="Add an 'if bits[M] == val: Gate(qs[K])' action that consumes this measurement result",
+        ))
+
+    return QVerificationResult(
+        valid=not any(e.severity == "error" for e in errors),
+        errors=errors,
+    )
+
+
 def verify_quantum(machine: QMachineDef) -> QVerificationResult:
     results = [
         check_unitarity(machine),
         check_no_cloning(machine),
         check_entanglement(machine),
         check_collapse_completeness(machine),
+        check_mid_circuit_coherence(machine),
+        check_feedforward_completeness(machine),
     ]
     all_errors = [e for r in results for e in r.errors]
     return QVerificationResult(
