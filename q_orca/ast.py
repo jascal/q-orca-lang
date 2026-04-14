@@ -195,6 +195,21 @@ class ValueRef:
 
 
 @dataclass
+class QEffectMeasure:
+    """Mid-circuit measurement: measure qubit N into classical bit M."""
+    qubit_idx: int
+    bit_idx: int
+
+
+@dataclass
+class QEffectConditional:
+    """Classical feedforward: if bits[M] == val, apply gate to qubit K."""
+    bit_idx: int
+    value: int  # 0 or 1
+    gate: QuantumGate
+
+
+@dataclass
 class QActionSignature:
     name: str
     parameters: list[str] = field(default_factory=list)
@@ -204,6 +219,8 @@ class QActionSignature:
     effect_type: Optional[str] = None
     gate: Optional[QuantumGate] = None
     measurement: Optional[Measurement] = None
+    mid_circuit_measure: Optional[QEffectMeasure] = None
+    conditional_gate: Optional[QEffectConditional] = None
 
 
 @dataclass

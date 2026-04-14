@@ -13,7 +13,7 @@ from q_orca.ast import (
     QType, QTypeQubit, QTypeList, QTypeScalar, QTypeOptional, QTypeCustom,
     QGuardRef, QuantumGate, Measurement, CollapseOutcome,
     QGuardTrue, QGuardFalse, QGuardCompare, QGuardProbability, QGuardFidelity,
-    VariableRef, ValueRef,
+    VariableRef, ValueRef, QEffectMeasure, QEffectConditional,
 )
 
 
@@ -421,6 +421,8 @@ def _parse_actions_table(table: MdTable, errors: list[str] | None = None) -> lis
         params, return_type = _parse_signature(sig_str)
         gate = _parse_gate_from_effect(effect_str, errors, action_name=name)
         measurement = _parse_measurement_from_effect(effect_str)
+        mid_circuit_measure = _parse_mid_circuit_measure_from_effect(effect_str)
+        conditional_gate = _parse_conditional_gate_from_effect(effect_str, errors, action_name=name)
 
         actions.append(QActionSignature(
             name=name,
@@ -430,6 +432,8 @@ def _parse_actions_table(table: MdTable, errors: list[str] | None = None) -> lis
             has_effect=bool(effect_str),
             gate=gate,
             measurement=measurement,
+            mid_circuit_measure=mid_circuit_measure,
+            conditional_gate=conditional_gate,
         ))
 
     return actions
@@ -548,7 +552,8 @@ def _parse_q_type_string(text: str) -> QType:
         return QTypeOptional(inner_type=text[:-1])
     list_match = re.match(r"^list<\s*(.+)\s*>$", text)
     if list_match:
-        return QTypeList(element_type=list_match.group(1))
+        element = list_match.group(1).strip()
+        return QTypeList(element_type=element)
     if text == "qubit":
         return QTypeQubit()
     scalar_map = {"int": "int", "float": "float", "decimal": "float",
@@ -723,9 +728,48 @@ def _parse_measurement_from_effect(effect_str: str) -> Optional[Measurement]:
     if not effect_str:
         return None
     # Match 'measure(q[i])' (standard) OR 'M(q[i])' (custom quantum notation).
+    # Skip mid-circuit form 'measure(qs[N]) -> bits[M]' — that is handled separately.
+    if re.search(r"measure\s*\(.*\)\s*->", effect_str, re.IGNORECASE):
+        return None
     # 'M' is the conventional single-letter symbol for measurement in quantum circuits.
     m = re.search(r"(?:measure|M)\(\s*\w+\[([^\]]+)\]\s*\)", effect_str, re.IGNORECASE)
     if m:
         indices = [int(x.strip()) for x in m.group(1).split(",")]
         return Measurement(qubits=indices, basis="computational")
     return None
+
+
+def _parse_mid_circuit_measure_from_effect(effect_str: str) -> Optional[QEffectMeasure]:
+    """Parse 'measure(qs[N]) -> bits[M]' into QEffectMeasure(qubit_idx=N, bit_idx=M)."""
+    if not effect_str:
+        return None
+    m = re.search(
+        r"measure\s*\(\s*\w+\[(\d+)\]\s*\)\s*->\s*bits\[(\d+)\]",
+        effect_str, re.IGNORECASE,
+    )
+    if m:
+        return QEffectMeasure(qubit_idx=int(m.group(1)), bit_idx=int(m.group(2)))
+    return None
+
+
+def _parse_conditional_gate_from_effect(
+    effect_str: str,
+    errors: list[str] | None = None,
+    action_name: str = "",
+) -> Optional[QEffectConditional]:
+    """Parse 'if bits[M] == val: Gate(qs[K])' into QEffectConditional."""
+    if not effect_str:
+        return None
+    m = re.match(
+        r"if\s+bits\[(\d+)\]\s*==\s*(\d+)\s*:\s*(.+)$",
+        effect_str.strip(), re.IGNORECASE,
+    )
+    if not m:
+        return None
+    bit_idx = int(m.group(1))
+    value = int(m.group(2))
+    gate_str = m.group(3).strip()
+    gate = _parse_gate_from_effect(gate_str, errors=errors, action_name=action_name)
+    if gate is None:
+        return None
+    return QEffectConditional(bit_idx=bit_idx, value=value, gate=gate)

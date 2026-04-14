@@ -3,7 +3,7 @@
 import re
 
 from q_orca.ast import QMachineDef, QuantumGate, QTypeScalar, QTypeList, QTypeQubit
-from q_orca.compiler.qiskit import _parse_effect_string
+from q_orca.compiler.qiskit import _parse_effect_string, _infer_bit_count
 
 
 def compile_to_qasm(machine: QMachineDef) -> str:
@@ -16,14 +16,19 @@ def compile_to_qasm(machine: QMachineDef) -> str:
     lines.append("")
 
     qubit_count = _infer_qubit_count(machine)
+    bit_count = _infer_bit_count(machine)
     lines.append(f"qubit[{qubit_count}] q;")
 
     has_measurement = any(a.measurement for a in machine.actions)
+    has_mid_circuit = any(a.mid_circuit_measure is not None for a in machine.actions)
     has_measure_event = any(
         "measure" in e.name.lower() or "collapse" in e.name.lower()
         for e in machine.events
     )
-    if has_measurement or has_measure_event:
+    if has_mid_circuit and bit_count > 0:
+        lines.append(f"bit[{bit_count}] c;")
+        lines.append("")
+    elif has_measurement or has_measure_event:
         lines.append(f"bit[{qubit_count}] c;")
         lines.append("")
 
@@ -34,15 +39,29 @@ def compile_to_qasm(machine: QMachineDef) -> str:
     if any(hasattr(f.type, "kind") and f.type.kind == "int" for f in machine.context):
         lines.append("")
 
+    action_map = {a.name: a for a in machine.actions}
     gate_sequence = _extract_gate_sequence(machine)
     lines.append("// Gate sequence derived from state machine transitions")
     for action_name, gates, comment in gate_sequence:
         if comment:
             lines.append(f"// {comment}")
-        for gate in gates:
-            lines.append(_gate_to_qasm(gate, qubit_count))
+        action = action_map.get(action_name)
+        if action and action.mid_circuit_measure is not None:
+            mcm = action.mid_circuit_measure
+            lines.append(f"c[{mcm.bit_idx}] = measure q[{mcm.qubit_idx}];")
+        elif action and action.conditional_gate is not None:
+            cg = action.conditional_gate
+            gate_str = _gate_to_qasm(cg.gate, qubit_count).rstrip(";")
+            # OpenQASM 3.0 per-bit conditional: bare bit for 1, negated for 0
+            cond = f"c[{cg.bit_idx}]" if cg.value else f"!c[{cg.bit_idx}]"
+            lines.append(f"if ({cond}) {{ {gate_str}; }}")
+        else:
+            for gate in gates:
+                lines.append(_gate_to_qasm(gate, qubit_count))
 
-    if has_measurement or has_measure_event:
+    # Emit terminal measurement block only when there are no mid-circuit
+    # measurements (which are emitted inline in the gate sequence above).
+    if not has_mid_circuit and (has_measurement or has_measure_event):
         lines.append("")
         lines.append("// Measurement")
         for i in range(qubit_count):
@@ -82,8 +101,18 @@ def _extract_gate_sequence(machine: QMachineDef) -> list:
                         gates = [action.gate]
                     steps.append((t.action, gates, f"{t.source} -> {t.target} via {t.event}"))
 
-            is_measure = "measure" in t.event.lower() or "collapse" in t.event.lower()
-            if not is_measure and t.target not in visited:
+            # Continue BFS past mid-circuit measurement events; stop only at
+            # terminal (end-of-circuit) measurement events.
+            transition_action = action_map.get(t.action) if t.action else None
+            is_mid_circuit = (
+                transition_action is not None
+                and transition_action.mid_circuit_measure is not None
+            )
+            is_terminal_measure = (
+                ("measure" in t.event.lower() or "collapse" in t.event.lower())
+                and not is_mid_circuit
+            )
+            if not is_terminal_measure and t.target not in visited:
                 queue.append(t.target)
 
     return steps
