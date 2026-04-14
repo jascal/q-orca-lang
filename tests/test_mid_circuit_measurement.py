@@ -217,8 +217,8 @@ class TestQasmCompiler:
     def test_conditional_gate_emitted(self):
         machine = self._machine()
         code = compile_to_qasm(machine)
-        # OpenQASM 3.0 per-bit conditional syntax
-        assert "if (c[0] == 1)" in code
+        # OpenQASM 3.0 per-bit conditional: bare bit for value==1
+        assert "if (c[0])" in code
         assert "x q[1]" in code
 
     def test_active_teleportation_qasm(self):
@@ -230,9 +230,9 @@ class TestQasmCompiler:
         # Two mid-circuit measurements
         assert "c[0] = measure q[0];" in code
         assert "c[1] = measure q[1];" in code
-        # Two conditional corrections using per-bit OpenQASM 3.0 syntax
-        assert "if (c[0] == 1)" in code
-        assert "if (c[1] == 1)" in code
+        # Two conditional corrections using per-bit OpenQASM 3.0 bare-bit syntax
+        assert "if (c[0])" in code
+        assert "if (c[1])" in code
 
 
 # ---------------------------------------------------------------------------
