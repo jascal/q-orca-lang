@@ -297,8 +297,15 @@ def check_mid_circuit_coherence(machine: QMachineDef) -> QVerificationResult:
                                     suggestion="Add a reset gate before reusing a measured qubit, or use a fresh qubit",
                                 ))
 
-            is_measure = "measure" in t.event.lower() or "collapse" in t.event.lower()
-            if not is_measure and t.target not in visited:
+            # Continue BFS through mid-circuit measurement transitions; stop only
+            # at terminal (end-of-circuit) measurement events.
+            t_action = action_map.get(t.action) if t.action else None
+            is_mid_circuit = t_action is not None and t_action.mid_circuit_measure is not None
+            is_terminal_measure = (
+                ("measure" in t.event.lower() or "collapse" in t.event.lower())
+                and not is_mid_circuit
+            )
+            if not is_terminal_measure and t.target not in visited:
                 queue.append(t.target)
 
     return QVerificationResult(

@@ -69,6 +69,7 @@ def check_superposition_leaks(machine: QMachineDef) -> QVerificationResult:
         return QVerificationResult(valid=True, errors=[])
 
     analysis = analyze_machine(machine)
+    action_map = {a.name: a for a in machine.actions}
 
     for state in machine.states:
         if state.name not in superposition_states:
@@ -80,6 +81,10 @@ def check_superposition_leaks(machine: QMachineDef) -> QVerificationResult:
 
         for t in state_info.outgoing:
             is_measure = "measure" in t.event.lower() or "collapse" in t.event.lower()
+            # Mid-circuit measurements are intentional — not a superposition leak
+            transition_action = action_map.get(t.action) if t.action else None
+            if transition_action and transition_action.mid_circuit_measure is not None:
+                continue
 
             if is_measure:
                 if not t.guard:
@@ -125,6 +130,10 @@ def check_superposition_leaks(machine: QMachineDef) -> QVerificationResult:
         transitions_by_source: dict = {}
         for t in machine.transitions:
             if t.event != event.name:
+                continue
+            # Skip mid-circuit measurement transitions — they are intentional
+            action = action_map.get(t.action) if t.action else None
+            if action and action.mid_circuit_measure is not None:
                 continue
             if t.source not in transitions_by_source:
                 transitions_by_source[t.source] = []
