@@ -20,7 +20,6 @@
 - measure_alice_z
 - correct_x
 - correct_z
-- done
 
 ## state |init> [initial]
 
