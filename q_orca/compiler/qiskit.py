@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 
 from q_orca.angle import evaluate_angle
-from q_orca.ast import QMachineDef, QuantumGate, QTypeQubit, QTypeScalar, QTypeList, NoiseModel, QEffectMeasure, QEffectConditional
+from q_orca.ast import QMachineDef, QuantumGate, QTypeQubit, QTypeScalar, QTypeList, NoiseModel
 
 
 def _parse_effect_string(effect_str: str) -> list[QuantumGate]:

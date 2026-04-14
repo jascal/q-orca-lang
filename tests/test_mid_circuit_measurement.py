@@ -1,6 +1,5 @@
 """Tests for mid-circuit measurement and classical feedforward (mid-circuit-measurement change)."""
 
-import pytest
 
 from q_orca.ast import QEffectMeasure, QEffectConditional, QTypeList
 from q_orca.parser.markdown_parser import parse_q_orca_markdown
