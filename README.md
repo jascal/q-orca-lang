@@ -12,6 +12,17 @@ All 5 example machines (Bell, GHZ, Deutsch-Jozsa, Teleportation, VQE) pass the f
 
 ---
 
+## Why Q-Orca?
+
+Most quantum tools let you draw circuits. Q-Orca lets you **define, verify, and simulate** quantum programs as first-class state machines — with the same rigour you'd apply to a production distributed system.
+
+- **Verification, not just simulation** — a 5-stage pipeline catches unitarity violations, entanglement declaration errors, superposition coherence leaks, and incomplete collapse branches before you run a single shot
+- **Readable by humans and AI** — machines are plain Markdown; LLMs generate and refine them natively via the built-in MCP server
+- **Hybrid classical-quantum control** — mid-circuit measurement + classical feedforward lets you write closed-loop quantum controllers, not just open circuits
+- **Formal foundation** — directly implements quantum finite automata theory in executable, verifiable form
+
+---
+
 ## Install
 
 ```bash
@@ -688,6 +699,27 @@ Add to your Claude Code settings (`~/.claude/settings.json` or project `.claude.
 | `simulate_machine` | Run Qiskit simulation |
 | `server_status` | Get server version and LLM config |
 
+### Using with Claude Code
+
+Add Q-Orca to your Claude Code project by creating `.claude.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "q-orca": {
+      "command": "q-orca-mcp",
+      "cwd": "."
+    }
+  }
+}
+```
+
+Claude can then generate, verify, and refine quantum machines directly from natural language. Example prompt:
+
+> "Generate a 3-qubit GHZ state machine, verify it, and compile to QASM"
+
+Claude calls `generate_machine` → `verify_machine` → `compile_machine` in sequence, refining automatically if verification fails.
+
 ### LLM Provider Configuration
 
 `ORCA_API_KEY` is the universal key — it works for any provider:
@@ -735,18 +767,18 @@ flowchart TD
     MD --> Parser
 
     subgraph Parser
-        MP[markdown_parser.py<br/>Two-phase parse]
+        MP[markdown_parser.py - Two-phase parse]
     end
 
     Parser --> AST[AST: QMachineDef]
 
     subgraph "Verifier (5 stages)"
-        V1[structural.py<br/>Reachability, deadlocks, orphans]
-        V2[completeness.py<br/>(state, event) coverage]
-        V3[determinism.py<br/>Guard mutual exclusion]
-        V4[quantum.py<br/>Unitarity, no-cloning, entanglement]
-        V4D[dynamic.py<br/>QuTiP: Schmidt rank, entropy]
-        V5[superposition.py<br/>Superposition coherence leak]
+        V1[structural.py - Reachability, deadlocks, orphans]
+        V2[completeness.py - state/event coverage]
+        V3[determinism.py - Guard mutual exclusion]
+        V4[quantum.py - Unitarity, no-cloning, entanglement]
+        V4D[dynamic.py - QuTiP: Schmidt rank, entropy]
+        V5[superposition.py - Superposition coherence leak]
         V1 --> V2 --> V3 --> V4 --> V4D --> V5
     end
 
@@ -754,10 +786,10 @@ flowchart TD
     Verifier --> VResult{Valid?}
 
     VResult -->|Yes| Compiler
-    VResult -->|No| Refine[refine_skill<br/>LLM fix loop]
+    VResult -->|No| Refine[refine_skill - LLM fix loop]
 
     Refine -->|Fixed source| Parser
-    NL --> Generate[generate_skill<br/>LLM generation]
+    NL --> Generate[generate_skill - LLM generation]
     Generate -->|Raw .q.orca.md| Parser
 
     subgraph Compiler
@@ -834,3 +866,9 @@ q_orca/
 **Longer-term**
 - **Multi-machine composition** — link two machines via shared qubits or classical channels, verified jointly
 - **VS Code extension** — syntax highlighting, inline verification on save, Mermaid preview
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, good first issues, and research directions. Detailed feature specs are in [`docs/specs/`](docs/specs/).
