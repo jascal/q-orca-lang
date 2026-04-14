@@ -52,7 +52,8 @@ def compile_to_qasm(machine: QMachineDef) -> str:
         elif action and action.conditional_gate is not None:
             cg = action.conditional_gate
             gate_str = _gate_to_qasm(cg.gate, qubit_count).rstrip(";")
-            lines.append(f"if(c=={cg.value}) {gate_str};")
+            # OpenQASM 3.0 per-bit conditional: if (c[M] == val) { gate; }
+            lines.append(f"if (c[{cg.bit_idx}] == {cg.value}) {{ {gate_str}; }}")
         else:
             for gate in gates:
                 lines.append(_gate_to_qasm(gate, qubit_count))
