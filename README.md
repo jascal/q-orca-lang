@@ -4,6 +4,7 @@
 [![Verify Examples](https://github.com/jascal/q-orca-lang/actions/workflows/verify-examples.yml/badge.svg)](https://github.com/jascal/q-orca-lang/actions/workflows/verify-examples.yml)
 [![PyPI](https://img.shields.io/pypi/v/q-orca)](https://pypi.org/project/q-orca/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://pypi.org/project/q-orca/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 Q-Orca is a quantum-aware dialect of [Orca](https://github.com/orca-lang/orca-lang), a state machine language written in Markdown. It extends Orca with Dirac ket notation for quantum states, unitary gate actions, entanglement verification, and simulation via Qiskit.
 
@@ -269,6 +270,10 @@ q-orca simulate examples/bell-entangler.q.orca.md --run --json
 | `deutsch-jozsa.q.orca.md` | Constant vs balanced oracle detection |
 | `ghz-state.q.orca.md` | 3-qubit GHZ state preparation |
 | `vqe-heisenberg.q.orca.md` | Variational quantum eigensolver for Heisenberg XXX Hamiltonian |
+| `active-teleportation.q.orca.md` | Active quantum teleportation using mid-circuit measurement and classical feedforward |
+| `bit-flip-syndrome.q.orca.md` | 5-qubit bit-flip error correction with syndrome extraction |
+| `qaoa-maxcut.q.orca.md` | QAOA MaxCut using parameterized RZZ two-qubit gates |
+| `vqe-rotation.q.orca.md` | VQE rotation circuit with parameterized Rx gate |
 
 ### Hybrid Classical + Quantum Demo
 
@@ -411,6 +416,27 @@ The full source for every example is in [`examples/`](examples/). Here is `bell-
 ```
 
 > **Full source:** [`examples/bell-entangler.q.orca.md`](examples/bell-entangler.q.orca.md) — or view all examples in [`examples/`](examples/)
+
+---
+
+## Mid-Circuit Measurement & Classical Feedforward
+
+Q-Orca supports mid-circuit measurement with classical feedforward — measure a qubit mid-circuit and use the result to condition subsequent gates.
+
+Declare classical bits in `## context`:
+
+| Field | Type        | Default |
+|-------|-------------|---------|
+| bits  | list<bit>   | [c0]    |
+
+Use `measure(qs[N]) -> bits[M]` as an action effect, and `if bits[M] == val: Gate(qs[K])` for conditional gates:
+
+| Name              | Signature       | Effect                              |
+|-------------------|-----------------|-------------------------------------|
+| measure_q0        | (qs, bits) -> bits | measure(qs[0]) -> bits[0]        |
+| apply_x_if_one    | (qs, bits) -> qs   | if bits[0] == 1: X(qs[1])        |
+
+See [`examples/active-teleportation.q.orca.md`](examples/active-teleportation.q.orca.md) and [`examples/bit-flip-syndrome.q.orca.md`](examples/bit-flip-syndrome.q.orca.md) for full working examples.
 
 ---
 
@@ -796,12 +822,15 @@ q_orca/
 
 ## Roadmap
 
+> Detailed feature specs are in [`docs/specs/`](docs/specs/).
+
 **Near-term**
-- ~~**Parameterized gates** — `Rx(θ)`, `Ry(θ)`, `Rz(θ)` with symbolic angles in the Markdown action table~~ **Shipped** — see [CHANGELOG](CHANGELOG.md) for the `0.3.3` entry
+- ~~**Parameterized gates** — `Rx(θ)`, `Ry(θ)`, `Rz(θ)` with symbolic angles in the Markdown action table~~ ✅ **Shipped** — see [CHANGELOG](CHANGELOG.md) for the `0.3.3` entry
+- ~~**Parameterized two-qubit gates** — `CRz`, `RXX`, `RYY`, `RZZ` with symbolic angles~~ ✅ **Shipped** — see [PR #5](../../pull/5)
+- ~~**Hybrid classical/quantum transitions** — mid-circuit measurement + feedforward~~ ✅ **Shipped** — see [PR #5](../../pull/5)
 - **Noise models** — depolarizing, amplitude damping, thermal noise in `## context`; propagate into Qiskit noise simulation
 - **QASM 3.0 import** — parse existing `.qasm` files and lift them into Q-Orca state machines
 
 **Longer-term**
-- **Hybrid classical/quantum transitions** — classical control flow between quantum sub-circuits (mid-circuit measurement + feedforward)
 - **Multi-machine composition** — link two machines via shared qubits or classical channels, verified jointly
 - **VS Code extension** — syntax highlighting, inline verification on save, Mermaid preview
