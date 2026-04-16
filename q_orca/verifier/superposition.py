@@ -103,7 +103,7 @@ def check_superposition_leaks(machine: QMachineDef) -> QVerificationResult:
                         errors.append(QVerificationError(
                             code="SUPERPOSITION_LEAK",
                             message=f"Unguarded measurement from non-final superposition state '{state.name}' may cause undefined behavior",
-                            severity="warning",
+                            severity="error",
                             location={"state": state.name, "event": t.event, "transition": f"{t.source} -> {t.target}"},
                             suggestion="Add probability guards or ensure measurement is the terminal step",
                         ))
@@ -115,8 +115,8 @@ def check_superposition_leaks(machine: QMachineDef) -> QVerificationResult:
                     errors.append(QVerificationError(
                         code="SUPERPOSITION_LEAK",
                         message=f"Transition '{action.name}' from superposition state '{state.name}' to non-superposition state '{t.target}' may collapse superposition",
-                        severity="warning",
-                        location={"state": state.name, "event": t.event, "transition": t, "action": t.action},
+                        severity="error",
+                        location={"state": state.name, "event": t.event, "transition": f"{t.source} -> {t.target}", "action": t.action},
                         suggestion="Ensure the gate preserves superposition or add proper decoherence handling",
                     ))
 
@@ -155,6 +155,7 @@ def check_superposition_leaks(machine: QMachineDef) -> QVerificationResult:
                 )
                 is_teleportation = not all_targets_final and has_subsequent
 
+                severity = "warning" if all_targets_final else "error"
                 errors.append(QVerificationError(
                     code="SUPERPOSITION_LEAK",
                     message=(
@@ -164,7 +165,7 @@ def check_superposition_leaks(machine: QMachineDef) -> QVerificationResult:
                         if all_targets_final
                         else f"Measurement event '{event.name}' from non-final superposition state '{source}' has no probability guards"
                     ),
-                    severity="warning",
+                    severity=severity,
                     location={"state": source, "event": event.name},
                     suggestion="This is expected for quantum communication protocols" if is_teleportation or all_targets_final else "Add probability guards or ensure measurement is the terminal step",
                 ))
