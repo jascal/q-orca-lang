@@ -74,5 +74,6 @@ class TestVqeRotationPipeline:
         from qutip import Qobj
         psi_formula = Qobj([[c0], [c1]])
 
-        fidelity = abs((psi_formula.dag() * psi_expected)[0, 0]) ** 2
+        inner = psi_formula.dag() * psi_expected
+        fidelity = abs(inner[0, 0] if hasattr(inner, "__getitem__") else inner) ** 2
         assert fidelity > 0.999999, f"State fidelity too low: {fidelity}"

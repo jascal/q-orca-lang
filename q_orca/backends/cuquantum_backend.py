@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from q_orca.ast import QMachineDef
 from q_orca.backends.base import BackendAdapter, BackendResult, BackendUnavailableError
+from q_orca.verifier.dynamic import dynamic_verify_gpu
 from q_orca.verifier.types import QVerificationResult
 
 # Detect availability at module load time
@@ -48,9 +49,7 @@ class CuQuantumBackend(BackendAdapter):
                 "qutip-cuquantum is not installed. "
                 "Install with: pip install qutip-cuquantum"
             )
-        # When actually available, delegate to QuTiP with cuQuantum provider
-        from q_orca.verifier.dynamic import dynamic_verify
-        result = dynamic_verify(machine)
+        result = dynamic_verify_gpu(machine)
         backend_result = BackendResult(
             name=self.name,
             version=self.version,
