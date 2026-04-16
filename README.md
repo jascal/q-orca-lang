@@ -52,6 +52,7 @@ Machine: BellEntangler
 
 ```bash
 # CUDA-Q (macOS Apple Silicon, Linux, Windows — CPU simulation, no GPU required)
+# Tested: cudaq==0.14.0
 pip install cudaq matplotlib
 q-orca verify examples/bell-entangler.q.orca.md --backend cudaq
 
