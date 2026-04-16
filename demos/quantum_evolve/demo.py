@@ -151,26 +151,23 @@ ELITISM = 1
 BACKEND = "cuquantum"  # set to "qutip" to disable GPU, or "none" to skip dynamic
 
 DEFAULT_DESIGN_GOAL = textwrap.dedent("""\
-    Design a quantum state machine that implements Grover's search algorithm
-    on 4 qubits, searching for the target state |1010>.
+    Design a quantum state machine that implements the 3-qubit bit-flip
+    error correction code.
 
     Requirements:
-    1. Four qubits in context: q0, q1, q2, q3
-    2. Initialization phase: apply Hadamard to all 4 qubits to create uniform superposition
-    3. Oracle phase: mark the target |1010> by flipping its phase (apply a
-       multi-controlled Z (or equivalent CNOT+H decomposition) that introduces
-       a -1 phase on |1010> and leaves all other amplitudes unchanged)
-    4. Diffusion phase: apply the Grover diffusion operator
-       (H^4 · (2|0><0| - I) · H^4) to amplify the target amplitude
-    5. Run 2 full Grover iterations (oracle + diffusion each time)
-    6. Measurement phase: measure all 4 qubits; the outcome |1010> should have
-       high probability (~97%)
-    7. Include at least 2 collapse branches in the measurement with probability guards
-    8. Mark the post-measurement states as [final]
+    1. Three qubits in context: one logical data qubit (q0) and two ancillas (q1, q2)
+    2. Encoding phase: spread the logical qubit across all three using CNOT gates
+       so |0> -> |000> and |1> -> |111>
+    3. Error phase: model a single-qubit X (bit-flip) error on one of the three qubits
+    4. Syndrome measurement: measure the two parity checks (q0⊕q1 and q1⊕q2)
+       using ancilla-based CNOT + measurement — each collapses to a 0 or 1 syndrome bit
+    5. Correction phase: based on the 2-bit syndrome (4 branches: no error, error on
+       q0, q1, or q2), apply the corrective X gate to the identified qubit
+    6. Include all four syndrome collapse branches with probability guards
+    7. Mark the final corrected states as [final]
 
-    State names must be valid identifiers (letters, digits, underscores only —
-    no Dirac ket notation in state names).
-    Include verification rules: unitarity, entanglement, no_cloning.""")
+    The machine should have descriptive state names for each phase, proper context
+    fields, and verification rules (unitarity, no-cloning at minimum).""")
 
 DESIGN_GOAL = DEFAULT_DESIGN_GOAL  # May be overridden by --goal / --goal-file
 
