@@ -11,6 +11,7 @@ from q_orca.verifier import verify, VerifyOptions
 from q_orca.compiler.mermaid import compile_to_mermaid
 from q_orca.compiler.qasm import compile_to_qasm
 from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
+from q_orca.compiler.cudaq import compile_to_cudaq
 from q_orca.runtime.python import check_python_dependencies, simulate_machine
 from q_orca.tools import Q_ORCA_TOOLS
 
@@ -35,10 +36,16 @@ def main():
     v.add_argument("--skip-quantum", action="store_true", help="Skip stage 4: quantum-specific checks (unitarity, entanglement)")
     v.add_argument("--skip-dynamic", action="store_true", help="Skip stage 4b: QuTiP circuit simulation (Schmidt rank, entropy)")
     v.add_argument("--strict", action="store_true", help="Treat warnings as errors (exit 1 on any warning)")
+    v.add_argument("--backend", default=None, metavar="BACKEND",
+                   help="Verification backend: qutip (default), cuquantum, cudaq")
+    v.add_argument("--gpu-count", type=int, default=1, metavar="N",
+                   help="Number of GPUs to use (cuquantum backend)")
+    v.add_argument("--tensor-network", action="store_true",
+                   help="Use tensor-network contraction (cuquantum backend)")
 
     # compile
     c = sub.add_parser("compile", help="Compile to a target format")
-    c.add_argument("format", choices=["mermaid", "qasm", "qiskit"], help="Output format")
+    c.add_argument("format", choices=["mermaid", "qasm", "qiskit", "cudaq"], help="Output format")
     c.add_argument("file", nargs="?", help="Path to .q.orca.md file (or use --stdin)")
 
     # simulate
@@ -50,6 +57,14 @@ def main():
     s.add_argument("--json", action="store_true", help="Output results as JSON")
     s.add_argument("--verbose", action="store_true", help="Include stdout/stderr")
     s.add_argument("--skip-qutip", action="store_true", help="Skip QuTiP verification")
+    s.add_argument("--backend", default=None, metavar="BACKEND",
+                   help="Simulation backend: qutip (default), cuquantum, cudaq")
+    s.add_argument("--gpu-count", type=int, default=1, metavar="N",
+                   help="Number of GPUs to use (cuquantum backend)")
+    s.add_argument("--tensor-network", action="store_true",
+                   help="Use tensor-network contraction (cuquantum backend)")
+    s.add_argument("--cudaq-target", default=None, metavar="TARGET",
+                   help="CUDA-Q target (e.g. nvidia, qpp-cpu, ionq) — cudaq backend only")
 
     args = parser.parse_args()
 
@@ -84,15 +99,42 @@ def main():
         _cmd_simulate(parsed, args)
 
 
+def _resolve_backend(args, config=None) -> str:
+    """Merge CLI --backend flag (priority) over config file value (fallback)."""
+    if getattr(args, "backend", None):
+        return args.backend
+    if config is not None and getattr(config, "backend", None):
+        return config.backend
+    return "qutip"
+
+
 def _cmd_verify(parsed, args):
+    from q_orca.config.loader import load_config
+    try:
+        config = load_config()
+    except Exception:
+        config = None
+
+    backend = _resolve_backend(args, config)
+
+    # Wire gpu_count / tensor_network into cuquantum adapter if selected
+    if backend == "cuquantum":
+        from q_orca.backends.cuquantum_backend import cuquantum_backend
+        cuquantum_backend.gpu_count = getattr(args, "gpu_count", 1)
+        cuquantum_backend.tensor_network = getattr(args, "tensor_network", False)
+
     has_errors = False
     for machine in parsed.file.machines:
         opts = VerifyOptions(
             skip_completeness=args.skip_completeness,
             skip_quantum=args.skip_quantum,
             skip_dynamic=args.skip_dynamic,
+            backend=backend,
         )
         result = verify(machine, opts)
+
+        # Collect backend metadata for JSON output
+        backend_meta = _get_backend_meta(backend)
 
         if args.strict:
             warnings_as_errors = [e for e in result.errors if e.severity == "warning"]
@@ -101,8 +143,8 @@ def _cmd_verify(parsed, args):
             result.errors = errors_list + warnings_as_errors
 
         if args.json:
-            import json
-            print(json.dumps({
+            import json as _json
+            print(_json.dumps({
                 "machine": machine.name,
                 "valid": result.valid,
                 "errors": [
@@ -110,6 +152,7 @@ def _cmd_verify(parsed, args):
                      "suggestion": e.suggestion}
                     for e in result.errors
                 ],
+                "backend": backend_meta,
             }, indent=2))
         else:
             print(f"\n  Machine: {machine.name}")
@@ -143,9 +186,30 @@ def _cmd_compile(parsed, args):
         elif args.format == "qiskit":
             opts = QSimulationOptions(analytic=True, run=False)
             print(compile_to_qiskit(machine, opts))
+        elif args.format == "cudaq":
+            print(compile_to_cudaq(machine))
 
 
 def _cmd_simulate(parsed, args):
+    from q_orca.config.loader import load_config
+    try:
+        config = load_config()
+    except Exception:
+        config = None
+
+    backend = _resolve_backend(args, config)
+
+    # Wire gpu_count / tensor_network into cuquantum adapter if selected
+    if backend == "cuquantum":
+        from q_orca.backends.cuquantum_backend import cuquantum_backend
+        cuquantum_backend.gpu_count = getattr(args, "gpu_count", 1)
+        cuquantum_backend.tensor_network = getattr(args, "tensor_network", False)
+
+    # Wire cudaq-target into cudaq adapter if selected
+    if backend == "cudaq":
+        from q_orca.backends.cudaq_backend import cudaq_backend
+        cudaq_backend.target = getattr(args, "cudaq_target", None)
+
     if args.run:
         deps = check_python_dependencies()
         if not deps.python3:
@@ -163,12 +227,14 @@ def _cmd_simulate(parsed, args):
         run=args.run,
     )
 
+    backend_meta = _get_backend_meta(backend)
+
     for machine in parsed.file.machines:
         if args.run:
             result = simulate_machine(machine, options)
 
             if args.json:
-                import json
+                import json as _json
                 qutip_dict = None
                 if result.qutip_verification:
                     qv = result.qutip_verification
@@ -180,13 +246,14 @@ def _cmd_simulate(parsed, args):
                         "purity": qv.purity,
                         "errors": qv.errors,
                     }
-                print(json.dumps({
+                print(_json.dumps({
                     "machine": machine.name,
                     "success": result.success,
                     "probabilities": result.probabilities,
                     "counts": result.counts,
                     "qutipVerification": qutip_dict,
                     "error": result.error,
+                    "backend": backend_meta,
                 }, indent=2))
             else:
                 print(f"\n  Machine: {machine.name}")
@@ -209,6 +276,16 @@ def _cmd_simulate(parsed, args):
         else:
             script = compile_to_qiskit(machine, options)
             print(script)
+
+
+def _get_backend_meta(backend_name: str) -> dict:
+    """Return a dict with backend name and version for JSON output."""
+    from q_orca.backends import BackendRegistry, BackendUnavailableError
+    try:
+        adapter = BackendRegistry.get(backend_name)
+        return {"name": adapter.name, "version": adapter.version}
+    except BackendUnavailableError:
+        return {"name": backend_name, "version": "unknown"}
 
 
 if __name__ == "__main__":

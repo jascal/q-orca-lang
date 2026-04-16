@@ -9,7 +9,6 @@ deterministic test; it is documented in a skip marker.
 import json
 import textwrap
 
-import pytest
 
 from q_orca.parser.markdown_parser import parse_q_orca_markdown
 from q_orca.compiler.qasm import compile_to_qasm, _infer_qubit_count as qasm_qubit_count
@@ -123,7 +122,7 @@ class TestBug1QiskitGateEmission:
         script = compile_to_qiskit(machine, opts)
         # The cx01 action must produce actual gate code, not just a comment
         lines = script.splitlines()
-        gate_lines = [l for l in lines if l.strip().startswith("qc.")]
+        gate_lines = [ln for ln in lines if ln.strip().startswith("qc.")]
         assert len(gate_lines) >= 2, f"Expected at least 2 gate calls, got: {gate_lines}"
 
     def test_rx_ry_rz_parsed(self):
@@ -197,10 +196,10 @@ class TestBug3QASMGateEmission:
         """CX transition must not produce only a comment line."""
         machine = _machine(BELL_TEST_SOURCE)
         output = compile_to_qasm(machine)
-        gate_lines = [l for l in output.splitlines() if not l.startswith("//") and l.strip()]
-        actual_gates = [l for l in gate_lines if not l.startswith("OPENQASM") and
-                        not l.startswith('include') and not l.startswith("qubit") and
-                        not l.startswith("bit") and not l.startswith("int")]
+        gate_lines = [ln for ln in output.splitlines() if not ln.startswith("//") and ln.strip()]
+        actual_gates = [ln for ln in gate_lines if not ln.startswith("OPENQASM") and
+                        not ln.startswith('include') and not ln.startswith("qubit") and
+                        not ln.startswith("bit") and not ln.startswith("int")]
         assert len(actual_gates) >= 2, f"Expected ≥2 gate statements, got: {actual_gates}"
 
     def test_ghz_qasm_three_gates(self):

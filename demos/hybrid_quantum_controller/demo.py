@@ -228,18 +228,18 @@ def refine_circuit(ctx, payload=None):
     # Apply the deterministic fix
     workspace.quantum_source = FIXED_BELL_ENTANGLER
 
-    print(f"  [refine_circuit] Applied fix:")
-    print(f"  [refine_circuit]   + Added state expression for |psi> (Bell state)")
-    print(f"  [refine_circuit]   + Added |00_collapsed> and |11_collapsed> final states")
-    print(f"  [refine_circuit]   + Added measure_done transitions with collapse guards")
-    print(f"  [refine_circuit]   + Added probability guards and outcome actions")
+    print("  [refine_circuit] Applied fix:")
+    print("  [refine_circuit]   + Added state expression for |psi> (Bell state)")
+    print("  [refine_circuit]   + Added |00_collapsed> and |11_collapsed> final states")
+    print("  [refine_circuit]   + Added measure_done transitions with collapse guards")
+    print("  [refine_circuit]   + Added probability guards and outcome actions")
 
     return {"iteration": iteration, "status": "refined"}
 
 
 def compile_circuit(ctx, payload=None):
     """Compile the verified quantum machine to QASM, Qiskit, and Mermaid."""
-    print(f"\n  [compile_circuit] Compiling to multiple targets...")
+    print("\n  [compile_circuit] Compiling to multiple targets...")
 
     machine = workspace.machine_def
 
@@ -258,13 +258,13 @@ def compile_circuit(ctx, payload=None):
 
 def analyze_results(ctx, payload=None):
     """Display the compiled quantum circuit outputs."""
-    print(f"\n  [analyze_results] Compiled outputs:\n")
+    print("\n  [analyze_results] Compiled outputs:\n")
 
     print("  --- OpenQASM 3.0 ---")
     for line in workspace.qasm_output.strip().splitlines():
         print(f"    {line}")
 
-    print(f"\n  --- Mermaid State Diagram ---")
+    print("\n  --- Mermaid State Diagram ---")
     for line in workspace.mermaid_output.strip().splitlines():
         print(f"    {line}")
 
@@ -360,11 +360,11 @@ async def main():
     print("=" * 66)
 
     # Start the experiment -- loads the broken quantum machine
-    print(f"\n--- [event] START_EXPERIMENT ---")
+    print("\n--- [event] START_EXPERIMENT ---")
     await controller.send("START_EXPERIMENT", {"spec": "Bell state entangler"})
 
     # Design complete -- trigger first verification
-    print(f"\n--- [event] DESIGN_COMPLETE ---")
+    print("\n--- [event] DESIGN_COMPLETE ---")
     await controller.send("DESIGN_COMPLETE")
 
     # ── 4. Inner refinement loop ──────────────────────────────────────────
@@ -375,19 +375,19 @@ async def main():
     for _ in range(5):  # safety limit
         if workspace.is_valid:
             # Verification passed -- move to compilation
-            print(f"\n--- [event] VERIFICATION_PASSED ---")
+            print("\n--- [event] VERIFICATION_PASSED ---")
             await controller.send("VERIFICATION_PASSED")
             break
         else:
             # Verification failed -- attempt refinement
-            print(f"\n--- [event] VERIFICATION_FAILED ---")
-            result = await controller.send("VERIFICATION_FAILED")
+            print("\n--- [event] VERIFICATION_FAILED ---")
+            await controller.send("VERIFICATION_FAILED")
 
             if controller.state.leaf() == "failed":
                 break
 
             # Refinement done -- re-verify
-            print(f"\n--- [event] REFINEMENT_COMPLETE ---")
+            print("\n--- [event] REFINEMENT_COMPLETE ---")
             await controller.send("REFINEMENT_COMPLETE")
 
     # ── 5. Compile and analyze ────────────────────────────────────────────
@@ -396,10 +396,10 @@ async def main():
         print("  PHASE 5: Compile & analyze verified quantum circuit")
         print("=" * 66)
 
-        print(f"\n--- [event] COMPILE_COMPLETE ---")
+        print("\n--- [event] COMPILE_COMPLETE ---")
         await controller.send("COMPILE_COMPLETE")
 
-        print(f"\n--- [event] ANALYSIS_COMPLETE ---")
+        print("\n--- [event] ANALYSIS_COMPLETE ---")
         await controller.send("ANALYSIS_COMPLETE")
 
     # ── Result ────────────────────────────────────────────────────────────

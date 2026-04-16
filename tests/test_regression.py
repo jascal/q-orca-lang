@@ -12,7 +12,6 @@ These tests verify that the verifier correctly catches:
 """
 
 import math
-import json
 from pathlib import Path
 
 import pytest
@@ -542,7 +541,6 @@ class TestFullPipelineRegression:
             source = f.read_text()
             machine = _machine(source)
             result = verify(machine)
-            error_codes = [e.code for e in result.errors if e.severity == "error"]
             assert result.valid, (
                 f"{f.name} failed verification:\n"
                 + "\n".join(f"  [{e.severity}] {e.code}: {e.message}" for e in result.errors)

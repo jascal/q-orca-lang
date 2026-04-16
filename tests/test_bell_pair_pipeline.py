@@ -62,8 +62,8 @@ class TestBellPairQASM:
     def test_qasm_gate_order(self, bell_qasm):
         # h must appear before cx
         lines = bell_qasm.splitlines()
-        h_idx = next(i for i, l in enumerate(lines) if "h q[0];" in l)
-        cx_idx = next(i for i, l in enumerate(lines) if "cx q[0], q[1];" in l)
+        h_idx = next(i for i, ln in enumerate(lines) if "h q[0];" in ln)
+        cx_idx = next(i for i, ln in enumerate(lines) if "cx q[0], q[1];" in ln)
         assert h_idx < cx_idx
 
 

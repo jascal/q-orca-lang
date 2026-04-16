@@ -247,7 +247,7 @@ async def _llm(system: str, user: str, temperature: float | None = None) -> str:
             elapsed = time.time() - t0
             print(f"       {C.DIM}↳ {elapsed:.1f}s  ({len(resp.content)} chars){C.RESET}", flush=True)
             return resp.content
-        except (TimeoutError, OSError) as e:
+        except (TimeoutError, OSError):
             elapsed = time.time() - t0
             if attempt < LLM_MAX_RETRIES:
                 wait = 5 * attempt
@@ -657,7 +657,6 @@ async def _breed_next_gen(ctx, payload=None):
     gen = ctx.get("generation", 0) + 1
     parent_a, parent_b = evo.selected_parents
     max_attempts = POPULATION_SIZE * 4
-    slots_needed = POPULATION_SIZE - ELITISM
 
     _header(f"Breeding generation {gen}", "🧪")
 
@@ -675,7 +674,7 @@ async def _breed_next_gen(ctx, payload=None):
     children: list[Individual] = [elite_copy]
     seen: set[str] = {_normalize_source(elite.source)}
     attempt = 0
-    bred_any = False  # track whether at least one crossover/mutation succeeded
+
 
     print()
     while len(children) < POPULATION_SIZE and attempt < max_attempts:
@@ -710,7 +709,6 @@ async def _breed_next_gen(ctx, payload=None):
         seen.add(norm)
         child.id = f"g{gen}-{len(children)}"
         children.append(child)
-        bred_any = True
         _ok(f"{child.id}: accepted ({len(children)}/{POPULATION_SIZE})")
         print()
 
@@ -760,7 +758,7 @@ def _report_best(ctx, payload=None):
         f"Fitness:     {best.fitness:.1f} / 100",
         f"Valid:       {'Yes' if best.is_valid else 'No'}",
         f"Generation:  {best.generation}",
-        f"",
+        "",
     ]
 
     # Word-wrap rationale
