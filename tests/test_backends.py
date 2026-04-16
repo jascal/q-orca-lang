@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from unittest.mock import patch
 
 import pytest
 
@@ -183,6 +184,83 @@ class TestBackendUnavailableWarning:
 # ---------------------------------------------------------------------------
 # Task 9.2 — compile_to_cudaq tests
 # ---------------------------------------------------------------------------
+
+class TestCuQuantumGPUActivation:
+    """Tests that the cuquantum backend uses CuPy for GPU-accelerated gate simulation."""
+
+    def test_evolve_path_gpu_returns_cupy_array(self):
+        """_evolve_path_gpu must return a cupy ndarray on the GPU device."""
+        try:
+            import cupy as cp
+        except ImportError:
+            pytest.skip("cupy not installed")
+        from q_orca.verifier.dynamic import _evolve_path_gpu, CUPY_AVAILABLE, _infer_qubit_count, _build_gate_sequence
+        if not CUPY_AVAILABLE:
+            pytest.skip("cupy not available in dynamic module")
+
+        machine = _parse_bell()
+        n = _infer_qubit_count(machine)
+        _, gate_seq = _build_gate_sequence(machine, n)
+        all_gates = [g for gates in gate_seq for g in gates]
+
+        psi_gpu = cp.zeros((2 ** n, 1), dtype=cp.complex128)
+        psi_gpu[0, 0] = 1.0
+        result = _evolve_path_gpu(psi_gpu, all_gates, n)
+
+        assert isinstance(result, cp.ndarray), "result must be a cupy array (GPU)"
+        assert result.device.id >= 0
+
+    def test_gpu_result_matches_cpu(self):
+        """GPU and CPU verification must agree on validity and error codes."""
+        try:
+            import cupy  # noqa: F401
+        except ImportError:
+            pytest.skip("cupy not installed")
+        from q_orca.verifier.dynamic import dynamic_verify, dynamic_verify_gpu, CUPY_AVAILABLE
+        if not CUPY_AVAILABLE:
+            pytest.skip("cupy not available in dynamic module")
+
+        machine = _parse_bell()
+        cpu_result = dynamic_verify(machine)
+        gpu_result = dynamic_verify_gpu(machine)
+
+        assert gpu_result.valid == cpu_result.valid
+        assert {e.code for e in gpu_result.errors} == {e.code for e in cpu_result.errors}
+
+    def test_gpu_memory_allocated_during_verify(self):
+        """cupy memory pool total must grow after the first GPU verification call."""
+        try:
+            import cupy as cp
+        except ImportError:
+            pytest.skip("cupy not installed")
+        from q_orca.verifier.dynamic import dynamic_verify_gpu, CUPY_AVAILABLE
+        if not CUPY_AVAILABLE:
+            pytest.skip("cupy not available in dynamic module")
+
+        machine = _parse_bell()
+        pool = cp.get_default_memory_pool()
+        pool.free_all_blocks()
+        before = pool.total_bytes()
+
+        dynamic_verify_gpu(machine)
+        cp.cuda.Stream.null.synchronize()
+
+        assert pool.total_bytes() > before, "no GPU memory was allocated during verification"
+
+    def test_cuquantum_backend_calls_gpu_verify(self):
+        """CuQuantumBackend.verify() must delegate to dynamic_verify_gpu."""
+        from q_orca.backends.cuquantum_backend import CuQuantumBackend, AVAILABLE
+        if not AVAILABLE:
+            pytest.skip("qutip_cuquantum not installed")
+
+        machine = _parse_bell()
+        backend = CuQuantumBackend()
+
+        with patch("q_orca.backends.cuquantum_backend.dynamic_verify_gpu") as mock_gpu:
+            mock_gpu.return_value = QVerificationResult(valid=True, errors=[])
+            backend.verify(machine)
+            mock_gpu.assert_called_once_with(machine)
+
 
 class TestCompileToCudaQ:
     """Tests for the CUDA-Q compiler target."""

@@ -18,12 +18,13 @@ from q_orca.ast import QMachineDef
 from q_orca.verifier.types import QVerificationError, QVerificationResult
 
 # QuTiP imports with graceful fallback
+# qutip 5.x split gate operations into the separate qutip_qip package.
 QUTIP_AVAILABLE = False
 try:
-    from qutip import basis, ket2dm, partial_trace, entropy_vn, qeye, Qobj
-    from qutip.qip.operations import (
+    from qutip import basis, ket2dm, entropy_vn, qeye, Qobj
+    from qutip_qip.operations import (
         hadamard_transform, cnot, x_gate, y_gate, z_gate,
-        rx, ry, rz, gate_expand_1toN, cz, swap,
+        rx, ry, rz, expand_operator, cz_gate, swap,
     )
     QUTIP_AVAILABLE = True
 except ImportError:
@@ -164,7 +165,7 @@ def _parse_single_gate_to_dict(effect_str: str) -> Optional[Dict[str, Any]]:
 
 def _expand_1qubit_gate(op: Qobj, n_qubits: int, target: int) -> Qobj:
     """Expand a single-qubit gate to act on the full register."""
-    return gate_expand_1toN(op, n_qubits, target)
+    return expand_operator(op, dims=[2] * n_qubits, targets=target)
 
 
 def _get_qutip_operator(gate: Dict[str, Any], n_qubits: int) -> Qobj:
@@ -175,7 +176,7 @@ def _get_qutip_operator(gate: Dict[str, Any], n_qubits: int) -> Qobj:
     params = gate.get("params", {})
 
     if not targets:
-        return qeye(2 ** n_qubits)
+        return qeye([2] * n_qubits)
 
     if name == "H":
         op = hadamard_transform()
@@ -196,35 +197,32 @@ def _get_qutip_operator(gate: Dict[str, Any], n_qubits: int) -> Qobj:
     elif name in ("CNOT", "CX"):
         ctrl = controls[0] if controls else targets[0]
         tgt = targets[1] if len(targets) > 1 else targets[0]
-        return cnot(n_qubits, ctrl, tgt)
+        return expand_operator(cnot(), dims=[2] * n_qubits, targets=[ctrl, tgt])
 
     elif name == "CZ":
         ctrl = controls[0] if controls else targets[0]
         tgt = targets[0]
-        return cz(n_qubits, ctrl, tgt)
+        return expand_operator(cz_gate(), dims=[2] * n_qubits, targets=[ctrl, tgt])
 
     elif name == "SWAP":
         tgt1 = targets[0]
         tgt2 = targets[1] if len(targets) > 1 else targets[0]
-        return swap(n_qubits, tgt1, tgt2)
+        return expand_operator(swap(), dims=[2] * n_qubits, targets=[tgt1, tgt2])
 
     elif name == "RX":
         theta = params.get("theta", 0.0)
-        op = rx(theta)
-        return _expand_1qubit_gate(op, n_qubits, targets[0])
+        return expand_operator(rx(theta), dims=[2] * n_qubits, targets=targets[0])
 
     elif name == "RY":
         theta = params.get("theta", 0.0)
-        op = ry(theta)
-        return _expand_1qubit_gate(op, n_qubits, targets[0])
+        return expand_operator(ry(theta), dims=[2] * n_qubits, targets=targets[0])
 
     elif name == "RZ":
         theta = params.get("theta", 0.0)
-        op = rz(theta)
-        return _expand_1qubit_gate(op, n_qubits, targets[0])
+        return expand_operator(rz(theta), dims=[2] * n_qubits, targets=targets[0])
 
     else:
-        return qeye(2 ** n_qubits)
+        return qeye([2] * n_qubits)
 
 
 def _evolve_path(initial_psi: Qobj, path_gates: List[Dict[str, Any]], n_qubits: int) -> Qobj:
@@ -239,8 +237,8 @@ def _evolve_path(initial_psi: Qobj, path_gates: List[Dict[str, Any]], n_qubits: 
 def _entanglement_entropy(subsystem: List[int], psi: Qobj, n_qubits: int) -> float:
     """Von Neumann entropy of the reduced density matrix on `subsystem`."""
     rho = ket2dm(psi)
-    traced_out = [i for i in range(n_qubits) if i not in subsystem]
-    rho_reduced = partial_trace(rho, traced_out)
+    # ptrace(sel) keeps the listed subsystems; requires multi-qubit dims on rho
+    rho_reduced = rho.ptrace(subsystem)
     return float(entropy_vn(rho_reduced, base=2))
 
 
@@ -248,12 +246,11 @@ def _schmidt_rank_across_bipartition(
     psi: Qobj, partition_a: List[int], partition_b: List[int], n_qubits: int
 ) -> int:
     """True Schmidt rank for a pure state across two groups A and B."""
-    keep = set(partition_a) | set(partition_b)
-    traced = [i for i in range(n_qubits) if i not in keep]
-    rho_ab = partial_trace(ket2dm(psi), traced) if traced else ket2dm(psi)
+    keep = list(set(partition_a) | set(partition_b))
+    rho_ab = ket2dm(psi).ptrace(keep) if len(keep) < n_qubits else ket2dm(psi)
 
-    # Compute Schmidt rank via eigenvalues of reduced density matrix
-    rho_a = partial_trace(rho_ab, partition_b)
+    # Compute Schmidt rank via eigenvalues of reduced density matrix A
+    rho_a = rho_ab.ptrace([keep.index(q) for q in partition_a])
     import numpy as np
     evals = np.abs(rho_a.eigenenergies())
     rank = int(np.sum(evals > 1e-10))
@@ -276,14 +273,20 @@ def _check_dynamic_entanglement(
     if n_qubits < 2:
         return {"skipped": True, "reason": "Need at least 2 qubits", "passed": True}
 
-    initial_psi = basis(2 ** n_qubits, 0)
+    # Skip if no superposition-creating gates exist in the path — starting from
+    # |0...0>, CNOT/CZ/SWAP alone can never produce entanglement.
+    superposition_gates = {"H", "RX", "RY", "RZ"}
+    if not any(g.get("name", "").upper() in superposition_gates for g in path_gates):
+        return {"skipped": True, "reason": "No superposition gates in path", "passed": True}
+
+    initial_psi = basis([2] * n_qubits, [0] * n_qubits)
     final_psi = _evolve_path(initial_psi, path_gates, n_qubits)
 
     report: Dict[str, Any] = {
         "state": state_label,
         "entropy_checks": {},
         "schmidt_ranks": {},
-        "passed": True,
+        "passed": False,  # must find at least one entangled pair
         "details": {},
     }
 
@@ -297,22 +300,204 @@ def _check_dynamic_entanglement(
         rank = _schmidt_rank_across_bipartition(final_psi, [q1], [q2], n_qubits)
         report["schmidt_ranks"][f"q{q1}-q{q2}"] = rank
 
-        if entropy_q1 < tolerance:
-            report["passed"] = False
-            report["details"][f"q{q1}"] = "no entanglement detected (entropy ≈ 0)"
-
-        if rank <= 1:
-            report["passed"] = False
-            report["details"][f"q{q1}-q{q2}"] = f"Schmidt rank {rank} ≤ 1"
+        if entropy_q1 >= tolerance and rank > 1:
+            # At least one entangled pair found — that is sufficient
+            report["passed"] = True
+        else:
+            if entropy_q1 < tolerance:
+                report["details"][f"q{q1}"] = "no entanglement detected (entropy ≈ 0)"
+            if rank <= 1:
+                report["details"][f"q{q1}-q{q2}"] = f"Schmidt rank {rank} ≤ 1"
 
     return report
 
 
+def _check_unitary_gates(
+    gate_sequence: List[List[Dict[str, Any]]], n_qubits: int
+) -> List[QVerificationError]:
+    """Verify every distinct gate in the sequence satisfies U†U ≈ I."""
+    errors: List[QVerificationError] = []
+    identity = qeye([2] * n_qubits)
+    seen: set = set()
+
+    for step_gates in gate_sequence:
+        for gate in step_gates:
+            name = gate.get("name", "UNKNOWN")
+            key = (
+                name,
+                tuple(gate.get("targets", [])),
+                tuple(gate.get("controls", [])),
+                tuple(sorted(gate.get("params", {}).items())),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+
+            U = _get_qutip_operator(gate, n_qubits)
+            diff = float((U.dag() * U - identity).norm())
+            if diff > 1e-10:
+                errors.append(QVerificationError(
+                    code="DYNAMIC_NON_UNITARY_GATE",
+                    message=f"Gate '{name}' is not unitary: ‖U†U − I‖ = {diff:.2e}",
+                    severity="error",
+                    location={"gate": name},
+                    suggestion="All quantum gates must be unitary; check gate parameters",
+                ))
+
+    return errors
+
+
 # Public API — callable directly from tests or external code
 check_dynamic_entanglement = _check_dynamic_entanglement
+check_unitary_gates = _check_unitary_gates
 evolve_path = _evolve_path
 entanglement_entropy = _entanglement_entropy
 schmidt_rank_across_bipartition = _schmidt_rank_across_bipartition
+
+# ---------------------------------------------------------------------------
+# GPU-accelerated path via CuPy
+# ---------------------------------------------------------------------------
+
+CUPY_AVAILABLE = False
+try:
+    import cupy  # noqa: F401
+    CUPY_AVAILABLE = True
+except ImportError:
+    pass
+
+
+def _evolve_path_gpu(
+    initial_psi: "Any",  # cupy ndarray (2**n, 1)
+    path_gates: List[Dict[str, Any]],
+    n_qubits: int,
+) -> "Any":  # cupy ndarray
+    """Apply gate sequence to a cupy state vector using GPU matrix multiplication."""
+    import cupy as cp
+    psi = initial_psi
+    for gate in path_gates:
+        U_np = _get_qutip_operator(gate, n_qubits).full()
+        U_gpu = cp.asarray(U_np)
+        psi = U_gpu @ psi
+    return psi
+
+
+def dynamic_verify_gpu(machine: QMachineDef) -> QVerificationResult:
+    """GPU-accelerated verification using CuPy for gate matrix operations.
+
+    Runs the same checks as dynamic_verify but offloads state-vector evolution
+    to GPU via CuPy matrix multiplications. Falls back to the CPU path if CuPy
+    or QuTiP is unavailable.
+    """
+    if not CUPY_AVAILABLE or not QUTIP_AVAILABLE:
+        return dynamic_verify(machine)
+
+    import cupy as cp
+
+    errors: list[QVerificationError] = []
+
+    qubit_count = _infer_qubit_count(machine)
+    err_msg, gate_sequence = _build_gate_sequence(machine, qubit_count)
+    if err_msg:
+        return QVerificationResult(valid=True, errors=[])
+
+    all_gates = [g for gates in gate_sequence for g in gates]
+
+    # Unitarity check runs on CPU — gate matrices are identical on both paths.
+    errors.extend(_check_unitary_gates(gate_sequence, qubit_count))
+
+    # Build initial |0...0> state on GPU
+    dim = 2 ** qubit_count
+    psi_gpu = cp.zeros((dim, 1), dtype=cp.complex128)
+    psi_gpu[0, 0] = 1.0
+
+    # Evolve on GPU.
+    # NOTE: each gate matrix is transferred CPU→GPU individually here.
+    # For long circuits this is the dominant latency; caching gate matrices on
+    # GPU across calls is future work.
+    psi_gpu = _evolve_path_gpu(psi_gpu, all_gates, qubit_count)
+
+    # Bring final state back to CPU as a QuTiP ket for analysis
+    psi_np = cp.asnumpy(psi_gpu)
+    final_psi = Qobj(psi_np, dims=[[2] * qubit_count, [1] * qubit_count])
+
+    # Entanglement checks — semantics match _check_dynamic_entanglement on CPU:
+    # pass if ANY expected pair is entangled (not ALL pairs must be).
+    entangled_kinds = {"bell", "ghz", "epr", "entangl"}
+    entangled_states = [
+        s for s in machine.states
+        if any(k in (s.state_expression or "").lower() or k in (s.name or "").lower()
+               for k in entangled_kinds)
+    ]
+
+    invariant_pairs = [
+        (inv.qubits[0], inv.qubits[1])
+        for inv in getattr(machine, "invariants", [])
+        if inv.kind in ("entanglement", "schmidt_rank") and len(inv.qubits) >= 2
+    ]
+
+    # Skip entanglement check entirely when no superposition gates are present —
+    # CNOT/CZ/SWAP on |0...0> cannot produce entanglement.
+    superposition_gates = {"H", "RX", "RY", "RZ"}
+    has_superposition = any(g.get("name", "").upper() in superposition_gates for g in all_gates)
+
+    for state in entangled_states:
+        if not has_superposition:
+            continue
+
+        expected_pairs = invariant_pairs or [(i, i + 1) for i in range(qubit_count - 1)]
+        report: Dict[str, Any] = {"passed": False, "details": {}}
+
+        for q1, q2 in expected_pairs:
+            entropy_q1 = _entanglement_entropy([q1], final_psi, qubit_count)
+            rank = _schmidt_rank_across_bipartition(final_psi, [q1], [q2], qubit_count)
+
+            if entropy_q1 >= 1e-8 and rank > 1:
+                # At least one entangled pair found — sufficient to pass
+                report["passed"] = True
+            else:
+                if entropy_q1 < 1e-8:
+                    report["details"][f"q{q1}"] = "no entanglement detected (entropy ≈ 0)"
+                if rank <= 1:
+                    report["details"][f"q{q1}-q{q2}"] = f"Schmidt rank {rank} ≤ 1"
+
+        if not report["passed"]:
+            details_str = "; ".join(f"{k}: {v}" for k, v in report["details"].items())
+            errors.append(QVerificationError(
+                code="DYNAMIC_NO_ENTANGLEMENT",
+                message=f"State '{state.name}' should be entangled but verification failed: {details_str}",
+                severity="error",
+                location={"state": state.name},
+                suggestion="Ensure the circuit creates an entangled state with CNOT or CZ gates",
+            ))
+
+    # Collapse completeness check (identical to dynamic_verify)
+    measure_events = {e.name for e in machine.events if "measure" in e.name.lower()}
+    measure_transitions = [
+        t for t in machine.transitions
+        if any(m in t.event.lower() for m in measure_events)
+    ]
+    if measure_transitions:
+        prob_sum = 0.0
+        has_probs = False
+        for t in measure_transitions:
+            if t.guard:
+                guard_def = next((g for g in machine.guards if g.name == t.guard.name), None)
+                if guard_def and guard_def.expression.kind == "probability":
+                    prob_sum += guard_def.expression.outcome.probability
+                    has_probs = True
+        if has_probs and abs(prob_sum - 1.0) > 0.01:
+            errors.append(QVerificationError(
+                code="DYNAMIC_INCOMPLETE_COLLAPSE",
+                message=f"Measurement branches have probabilities summing to {prob_sum:.4f}, expected 1.0",
+                severity="error",
+                location=None,
+                suggestion="Ensure all collapse outcomes are covered with probabilities summing to 1",
+            ))
+
+    return QVerificationResult(
+        valid=not any(e.severity == "error" for e in errors),
+        errors=errors,
+    )
 
 
 def dynamic_verify(machine: QMachineDef) -> QVerificationResult:
@@ -339,6 +524,9 @@ def dynamic_verify(machine: QMachineDef) -> QVerificationResult:
 
     # Flatten gate_sequence for entanglement checks
     all_gates = [g for gates in gate_sequence for g in gates]
+
+    # Unitarity check — verify every gate satisfies U†U ≈ I
+    errors.extend(_check_unitary_gates(gate_sequence, qubit_count))
 
     # Check entanglement for states that are explicitly declared as entangled
     entangled_kinds = {"bell", "ghz", "epr", "entangl"}

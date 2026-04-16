@@ -68,11 +68,11 @@ class TestVqeRotationPipeline:
         psi_expected = rx(theta) * psi_0
 
         # Verify the rotation manually: Rx(pi/4)|0> = cos(pi/8)|0> - i*sin(pi/8)|1>
-        import cmath
         c0 = math.cos(theta / 2)
         c1 = -1j * math.sin(theta / 2)
         from qutip import Qobj
         psi_formula = Qobj([[c0], [c1]])
 
-        fidelity = abs((psi_formula.dag() * psi_expected)[0, 0]) ** 2
+        inner = psi_formula.dag() * psi_expected
+        fidelity = abs(inner[0, 0] if hasattr(inner, "__getitem__") else inner) ** 2
         assert fidelity > 0.999999, f"State fidelity too low: {fidelity}"

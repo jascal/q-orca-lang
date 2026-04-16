@@ -148,6 +148,7 @@ MAX_GENERATIONS = 3
 FITNESS_TARGET = 99.0
 MUTATION_RATE = 0.5
 ELITISM = 1
+BACKEND = "cuquantum"  # set to "qutip" to disable GPU, or "none" to skip dynamic
 
 DEFAULT_DESIGN_GOAL = textwrap.dedent("""\
     Design a quantum state machine that implements the 3-qubit bit-flip
@@ -276,7 +277,36 @@ def _verify_source(source: str) -> tuple[bool, list[str]]:
         if not parsed.file.machines:
             return False, ["No machine definition found"]
         machine = parsed.file.machines[0]
-        result = verify(machine, VerifyOptions(skip_completeness=True, skip_dynamic=True))
+
+        skip_dynamic = BACKEND == "none"
+        opts = VerifyOptions(
+            skip_completeness=True,
+            skip_dynamic=skip_dynamic,
+            backend=BACKEND if not skip_dynamic else "qutip",
+        )
+
+        gpu_before = 0
+        if BACKEND == "cuquantum" and not skip_dynamic:
+            try:
+                import cupy as cp
+                pool = cp.get_default_memory_pool()
+                gpu_before = pool.total_bytes()
+            except ImportError:
+                pass
+
+        result = verify(machine, opts)
+
+        if BACKEND == "cuquantum" and not skip_dynamic:
+            try:
+                import cupy as cp
+                cp.cuda.Stream.null.synchronize()
+                gpu_after = cp.get_default_memory_pool().total_bytes()
+                delta = gpu_after - gpu_before
+                if delta > 0:
+                    print(f"       {C.DIM}↳ GPU Δmem: +{delta:,} bytes{C.RESET}", flush=True)
+            except ImportError:
+                pass
+
         errors = [f"{e.code}: {e.message}" for e in result.errors if e.severity == "error"]
         return result.valid, errors
     except Exception as e:
@@ -820,6 +850,7 @@ async def main():
     _get_provider()
     config = load_config()
     _info(f"LLM provider:    {C.WHITE}{config.provider} / {config.model}{C.RESET}")
+    _info(f"Verify backend:  {C.WHITE}{BACKEND}{C.RESET}")
     _info(f"Population:      {C.WHITE}{POPULATION_SIZE}{C.RESET}   "
           f"Max generations: {C.WHITE}{MAX_GENERATIONS}{C.RESET}")
     _info(f"Fitness target:  {C.WHITE}{FITNESS_TARGET}{C.RESET}")
@@ -948,6 +979,12 @@ def _parse_args():
         "--fitness-target", type=float, default=None,
         help=f"Fitness target to converge (default: {FITNESS_TARGET})",
     )
+    parser.add_argument(
+        "--backend", type=str, default=None,
+        choices=["cuquantum", "qutip", "none"],
+        help="Verification backend: cuquantum (GPU), qutip (CPU), none (skip dynamic). "
+             f"Default: {BACKEND}",
+    )
     return parser.parse_args()
 
 
@@ -965,5 +1002,7 @@ if __name__ == "__main__":
         MAX_GENERATIONS = args.generations
     if args.fitness_target is not None:
         FITNESS_TARGET = args.fitness_target
+    if args.backend is not None:
+        BACKEND = args.backend
 
     asyncio.run(main())
