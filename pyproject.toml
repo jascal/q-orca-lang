@@ -30,9 +30,9 @@ Source = "https://github.com/jascal/q-orca-lang"
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
-quantum = ["qiskit", "qutip"]
+quantum = ["qiskit", "qutip", "qutip-qip"]
 mcp = ["pyyaml"]
-all = ["qiskit", "qutip", "pyyaml"]
+all = ["qiskit", "qutip", "qutip-qip", "pyyaml"]
 
 [project.scripts]
 q-orca = "q_orca.cli:main"
