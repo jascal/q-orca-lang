@@ -19,6 +19,7 @@ class VerifyOptions:
     skip_quantum: bool = False
     skip_qutip: bool = False
     skip_dynamic: bool = False
+    backend: str = "qutip"
 
 
 def verify(machine: QMachineDef, options: Optional[VerifyOptions] = None) -> QVerificationResult:
@@ -47,10 +48,10 @@ def verify(machine: QMachineDef, options: Optional[VerifyOptions] = None) -> QVe
         quantum = verify_quantum(machine)
         all_errors.extend(quantum.errors)
 
-    # Stage 4b: Dynamic quantum verification (actual circuit simulation)
+    # Stage 4b: Dynamic quantum verification via selected backend
     if not opts.skip_dynamic:
-        dynamic = dynamic_verify(machine)
-        all_errors.extend(dynamic.errors)
+        dynamic_errors, _ = _run_dynamic_backend(machine, opts.backend)
+        all_errors.extend(dynamic_errors)
 
     # Stage 5: Superposition leak check
     superposition = check_superposition_leaks(machine)
@@ -60,6 +61,42 @@ def verify(machine: QMachineDef, options: Optional[VerifyOptions] = None) -> QVe
         valid=not any(e.severity == "error" for e in all_errors),
         errors=all_errors,
     )
+
+
+def _run_dynamic_backend(machine: QMachineDef, backend_name: str):
+    """Dispatch Stage 4b to the named backend, falling back to QuTiP on unavailability.
+
+    Returns (errors: list[QVerificationError], backend_result_or_None).
+    Emits a BACKEND_UNAVAILABLE warning when a fallback occurs.
+    """
+    from q_orca.backends import BackendRegistry, BackendUnavailableError
+    from q_orca.backends.base import BackendResult
+
+    try:
+        adapter, fell_back = BackendRegistry.get_with_fallback(backend_name)
+    except BackendUnavailableError as exc:
+        # No backend at all — degrade gracefully (same as skip_dynamic)
+        warn = QVerificationError(
+            code="BACKEND_UNAVAILABLE",
+            message=str(exc),
+            severity="warning",
+        )
+        return [warn], None
+
+    result, backend_result = adapter.verify(machine)
+
+    errors: list[QVerificationError] = list(result.errors)
+    if fell_back:
+        errors.insert(0, QVerificationError(
+            code="BACKEND_UNAVAILABLE",
+            message=(
+                f"Backend '{backend_name}' is not available; "
+                f"fell back to '{adapter.name}'"
+            ),
+            severity="warning",
+        ))
+
+    return errors, backend_result
 
 
 __all__ = ["verify", "VerifyOptions", "QVerificationResult", "QVerificationError"]

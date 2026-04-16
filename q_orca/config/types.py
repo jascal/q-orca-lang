@@ -1,7 +1,7 @@
 """Q-Orca configuration types."""
 
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import dataclass, field
+from typing import Any, Dict, Literal, Optional
 
 
 ProviderType = Literal["anthropic", "openai", "ollama", "grok", "minimax"]
@@ -17,6 +17,10 @@ class QOrcaConfig:
     code_generator: CodeGeneratorType = "python"
     max_tokens: int = 4096
     temperature: float = 0.7
+    # Backend selection
+    backend: str = "qutip"
+    cuquantum: Dict[str, Any] = field(default_factory=dict)
+    cudaq: Dict[str, Any] = field(default_factory=dict)
 
 
 DEFAULT_CONFIG = QOrcaConfig(

@@ -68,12 +68,18 @@ def _interpolate_env_vars(obj):
 
 
 def _deep_merge(target: QOrcaConfig, source: QOrcaConfig) -> QOrcaConfig:
-    """Merge source into target, skipping None values."""
+    """Merge source into target, skipping None values and empty strings."""
     result_dict = {}
     for key in target.__dataclass_fields__:
         target_val = getattr(target, key)
         source_val = getattr(source, key, None)
-        if source_val is not None and source_val != "":
+        # For dicts, merge non-empty source dicts; for strings/other, skip None/empty
+        if isinstance(source_val, dict):
+            if source_val:
+                result_dict[key] = {**(target_val or {}), **source_val}
+            else:
+                result_dict[key] = target_val
+        elif source_val is not None and source_val != "":
             result_dict[key] = source_val
         else:
             result_dict[key] = target_val
