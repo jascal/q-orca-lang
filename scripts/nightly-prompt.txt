@@ -40,7 +40,7 @@ Never pre-check tasks. A task is done when the tests prove it, not before.
 2. If no files were changed, stop and report — do not commit an empty branch.
 3. Create (or switch to) a git branch named after the change: `git checkout -b <change-name>`
 4. Stage and commit all changes. End commit message with:
-   `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`
+   `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>`
 5. Push: `git push -u origin <branch-name>`
 
 ## Step 4 — Open PR
