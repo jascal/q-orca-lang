@@ -36,6 +36,32 @@ pip install q-orca[all]      # + MCP server (pyyaml)
 pip install q-orca           # CLI + verifier only, no quantum libs
 ```
 
+### Verify the installation
+
+```bash
+q-orca verify examples/bell-entangler.q.orca.md --strict
+```
+
+Expected output:
+```
+Machine: BellEntangler
+  Result: VALID
+```
+
+### Optional backends
+
+```bash
+# CUDA-Q (macOS Apple Silicon, Linux, Windows — CPU simulation, no GPU required)
+pip install cuda-quantum
+q-orca verify examples/bell-entangler.q.orca.md --backend cudaq
+
+# cuQuantum (Linux + NVIDIA GPU only)
+pip install qutip-cuquantum
+q-orca verify examples/bell-entangler.q.orca.md --backend cuquantum
+```
+
+If a backend package is not installed, Q-Orca falls back to QuTiP automatically.
+
 ---
 
 ## Setup (development)
@@ -126,29 +152,7 @@ Stage 4b supports three backends via `--backend`:
 | NVIDIA CUDA-Q | `--backend cudaq` | `pip install cuda-quantum` | macOS (Apple Silicon), Linux, Windows |
 | NVIDIA cuQuantum | `--backend cuquantum` | `pip install qutip-cuquantum` + CUDA toolkit | Linux + NVIDIA GPU only |
 
-All backends produce identical verification results — switching changes performance, not correctness. If a requested backend is unavailable, Q-Orca falls back to QuTiP and emits a `BACKEND_UNAVAILABLE` warning.
-
-#### Installing CUDA-Q (macOS / Apple Silicon)
-
-CUDA-Q runs on CPU via its `qpp-cpu` target — no GPU required:
-
-```bash
-pip install cuda-quantum
-q-orca verify examples/bell-entangler.q.orca.md --backend cudaq
-q-orca compile cudaq examples/bell-entangler.q.orca.md   # emit @cudaq.kernel script
-```
-
-#### Installing cuQuantum (Linux + NVIDIA GPU)
-
-cuQuantum requires a CUDA-capable NVIDIA GPU and the CUDA toolkit:
-
-```bash
-pip install qutip-cuquantum
-q-orca verify examples/bell-entangler.q.orca.md --backend cuquantum
-q-orca verify examples/bell-entangler.q.orca.md --backend cuquantum --gpu-count 2 --tensor-network
-```
-
-cuQuantum is **not supported on macOS** — use the CUDA-Q backend for local development on Mac.
+All backends produce identical verification results — switching changes performance, not correctness. If a requested backend is unavailable, Q-Orca falls back to QuTiP and emits a `BACKEND_UNAVAILABLE` warning. See [Install](#install) for setup instructions.
 
 ### Stage 4 vs 4b — static vs dynamic
 
