@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 
-import pytest
 
 from q_orca.parser.markdown_parser import parse_q_orca_markdown
 from q_orca.skills import verify_skill, compile_skill
