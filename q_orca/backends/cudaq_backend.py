@@ -44,8 +44,8 @@ class CudaQBackend(BackendAdapter):
     ) -> tuple[QVerificationResult, BackendResult]:
         if not AVAILABLE:
             raise BackendUnavailableError(
-                "cudaq is not installed. "
-                "Install with: pip install cudaq"
+                "cudaq is not installed or failed to import (matplotlib is required). "
+                "Install with: pip install cudaq matplotlib"
             )
         # When available, delegate to dynamic_verify (CUDA-Q execution path reserved for future)
         from q_orca.verifier.dynamic import dynamic_verify
