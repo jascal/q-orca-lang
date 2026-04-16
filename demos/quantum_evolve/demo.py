@@ -148,25 +148,29 @@ MAX_GENERATIONS = 3
 FITNESS_TARGET = 99.0
 MUTATION_RATE = 0.5
 ELITISM = 1
+BACKEND = "cuquantum"  # set to "qutip" to disable GPU, or "none" to skip dynamic
 
 DEFAULT_DESIGN_GOAL = textwrap.dedent("""\
-    Design a quantum state machine that implements the 3-qubit bit-flip
-    error correction code.
+    Design a quantum state machine that implements Grover's search algorithm
+    on 4 qubits, searching for the target state |1010>.
 
     Requirements:
-    1. Three qubits in context: one logical data qubit (q0) and two ancillas (q1, q2)
-    2. Encoding phase: spread the logical qubit across all three using CNOT gates
-       so |0> -> |000> and |1> -> |111>
-    3. Error phase: model a single-qubit X (bit-flip) error on one of the three qubits
-    4. Syndrome measurement: measure the two parity checks (q0⊕q1 and q1⊕q2)
-       using ancilla-based CNOT + measurement — each collapses to a 0 or 1 syndrome bit
-    5. Correction phase: based on the 2-bit syndrome (4 branches: no error, error on
-       q0, q1, or q2), apply the corrective X gate to the identified qubit
-    6. Include all four syndrome collapse branches with probability guards
-    7. Mark the final corrected states as [final]
+    1. Four qubits in context: q0, q1, q2, q3
+    2. Initialization phase: apply Hadamard to all 4 qubits to create uniform superposition
+    3. Oracle phase: mark the target |1010> by flipping its phase (apply a
+       multi-controlled Z (or equivalent CNOT+H decomposition) that introduces
+       a -1 phase on |1010> and leaves all other amplitudes unchanged)
+    4. Diffusion phase: apply the Grover diffusion operator
+       (H^4 · (2|0><0| - I) · H^4) to amplify the target amplitude
+    5. Run 2 full Grover iterations (oracle + diffusion each time)
+    6. Measurement phase: measure all 4 qubits; the outcome |1010> should have
+       high probability (~97%)
+    7. Include at least 2 collapse branches in the measurement with probability guards
+    8. Mark the post-measurement states as [final]
 
-    The machine should have descriptive state names for each phase, proper context
-    fields, and verification rules (unitarity, no-cloning at minimum).""")
+    State names must be valid identifiers (letters, digits, underscores only —
+    no Dirac ket notation in state names).
+    Include verification rules: unitarity, entanglement, no_cloning.""")
 
 DESIGN_GOAL = DEFAULT_DESIGN_GOAL  # May be overridden by --goal / --goal-file
 
@@ -276,7 +280,36 @@ def _verify_source(source: str) -> tuple[bool, list[str]]:
         if not parsed.file.machines:
             return False, ["No machine definition found"]
         machine = parsed.file.machines[0]
-        result = verify(machine, VerifyOptions(skip_completeness=True, skip_dynamic=True))
+
+        skip_dynamic = BACKEND == "none"
+        opts = VerifyOptions(
+            skip_completeness=True,
+            skip_dynamic=skip_dynamic,
+            backend=BACKEND if not skip_dynamic else "qutip",
+        )
+
+        gpu_before = 0
+        if BACKEND == "cuquantum" and not skip_dynamic:
+            try:
+                import cupy as cp
+                pool = cp.get_default_memory_pool()
+                gpu_before = pool.total_bytes()
+            except ImportError:
+                pass
+
+        result = verify(machine, opts)
+
+        if BACKEND == "cuquantum" and not skip_dynamic:
+            try:
+                import cupy as cp
+                cp.cuda.Stream.null.synchronize()
+                gpu_after = cp.get_default_memory_pool().total_bytes()
+                delta = gpu_after - gpu_before
+                if delta > 0:
+                    print(f"       {C.DIM}↳ GPU Δmem: +{delta:,} bytes{C.RESET}", flush=True)
+            except ImportError:
+                pass
+
         errors = [f"{e.code}: {e.message}" for e in result.errors if e.severity == "error"]
         return result.valid, errors
     except Exception as e:
@@ -820,6 +853,7 @@ async def main():
     _get_provider()
     config = load_config()
     _info(f"LLM provider:    {C.WHITE}{config.provider} / {config.model}{C.RESET}")
+    _info(f"Verify backend:  {C.WHITE}{BACKEND}{C.RESET}")
     _info(f"Population:      {C.WHITE}{POPULATION_SIZE}{C.RESET}   "
           f"Max generations: {C.WHITE}{MAX_GENERATIONS}{C.RESET}")
     _info(f"Fitness target:  {C.WHITE}{FITNESS_TARGET}{C.RESET}")
@@ -948,6 +982,11 @@ def _parse_args():
         "--fitness-target", type=float, default=None,
         help=f"Fitness target to converge (default: {FITNESS_TARGET})",
     )
+    parser.add_argument(
+        "--backend", type=str, default=None,
+        help="Verification backend: cuquantum (GPU), qutip (CPU), none (skip dynamic). "
+             f"Default: {BACKEND}",
+    )
     return parser.parse_args()
 
 
@@ -965,5 +1004,7 @@ if __name__ == "__main__":
         MAX_GENERATIONS = args.generations
     if args.fitness_target is not None:
         FITNESS_TARGET = args.fitness_target
+    if args.backend is not None:
+        BACKEND = args.backend
 
     asyncio.run(main())
