@@ -336,6 +336,13 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
         lines.append("        if not unitarity_verified:")
         lines.append("            qutip_errors.append(f'Unitarity error: {unitarity_error}')")
         lines.append("")
+        lines.append("    # Compute statevector for Schmidt analysis (use original circuit without measurements)")
+        lines.append("    if 'sv' not in dir():")
+        lines.append("        try:")
+        lines.append("            sv = Statevector(qc)")
+        lines.append("        except Exception:")
+        lines.append("            sv = None")
+        lines.append("")
         lines.append("    try:")
         lines.append("        if sv is not None and len(sv.data) > 0:")
         lines.append("            psi = sv.data.reshape(-1)")
@@ -449,7 +456,9 @@ def _gate_to_qiskit(gate: QuantumGate) -> str:
         ctrl = gate.controls[0] if gate.controls else 0
         return f"qc.cz({ctrl}, {gate.targets[0]})"
     if gate.kind == "SWAP":
-        return f"qc.swap({gate.targets[0]}, {gate.targets[1] if len(gate.targets) > 1 else 1})"
+        if len(gate.targets) < 2:
+            raise ValueError(f"SWAP gate requires 2 target qubits, got {len(gate.targets)}: {gate.targets}")
+        return f"qc.swap({gate.targets[0]}, {gate.targets[1]})"
     if gate.kind == "Rx":
         return f"qc.rx({gate.parameter or 0}, {gate.targets[0]})"
     if gate.kind == "Ry":
@@ -466,15 +475,22 @@ def _gate_to_qiskit(gate: QuantumGate) -> str:
         ctrl = gate.controls[0] if gate.controls else 0
         return f"qc.crz({gate.parameter or 0}, {ctrl}, {gate.targets[0]})"
     if gate.kind == "RXX":
-        return f"qc.rxx({gate.parameter or 0}, {gate.targets[0]}, {gate.targets[1] if len(gate.targets) > 1 else 1})"
+        if len(gate.targets) < 2:
+            raise ValueError(f"RXX gate requires 2 target qubits, got {len(gate.targets)}: {gate.targets}")
+        return f"qc.rxx({gate.parameter or 0}, {gate.targets[0]}, {gate.targets[1]})"
     if gate.kind == "RYY":
-        return f"qc.ryy({gate.parameter or 0}, {gate.targets[0]}, {gate.targets[1] if len(gate.targets) > 1 else 1})"
+        if len(gate.targets) < 2:
+            raise ValueError(f"RYY gate requires 2 target qubits, got {len(gate.targets)}: {gate.targets}")
+        return f"qc.ryy({gate.parameter or 0}, {gate.targets[0]}, {gate.targets[1]})"
     if gate.kind == "RZZ":
-        return f"qc.rzz({gate.parameter or 0}, {gate.targets[0]}, {gate.targets[1] if len(gate.targets) > 1 else 1})"
+        if len(gate.targets) < 2:
+            raise ValueError(f"RZZ gate requires 2 target qubits, got {len(gate.targets)}: {gate.targets}")
+        return f"qc.rzz({gate.parameter or 0}, {gate.targets[0]}, {gate.targets[1]})"
     if gate.kind == "CCNOT":
-        ctrls = gate.controls or [0, 1]
-        c1 = ctrls[1] if len(ctrls) > 1 else 1
-        return f"qc.ccx({ctrls[0]}, {c1}, {gate.targets[0]})"
+        ctrls = gate.controls or []
+        if len(ctrls) < 2:
+            raise ValueError(f"CCNOT gate requires 2 control qubits, got {len(ctrls)}: {ctrls}")
+        return f"qc.ccx({ctrls[0]}, {ctrls[1]}, {gate.targets[0]})"
     if gate.kind == "CSWAP":
         ctrl = gate.controls[0] if gate.controls else 0
         t1 = gate.targets[1] if len(gate.targets) > 1 else 2
@@ -549,4 +565,19 @@ def _infer_qubit_count(machine: QMachineDef) -> int:
     for guard in machine.guards:
         if guard.expression.kind == "probability":
             max_bits = max(max_bits, len(guard.expression.outcome.bitstring))
+
+    # Also scan gate targets/controls in actions to catch qubit indices
+    max_gate_idx = -1
+    for action in machine.actions:
+        if action.gate:
+            for idx in action.gate.targets or []:
+                max_gate_idx = max(max_gate_idx, idx)
+            for idx in action.gate.controls or []:
+                max_gate_idx = max(max_gate_idx, idx)
+        if action.effect:
+            for idx_match in re.finditer(r"\w+\[(\d+)\]", action.effect):
+                max_gate_idx = max(max_gate_idx, int(idx_match.group(1)))
+    if max_gate_idx >= 0:
+        max_bits = max(max_bits, max_gate_idx + 1)
+
     return max_bits or 1

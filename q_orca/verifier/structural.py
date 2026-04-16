@@ -44,8 +44,15 @@ def analyze_machine(machine: QMachineDef) -> QMachineAnalysis:
     orphan_events = [e.name for e in machine.events if e.name not in used_events]
     orphan_actions = [a.name for a in machine.actions if a.name not in used_actions]
 
-    used_effect_types = {a.effect_type for a in machine.actions if a.has_effect and a.effect_type}
-    orphan_effects = [e.name for e in machine.effects if e.name not in used_effect_types]
+    # Collect effect names actually referenced by actions (via effect string content)
+    used_effect_names: set[str] = set()
+    effect_names = {e.name for e in machine.effects}
+    for a in machine.actions:
+        if a.effect:
+            for ename in effect_names:
+                if ename in a.effect:
+                    used_effect_names.add(ename)
+    orphan_effects = [e.name for e in machine.effects if e.name not in used_effect_names]
 
     return QMachineAnalysis(
         machine=machine,
