@@ -116,6 +116,23 @@ Every machine passes through 5 stages in order. A failure in stage 1 stops the p
 
 Stage 4b is a soft dependency: if QuTiP is not installed it skips gracefully and CI still passes.
 
+### Verification Backends
+
+Stage 4b supports three backends via `--backend`:
+
+| Backend | Flag | Description |
+|---------|------|-------------|
+| QuTiP (default) | `--backend qutip` | CPU simulation, up to ~25 qubits |
+| NVIDIA cuQuantum | `--backend cuquantum` | GPU-accelerated via cuDensityMat; add `--gpu-count N` or `--tensor-network` for large circuits |
+| NVIDIA CUDA-Q | `--backend cudaq` | CUDA-Q state-vector or tensor-network simulation; also enables `q-orca compile cudaq` |
+
+All backends produce identical verification results — switching changes performance, not correctness. If a requested backend is unavailable, Q-Orca falls back to QuTiP and emits a `BACKEND_UNAVAILABLE` warning.
+
+```bash
+q-orca verify examples/bell-entangler.q.orca.md --backend cuquantum --gpu-count 2
+q-orca compile cudaq examples/bell-entangler.q.orca.md   # emit CUDA-Q kernel
+```
+
 ### Stage 4 vs 4b — static vs dynamic
 
 Stage 4 (`quantum.py`) checks your **declarations**: does the Markdown say this state is entangled? Does a CNOT gate lead to it? These are fast structural checks that catch obvious mistakes.
@@ -222,6 +239,9 @@ q-orca verify examples/bell-entangler.q.orca.md --skip-dynamic
 | `--skip-completeness` | Skip stage 2: event completeness checks |
 | `--skip-quantum` | Skip stage 4: unitarity, no-cloning, entanglement |
 | `--skip-dynamic` | Skip stage 4b: QuTiP circuit simulation |
+| `--backend BACKEND` | Verification backend: `qutip` (default), `cuquantum`, `cudaq` |
+| `--gpu-count N` | Number of GPUs to use (cuquantum backend) |
+| `--tensor-network` | Use tensor-network contraction (cuquantum backend) |
 
 All 5 bundled examples pass `--strict` on every CI run (Python 3.10–3.13).
 
@@ -831,10 +851,17 @@ q_orca/
 │   ├── quantum.py         # Unitarity, no-cloning, entanglement
 │   ├── superposition.py   # Superposition coherence leak
 │   └── dynamic.py         # QuTiP circuit simulation
+├── backends/
+│   ├── base.py            # BackendAdapter ABC
+│   ├── registry.py        # BackendRegistry with fallback logic
+│   ├── qutip_backend.py   # Default QuTiP adapter
+│   ├── cuquantum_backend.py # NVIDIA cuQuantum adapter (optional)
+│   └── cudaq_backend.py   # NVIDIA CUDA-Q adapter (optional)
 ├── compiler/
 │   ├── mermaid.py         # Mermaid state diagram
 │   ├── qasm.py            # OpenQASM 3.0
-│   └── qiskit.py          # Qiskit Python script
+│   ├── qiskit.py          # Qiskit Python script
+│   └── cudaq.py           # NVIDIA CUDA-Q kernel
 ├── llm/
 │   ├── provider.py        # Abstract LLM provider interface
 │   ├── anthropic.py       # Anthropic provider
@@ -860,6 +887,7 @@ q_orca/
 - ~~**Parameterized gates** — `Rx(θ)`, `Ry(θ)`, `Rz(θ)` with symbolic angles in the Markdown action table~~ ✅ **Shipped** — see [CHANGELOG](CHANGELOG.md) for the `0.3.3` entry
 - ~~**Parameterized two-qubit gates** — `CRz`, `RXX`, `RYY`, `RZZ` with symbolic angles~~ ✅ **Shipped** — see [PR #5](../../pull/5)
 - ~~**Hybrid classical/quantum transitions** — mid-circuit measurement + feedforward~~ ✅ **Shipped** — see [PR #5](../../pull/5)
+- ~~**Pluggable execution backends** — cuQuantum GPU acceleration, CUDA-Q compilation target~~ ✅ **Shipped** — see [PR #7](../../pull/7)
 - **Noise models** — depolarizing, amplitude damping, thermal noise in `## context`; propagate into Qiskit noise simulation
 - **QASM 3.0 import** — parse existing `.qasm` files and lift them into Q-Orca state machines
 
