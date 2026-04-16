@@ -120,18 +120,35 @@ Stage 4b is a soft dependency: if QuTiP is not installed it skips gracefully and
 
 Stage 4b supports three backends via `--backend`:
 
-| Backend | Flag | Description |
-|---------|------|-------------|
-| QuTiP (default) | `--backend qutip` | CPU simulation, up to ~25 qubits |
-| NVIDIA cuQuantum | `--backend cuquantum` | GPU-accelerated via cuDensityMat; add `--gpu-count N` or `--tensor-network` for large circuits |
-| NVIDIA CUDA-Q | `--backend cudaq` | CUDA-Q state-vector or tensor-network simulation; also enables `q-orca compile cudaq` |
+| Backend | Flag | Requires | Platform |
+|---------|------|----------|----------|
+| QuTiP (default) | `--backend qutip` | `pip install qutip` | Any |
+| NVIDIA CUDA-Q | `--backend cudaq` | `pip install cuda-quantum` | macOS (Apple Silicon), Linux, Windows |
+| NVIDIA cuQuantum | `--backend cuquantum` | `pip install qutip-cuquantum` + CUDA toolkit | Linux + NVIDIA GPU only |
 
 All backends produce identical verification results — switching changes performance, not correctness. If a requested backend is unavailable, Q-Orca falls back to QuTiP and emits a `BACKEND_UNAVAILABLE` warning.
 
+#### Installing CUDA-Q (macOS / Apple Silicon)
+
+CUDA-Q runs on CPU via its `qpp-cpu` target — no GPU required:
+
 ```bash
-q-orca verify examples/bell-entangler.q.orca.md --backend cuquantum --gpu-count 2
-q-orca compile cudaq examples/bell-entangler.q.orca.md   # emit CUDA-Q kernel
+pip install cuda-quantum
+q-orca verify examples/bell-entangler.q.orca.md --backend cudaq
+q-orca compile cudaq examples/bell-entangler.q.orca.md   # emit @cudaq.kernel script
 ```
+
+#### Installing cuQuantum (Linux + NVIDIA GPU)
+
+cuQuantum requires a CUDA-capable NVIDIA GPU and the CUDA toolkit:
+
+```bash
+pip install qutip-cuquantum
+q-orca verify examples/bell-entangler.q.orca.md --backend cuquantum
+q-orca verify examples/bell-entangler.q.orca.md --backend cuquantum --gpu-count 2 --tensor-network
+```
+
+cuQuantum is **not supported on macOS** — use the CUDA-Q backend for local development on Mac.
 
 ### Stage 4 vs 4b — static vs dynamic
 
