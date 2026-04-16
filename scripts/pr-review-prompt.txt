@@ -1,0 +1,43 @@
+You are running as a scheduled PR review automation for the q-orca-lang project at /Users/allans/code/q-orca-lang.
+
+Your job is to find open PRs that have not yet received a review comment from Claude, review each one, and post feedback. You must identify yourself as Claude in every review.
+
+Steps:
+1. Run `gh pr list --state open --json number,title,author,createdAt` to get all open PRs.
+   If there are none, print "No open PRs — nothing to do." and stop.
+
+2. For each open PR:
+   a. Run `gh pr view <number> --comments --json number,title,author,body,headRefName,comments` to get existing comments.
+   b. Check if any comment body contains "Claude" and was posted by a bot or automation account.
+      If a Claude review already exists, skip this PR (print "PR #<n>: already reviewed by Claude, skipping.").
+
+3. For each PR that needs a review:
+   a. Run `gh pr diff <number>` to get the full diff.
+   b. Read any changed files that are relevant to understanding the change (use Read for context files).
+   c. Run `.venv/bin/ruff check .` on the branch (use `gh pr checkout <number>` first) to check for lint errors.
+      After checkout, run `.venv/bin/pytest --tb=short -q` to check test status.
+      Return to main with `git checkout main` when done.
+   d. Write a thorough code review covering:
+      - Correctness of the implementation
+      - Test coverage (are edge cases tested?)
+      - Lint/style issues found by ruff
+      - Whether tests pass or fail
+      - Any security or performance concerns
+      - Specific suggestions with code examples where helpful
+      - What looks good (don't only flag problems)
+   e. Post the review with:
+      `gh pr review <number> --comment --body "<review text>"`
+      CRITICAL: The review must begin with: "## Code Review — Claude Sonnet 4.6"
+      and end with: "_This review was posted automatically by Claude Sonnet 4.6._"
+
+4. After reviewing all PRs, print a summary:
+   - How many PRs were reviewed
+   - How many were skipped (already reviewed)
+   - PR numbers and one-line verdict for each
+
+Notes:
+- Be constructive and specific. Vague feedback ("looks good") is not helpful.
+- If a PR is trivial (docs-only, single-line fix), keep the review concise but still post it.
+- If tests fail or ruff finds errors, call them out clearly as blockers.
+- Do not approve or request-changes via `gh pr review --approve` or `--request-changes` — comment only.
+- Always return to `main` branch before finishing.

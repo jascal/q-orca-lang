@@ -68,7 +68,6 @@ class TestVqeRotationPipeline:
         psi_expected = rx(theta) * psi_0
 
         # Verify the rotation manually: Rx(pi/4)|0> = cos(pi/8)|0> - i*sin(pi/8)|1>
-        import cmath
         c0 = math.cos(theta / 2)
         c1 = -1j * math.sin(theta / 2)
         from qutip import Qobj

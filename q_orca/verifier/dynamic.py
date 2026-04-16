@@ -316,8 +316,6 @@ def _check_unitary_gates(
     gate_sequence: List[List[Dict[str, Any]]], n_qubits: int
 ) -> List[QVerificationError]:
     """Verify every distinct gate in the sequence satisfies U†U ≈ I."""
-    import numpy as np
-
     errors: List[QVerificationError] = []
     identity = qeye([2] * n_qubits)
     seen: set = set()
@@ -362,7 +360,7 @@ schmidt_rank_across_bipartition = _schmidt_rank_across_bipartition
 
 CUPY_AVAILABLE = False
 try:
-    import cupy as _cp
+    import cupy  # noqa: F401
     CUPY_AVAILABLE = True
 except ImportError:
     pass

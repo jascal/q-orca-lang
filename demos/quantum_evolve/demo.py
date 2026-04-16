@@ -981,6 +981,7 @@ def _parse_args():
     )
     parser.add_argument(
         "--backend", type=str, default=None,
+        choices=["cuquantum", "qutip", "none"],
         help="Verification backend: cuquantum (GPU), qutip (CPU), none (skip dynamic). "
              f"Default: {BACKEND}",
     )
