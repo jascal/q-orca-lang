@@ -1,7 +1,7 @@
 """Q-Orca configuration types."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Literal
 
 
 ProviderType = Literal["anthropic", "openai", "ollama", "grok", "minimax"]

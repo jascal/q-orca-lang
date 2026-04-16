@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from q_orca.angle import evaluate_angle
 from q_orca.ast import QMachineDef

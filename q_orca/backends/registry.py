@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Type
+from typing import Dict
 
 from q_orca.backends.base import BackendAdapter, BackendUnavailableError
 

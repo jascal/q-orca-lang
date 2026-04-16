@@ -9,7 +9,6 @@ from q_orca.verifier.completeness import check_completeness
 from q_orca.verifier.determinism import check_determinism
 from q_orca.verifier.quantum import verify_quantum
 from q_orca.verifier.superposition import check_superposition_leaks
-from q_orca.verifier.dynamic import dynamic_verify
 from q_orca.verifier.types import QVerificationResult, QVerificationError
 
 
@@ -70,7 +69,6 @@ def _run_dynamic_backend(machine: QMachineDef, backend_name: str):
     Emits a BACKEND_UNAVAILABLE warning when a fallback occurs.
     """
     from q_orca.backends import BackendRegistry, BackendUnavailableError
-    from q_orca.backends.base import BackendResult
 
     try:
         adapter, fell_back = BackendRegistry.get_with_fallback(backend_name)
