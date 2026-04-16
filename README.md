@@ -52,7 +52,7 @@ Machine: BellEntangler
 
 ```bash
 # CUDA-Q (macOS Apple Silicon, Linux, Windows — CPU simulation, no GPU required)
-pip install cuda-quantum
+pip install cudaq
 q-orca verify examples/bell-entangler.q.orca.md --backend cudaq
 
 # cuQuantum (Linux + NVIDIA GPU only)
@@ -149,7 +149,7 @@ Stage 4b supports three backends via `--backend`:
 | Backend | Flag | Requires | Platform |
 |---------|------|----------|----------|
 | QuTiP (default) | `--backend qutip` | `pip install qutip` | Any |
-| NVIDIA CUDA-Q | `--backend cudaq` | `pip install cuda-quantum` | macOS (Apple Silicon), Linux, Windows |
+| NVIDIA CUDA-Q | `--backend cudaq` | `pip install cudaq` | macOS (Apple Silicon), Linux, Windows |
 | NVIDIA cuQuantum | `--backend cuquantum` | `pip install qutip-cuquantum` + CUDA toolkit | Linux + NVIDIA GPU only |
 
 All backends produce identical verification results — switching changes performance, not correctness. If a requested backend is unavailable, Q-Orca falls back to QuTiP and emits a `BACKEND_UNAVAILABLE` warning. See [Install](#install) for setup instructions.
