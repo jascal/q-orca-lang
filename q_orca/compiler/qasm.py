@@ -232,4 +232,19 @@ def _infer_qubit_count(machine: QMachineDef) -> int:
     for guard in machine.guards:
         if guard.expression.kind == "probability":
             max_bits = max(max_bits, len(guard.expression.outcome.bitstring))
+
+    # Also scan gate targets/controls in actions to catch qubit indices
+    max_gate_idx = -1
+    for action in machine.actions:
+        if action.gate:
+            for idx in action.gate.targets or []:
+                max_gate_idx = max(max_gate_idx, idx)
+            for idx in action.gate.controls or []:
+                max_gate_idx = max(max_gate_idx, idx)
+        if action.effect:
+            for idx_match in re.finditer(r"\w+\[(\d+)\]", action.effect):
+                max_gate_idx = max(max_gate_idx, int(idx_match.group(1)))
+    if max_gate_idx >= 0:
+        max_bits = max(max_bits, max_gate_idx + 1)
+
     return max_bits or 1

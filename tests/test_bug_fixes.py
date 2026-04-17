@@ -4,6 +4,7 @@ import pytest
 
 from q_orca.parser.markdown_parser import parse_q_orca_markdown
 from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions, _gate_to_qiskit, _infer_qubit_count
+from q_orca.compiler.qasm import _infer_qubit_count as _infer_qubit_count_qasm
 from q_orca.ast import QuantumGate, QMachineDef, QStateDef, QActionSignature, QEffectDef, EventDef, QTransition
 from q_orca.verifier.structural import analyze_machine
 from q_orca.verifier.superposition import check_superposition_leaks
@@ -370,3 +371,109 @@ class TestQubitCountInference:
         machine = _machine(source)
         count = _infer_qubit_count(machine)
         assert count == 4
+
+
+# ============================================================
+# Issue #9: QASM compiler ignores gate targets/controls in actions
+# ============================================================
+
+class TestQubitCountInferenceQasmParity:
+    """QASM _infer_qubit_count must match Qiskit's across scanning paths (issue #9)."""
+
+    def test_issue_9_repro_gate_target_beyond_state_names(self):
+        """Bug from issue #9: H on qs[4] with |0>/|1> states must infer >= 5."""
+        machine = QMachineDef(
+            name="Issue9Repro",
+            states=[
+                QStateDef(name="|0>", display_name="ket_0", is_initial=True),
+                QStateDef(name="|1>", display_name="ket_1", is_final=True),
+            ],
+            events=[EventDef(name="go")],
+            transitions=[QTransition(source="|0>", event="go", target="|1>", action="do_it")],
+            actions=[
+                QActionSignature(name="do_it", gate=QuantumGate(kind="H", targets=[4])),
+            ],
+        )
+        assert _infer_qubit_count_qasm(machine) >= 5
+        assert _infer_qubit_count_qasm(machine) == _infer_qubit_count(machine)
+
+    def test_parity_gate_control_scanning(self):
+        """Control qubit indices must also contribute to the qasm count."""
+        machine = QMachineDef(
+            name="ControlScan",
+            states=[
+                QStateDef(name="|0>", display_name="ket_0", is_initial=True),
+                QStateDef(name="|1>", display_name="ket_1", is_final=True),
+            ],
+            events=[EventDef(name="go")],
+            transitions=[QTransition(source="|0>", event="go", target="|1>", action="cx")],
+            actions=[
+                QActionSignature(name="cx", gate=QuantumGate(kind="CNOT", targets=[7], controls=[2])),
+            ],
+        )
+        assert _infer_qubit_count_qasm(machine) == _infer_qubit_count(machine)
+        assert _infer_qubit_count_qasm(machine) >= 8
+
+    def test_parity_effect_string_scanning(self):
+        """Effect-string regex path (qs[N]) must work identically in qasm."""
+        source = """\
+# machine EffectScan
+
+## events
+- go
+
+## state |psi> [initial]
+> Start
+
+## state |done> [final]
+> End
+
+## transitions
+| Source | Event | Guard | Target | Action  |
+|--------|-------|-------|--------|---------|
+| |psi>  | go    |       | |done> | do_gate |
+
+## actions
+| Name    | Signature  | Effect          |
+|---------|------------|-----------------|
+| do_gate | (qs) -> qs | Hadamard(qs[2]) |
+"""
+        machine = _machine(source)
+        assert _infer_qubit_count_qasm(machine) == _infer_qubit_count(machine)
+        assert _infer_qubit_count_qasm(machine) >= 3
+
+    def test_parity_bitstring_states(self):
+        """Bitstring-state path must return the same value from both compilers."""
+        source = """\
+# machine BitstringParity
+
+## events
+- init
+
+## state |0000> [initial]
+> Initial
+
+## state |1111> [final]
+> Final
+
+## transitions
+| Source | Event | Guard | Target |
+|--------|-------|-------|--------|
+| |0000> | init |       | |1111> |
+"""
+        machine = _machine(source)
+        assert _infer_qubit_count_qasm(machine) == _infer_qubit_count(machine) == 4
+
+    def test_parity_defaults_to_one(self):
+        """With no qubit info at all, both compilers return 1."""
+        machine = QMachineDef(
+            name="NoQubits",
+            states=[
+                QStateDef(name="|start>", display_name="start", is_initial=True),
+                QStateDef(name="|end>", display_name="end", is_final=True),
+            ],
+            events=[EventDef(name="go")],
+            transitions=[QTransition(source="|start>", event="go", target="|end>")],
+            actions=[],
+        )
+        assert _infer_qubit_count_qasm(machine) == _infer_qubit_count(machine) == 1
