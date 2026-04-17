@@ -467,3 +467,53 @@ class TestContextAngleDynamicVerifier:
         # A successful run means the dynamic verifier did not stumble on the
         # bare-identifier angle and produced no errors.
         assert result.valid, [e.message for e in result.errors]
+
+    def test_two_qubit_parameterized_gates_are_not_dropped(self):
+        """RXX/RYY/RZZ/CRx/CRy/CRz(qs[i], qs[j], <angle>) must survive the dynamic
+        verifier's effect-string parser. Regression for a silent drop where two-qubit
+        parameterized gates returned None and vanished from the gate sequence,
+        giving `valid=True` on circuits that actually simulated nothing.
+        """
+        from q_orca.verifier.dynamic import _build_gate_sequence
+
+        source = """\
+# machine TwoQubitParamDynamic
+
+## context
+| Field  | Type        | Default  |
+|--------|-------------|----------|
+| qubits | list<qubit> | [q0, q1] |
+| gamma  | float       | 0.5      |
+
+## events
+- entangle
+
+## state |00> [initial]
+## state |cost> [final]
+
+## transitions
+| Source | Event    | Guard | Target | Action       |
+|--------|----------|-------|--------|--------------|
+| |00>   | entangle |       | |cost> | cost_unitary |
+
+## actions
+| Name         | Signature  | Effect                   |
+|--------------|------------|--------------------------|
+| cost_unitary | (qs) -> qs | RZZ(qs[0], qs[1], gamma) |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        machine = _machine(source)
+        err, seq = _build_gate_sequence(machine)
+        assert err is None
+        flat = [g for step in seq for g in step]
+        rzz_gates = [g for g in flat if g["name"] == "RZZ"]
+        assert len(rzz_gates) == 1, (
+            f"RZZ was silently dropped from the gate sequence; got {flat}"
+        )
+        assert rzz_gates[0]["targets"] == [0, 1]
+        assert rzz_gates[0]["params"]["theta"] == 0.5
+
+        result = verify(machine)
+        assert result.valid, [e.message for e in result.errors]

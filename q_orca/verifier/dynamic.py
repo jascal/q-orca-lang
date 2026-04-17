@@ -21,10 +21,10 @@ from q_orca.verifier.types import QVerificationError, QVerificationResult
 # qutip 5.x split gate operations into the separate qutip_qip package.
 QUTIP_AVAILABLE = False
 try:
-    from qutip import basis, ket2dm, entropy_vn, qeye, Qobj
+    from qutip import basis, ket2dm, entropy_vn, qeye, Qobj, tensor, sigmax, sigmay, sigmaz
     from qutip_qip.operations import (
         hadamard_transform, cnot, x_gate, y_gate, z_gate,
-        rx, ry, rz, expand_operator, cz_gate, swap,
+        rx, ry, rz, expand_operator, cz_gate, swap, controlled_gate,
     )
     QUTIP_AVAILABLE = True
 except ImportError:
@@ -181,6 +181,27 @@ def _parse_single_gate_to_dict(
             theta = 0.0
         return {"name": kind.upper(), "targets": [int(m.group(3))], "controls": [], "params": {"theta": theta}}
 
+    # Two-qubit parameterized gates: RXX/RYY/RZZ(qs[i], qs[j], <angle>) and
+    # CRx/CRy/CRz(qs[ctrl], qs[tgt], <angle>). Mirrors the pattern in
+    # q_orca.compiler.qiskit._parse_single_gate so parser/compiler/verifier agree.
+    m = re.search(
+        r"(CRx|CRy|CRz|RXX|RYY|RZZ)\(\s*(\w+)\[(\d+)\]\s*,\s*(\w+)\[(\d+)\]\s*,\s*([^)]+)\s*\)",
+        effect_str,
+        re.IGNORECASE,
+    )
+    if m:
+        kind = m.group(1).upper()
+        i = int(m.group(3))
+        j = int(m.group(5))
+        angle_str = m.group(6).strip()
+        try:
+            theta = evaluate_angle(angle_str, angle_context)
+        except ValueError:
+            theta = 0.0
+        if kind in ("CRX", "CRY", "CRZ"):
+            return {"name": kind, "targets": [j], "controls": [i], "params": {"theta": theta}}
+        return {"name": kind, "targets": [i, j], "controls": [], "params": {"theta": theta}}
+
     # Generic single-qubit: GateName(qs[N])
     m = re.search(r"^([A-Za-z]+)\((\w+)\[(\d+)\]\s*\)", effect_str)
     if m:
@@ -248,6 +269,22 @@ def _get_qutip_operator(gate: Dict[str, Any], n_qubits: int) -> Qobj:
     elif name == "RZ":
         theta = params.get("theta", 0.0)
         return expand_operator(rz(theta), dims=[2] * n_qubits, targets=targets[0])
+
+    elif name in ("RXX", "RYY", "RZZ"):
+        theta = params.get("theta", 0.0)
+        pauli = {"RXX": sigmax, "RYY": sigmay, "RZZ": sigmaz}[name]
+        pp = tensor(pauli(), pauli())
+        op = (-1j * theta / 2 * pp).expm()
+        tgt1, tgt2 = targets[0], targets[1] if len(targets) > 1 else targets[0]
+        return expand_operator(op, dims=[2] * n_qubits, targets=[tgt1, tgt2])
+
+    elif name in ("CRX", "CRY", "CRZ"):
+        theta = params.get("theta", 0.0)
+        rot = {"CRX": rx, "CRY": ry, "CRZ": rz}[name]
+        ctrl = controls[0] if controls else 0
+        tgt = targets[0]
+        op = controlled_gate(rot(theta), controls=0, targets=1, N=2)
+        return expand_operator(op, dims=[2] * n_qubits, targets=[ctrl, tgt])
 
     else:
         return qeye([2] * n_qubits)
