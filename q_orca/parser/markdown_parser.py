@@ -172,6 +172,45 @@ def _split_by_separator(elements: list[MdElement]) -> list[list[MdElement]]:
     return [c for c in chunks if c]
 
 
+def _prescan_context(elements: list[MdElement]) -> list[ContextField]:
+    """Locate the first `## context` table in `elements` and parse it.
+
+    The pre-scan exists so that action effect strings can resolve
+    context-field angle references regardless of section order.
+    """
+    for j, el in enumerate(elements):
+        if (
+            isinstance(el, MdHeading)
+            and el.level == 2
+            and el.text.lower() == "context"
+        ):
+            if j + 1 < len(elements) and isinstance(elements[j + 1], MdTable):
+                return _parse_context_table(elements[j + 1])
+            return []
+    return []
+
+
+def _build_angle_context(context_fields: list[ContextField]) -> dict[str, float]:
+    """Build a {name: float} map of context fields usable as gate angles.
+
+    Includes only fields whose declared type is `int` or `float` and whose
+    default value parses as a number. Fields without defaults or with
+    non-numeric defaults are skipped.
+    """
+    out: dict[str, float] = {}
+    for f in context_fields:
+        kind = getattr(f.type, "kind", "")
+        if kind not in ("int", "float"):
+            continue
+        if not f.default_value:
+            continue
+        try:
+            out[f.name] = float(f.default_value.strip())
+        except (ValueError, AttributeError):
+            continue
+    return out
+
+
 def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = None) -> Optional[QMachineDef]:
     name = ""
     context: list[ContextField] = []
@@ -183,6 +222,11 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
     effects: list[QEffectDef] = []
     verification_rules: list[VerificationRule] = []
     invariants: list[Invariant] = []
+
+    # Pre-scan for the context table so that angle expressions in actions
+    # can reference numeric context fields regardless of section order.
+    context = _prescan_context(elements)
+    angle_context = _build_angle_context(context)
 
     i = 0
     while i < len(elements):
@@ -234,7 +278,7 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
             if section_name_lower == "actions":
                 i += 1
                 if i < len(elements) and isinstance(elements[i], MdTable):
-                    actions = _parse_actions_table(elements[i], errors)
+                    actions = _parse_actions_table(elements[i], errors, angle_context)
                     i += 1
                 continue
 
@@ -404,7 +448,11 @@ def _parse_guards_table(table: MdTable) -> list[QGuardDef]:
     return guards
 
 
-def _parse_actions_table(table: MdTable, errors: list[str] | None = None) -> list[QActionSignature]:
+def _parse_actions_table(
+    table: MdTable,
+    errors: list[str] | None = None,
+    angle_context: dict[str, float] | None = None,
+) -> list[QActionSignature]:
     actions: list[QActionSignature] = []
     name_idx = _find_column_index(table.headers, "name")
     sig_idx = _find_column_index(table.headers, "signature")
@@ -419,10 +467,10 @@ def _parse_actions_table(table: MdTable, errors: list[str] | None = None) -> lis
             continue
 
         params, return_type = _parse_signature(sig_str)
-        gate = _parse_gate_from_effect(effect_str, errors, action_name=name)
+        gate = _parse_gate_from_effect(effect_str, errors, action_name=name, angle_context=angle_context)
         measurement = _parse_measurement_from_effect(effect_str)
         mid_circuit_measure = _parse_mid_circuit_measure_from_effect(effect_str)
-        conditional_gate = _parse_conditional_gate_from_effect(effect_str, errors, action_name=name)
+        conditional_gate = _parse_conditional_gate_from_effect(effect_str, errors, action_name=name, angle_context=angle_context)
 
         actions.append(QActionSignature(
             name=name,
@@ -647,6 +695,7 @@ def _parse_gate_from_effect(
     effect_str: str,
     errors: list[str] | None = None,
     action_name: str = "",
+    angle_context: dict[str, float] | None = None,
 ) -> Optional[QuantumGate]:
     if not effect_str:
         return None
@@ -673,7 +722,7 @@ def _parse_gate_from_effect(
         tgt_or_j = int(m.group(3))
         angle_str = m.group(4).strip()
         try:
-            theta = _evaluate_angle(angle_str)
+            theta = _evaluate_angle(angle_str, angle_context)
         except ValueError as exc:
             if errors is not None:
                 prefix = f"action {action_name!r}: " if action_name else ""
@@ -694,7 +743,7 @@ def _parse_gate_from_effect(
         idx = int(m.group(2))
         angle_str = m.group(3).strip()
         try:
-            theta = _evaluate_angle(angle_str)
+            theta = _evaluate_angle(angle_str, angle_context)
         except ValueError as exc:
             if errors is not None:
                 prefix = f"action {action_name!r}: " if action_name else ""
@@ -756,6 +805,7 @@ def _parse_conditional_gate_from_effect(
     effect_str: str,
     errors: list[str] | None = None,
     action_name: str = "",
+    angle_context: dict[str, float] | None = None,
 ) -> Optional[QEffectConditional]:
     """Parse 'if bits[M] == val: Gate(qs[K])' into QEffectConditional."""
     if not effect_str:
@@ -769,7 +819,7 @@ def _parse_conditional_gate_from_effect(
     bit_idx = int(m.group(1))
     value = int(m.group(2))
     gate_str = m.group(3).strip()
-    gate = _parse_gate_from_effect(gate_str, errors=errors, action_name=action_name)
+    gate = _parse_gate_from_effect(gate_str, errors=errors, action_name=action_name, angle_context=angle_context)
     if gate is None:
         return None
     return QEffectConditional(bit_idx=bit_idx, value=value, gate=gate)

@@ -522,3 +522,48 @@ class TestQiskitCompiler:
         output = compile_to_qiskit(machine, opts)
         assert "qubit_count = 4" in output
         assert "qc = QuantumCircuit(4)" in output
+
+
+class TestContextAngleCompilation:
+    """Verify the QASM and Qiskit backends resolve context-field angle refs."""
+
+    SOURCE = """\
+# machine CtxAngleCompile
+
+## context
+| Field  | Type        | Default |
+|--------|-------------|---------|
+| qubits | list<qubit> | [q0, q1] |
+| gamma  | float       | 0.5     |
+| beta   | float       | 0.25    |
+
+## events
+- run
+
+## state |00> [initial]
+## state |out> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action  |
+|--------|-------|-------|--------|---------|
+| |00>   | run   |       | |out>  | rotate  |
+
+## actions
+| Name   | Signature  | Effect                                       |
+|--------|------------|----------------------------------------------|
+| rotate | (qs) -> qs | Rx(qs[0], gamma); RZZ(qs[0], qs[1], beta)    |
+"""
+
+    def test_qasm_emits_resolved_angle(self):
+        machine = _machine(self.SOURCE)
+        out = compile_to_qasm(machine)
+        # Rx(gamma) → rx(0.5) on q[0]; RZZ(beta) is decomposed into
+        # `cx q0,q1; rz(0.25) q[1]; cx q0,q1;`.
+        assert "rx(0.5) q[0];" in out
+        assert "rz(0.25) q[1];" in out
+
+    def test_qiskit_emits_resolved_angle(self):
+        machine = _machine(self.SOURCE)
+        out = compile_to_qiskit(machine, QSimulationOptions(analytic=True, skip_qutip=True))
+        assert "qc.rx(0.5, 0)" in out
+        assert "qc.rzz(0.25, 0, 1)" in out

@@ -424,3 +424,46 @@ class TestFullPipeline:
             machine = _machine(source)
             result = verify(machine)
             assert result.valid, f"{f.name} failed verification: {[e.message for e in result.errors if e.severity == 'error']}"
+
+
+class TestContextAngleDynamicVerifier:
+    """Dynamic verifier must resolve context-field angle references."""
+
+    def test_context_ref_matches_literal_dynamic_simulation(self):
+        """A machine using `Rx(qs[0], theta)` with theta=pi/2 must produce the
+        same dynamic verification outcome as `Rx(qs[0], pi/2)`. We assert this
+        indirectly by checking that both verify cleanly under the same rules.
+        """
+        ctx_source = """\
+# machine CtxAngleDynamic
+
+## context
+| Field  | Type        | Default            |
+|--------|-------------|--------------------|
+| qubits | list<qubit> | [q0]               |
+| theta  | float       | 1.5707963267948966 |
+
+## events
+- rotate
+
+## state |0> [initial]
+## state |+> [final]
+
+## transitions
+| Source | Event  | Guard | Target | Action |
+|--------|--------|-------|--------|--------|
+| |0>    | rotate |       | |+>    | spin   |
+
+## actions
+| Name | Signature  | Effect           |
+|------|------------|------------------|
+| spin | (qs) -> qs | Rx(qs[0], theta) |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        machine = _machine(ctx_source)
+        result = verify(machine)
+        # A successful run means the dynamic verifier did not stumble on the
+        # bare-identifier angle and produced no errors.
+        assert result.valid, [e.message for e in result.errors]

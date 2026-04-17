@@ -6,9 +6,7 @@ The Q-Orca compiler turns a parsed `QMachineDef` into one of three
 artifacts: an OpenQASM 3.0 program, a runnable Qiskit Python script, or
 a Mermaid state diagram. The three backends share effect-string parsing
 via `q_orca/compiler/qiskit.py::_parse_effect_string`.
-
 ## Requirements
-
 ### Requirement: Three Backend Targets
 
 The compiler SHALL expose three backend entry points:
@@ -24,6 +22,25 @@ The compiler SHALL expose three backend entry points:
 - **THEN** the returned script contains `qc = QuantumCircuit(2)`, the
   necessary `qc.h(...)` and `qc.cx(...)` calls, and produces a
   probability dictionary on the final `print(json.dumps(result, ...))`
+
+#### Scenario: CNOT translation across backends
+
+- **WHEN** an action's effect is `CNOT(qs[0], qs[1])`
+- **THEN** QASM emits `cx q[0], q[1];`, Qiskit emits `qc.cx(0, 1)`,
+  and Mermaid renders the action as a transition label `... / apply_CNOT`
+
+#### Scenario: Bell-pair QASM output structure
+
+- **WHEN** `compile_to_qasm` is called on the Bell-pair machine
+- **THEN** the output contains `OPENQASM 3.0;`, `qubit[2] q;`, `h q[0];`,
+  and `cx q[0], q[1];` in that order
+
+#### Scenario: Bell-pair Mermaid output structure
+
+- **WHEN** `compile_to_mermaid` is called on the Bell-pair machine
+- **THEN** the output begins with `stateDiagram-v2`, contains `direction LR`,
+  has a `[*] -->` transition for the initial state, and includes at least one
+  transition label containing `apply_CNOT`
 
 ### Requirement: Shared Gate Kind Coverage
 
@@ -213,3 +230,4 @@ evaluated float for every rotation-gate action.
   `Rx(qs[0], 1.5708)`
 - **THEN** the QuTiP path produces the correct rotated state for that
   angle (not the identity produced by a silent `0.0` fallback)
+

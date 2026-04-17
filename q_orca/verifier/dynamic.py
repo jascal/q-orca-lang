@@ -68,6 +68,7 @@ def _infer_qubit_count(machine: QMachineDef) -> int:
 def _build_gate_sequence(machine: QMachineDef, max_gates: int = 50) -> tuple[Optional[str], list[list[Dict[str, Any]]]]:
     """Extract gate sequence from machine transitions as gate dicts."""
     action_map = {a.name: a for a in machine.actions}
+    angle_context = _build_angle_context(machine)
 
     initial = next((s for s in machine.states if s.is_initial), None)
     if not initial:
@@ -90,7 +91,7 @@ def _build_gate_sequence(machine: QMachineDef, max_gates: int = 50) -> tuple[Opt
             if t.action:
                 action = action_map.get(t.action)
                 if action and action.effect:
-                    gates = _parse_effect_to_gate_dicts(action.effect)
+                    gates = _parse_effect_to_gate_dicts(action.effect, angle_context=angle_context)
                     gate_sequence.append(gates)
 
             is_measure = "measure" in t.event.lower() or "collapse" in t.event.lower()
@@ -100,20 +101,47 @@ def _build_gate_sequence(machine: QMachineDef, max_gates: int = 50) -> tuple[Opt
     return None, gate_sequence
 
 
-def _parse_effect_to_gate_dicts(effect_str: str) -> list[Dict[str, Any]]:
+def _build_angle_context(machine: QMachineDef) -> dict[str, float]:
+    """Mirror of `markdown_parser._build_angle_context` for the dynamic verifier.
+
+    Yields {name: float} for context fields with `int`/`float` type and a
+    numeric default — i.e. the identifiers that may appear inside rotation
+    gate angle expressions.
+    """
+    out: dict[str, float] = {}
+    for f in getattr(machine, "context", []) or []:
+        kind = getattr(f.type, "kind", "")
+        if kind not in ("int", "float"):
+            continue
+        if not f.default_value:
+            continue
+        try:
+            out[f.name] = float(f.default_value.strip())
+        except (ValueError, AttributeError):
+            continue
+    return out
+
+
+def _parse_effect_to_gate_dicts(
+    effect_str: str,
+    angle_context: Optional[Dict[str, float]] = None,
+) -> list[Dict[str, Any]]:
     """Parse an effect string into gate dictionaries."""
     gates = []
     for part in effect_str.split(";"):
         part = part.strip()
         if not part:
             continue
-        gate = _parse_single_gate_to_dict(part)
+        gate = _parse_single_gate_to_dict(part, angle_context=angle_context)
         if gate:
             gates.append(gate)
     return gates
 
 
-def _parse_single_gate_to_dict(effect_str: str) -> Optional[Dict[str, Any]]:
+def _parse_single_gate_to_dict(
+    effect_str: str,
+    angle_context: Optional[Dict[str, float]] = None,
+) -> Optional[Dict[str, Any]]:
     """Parse a single gate effect string into a gate dict."""
     effect_str = effect_str.strip()
 
@@ -148,7 +176,7 @@ def _parse_single_gate_to_dict(effect_str: str) -> Optional[Dict[str, Any]]:
         kind = m.group(1).lower()
         angle_str = m.group(4).strip()
         try:
-            theta = evaluate_angle(angle_str)
+            theta = evaluate_angle(angle_str, angle_context)
         except ValueError:
             theta = 0.0
         return {"name": kind.upper(), "targets": [int(m.group(3))], "controls": [], "params": {"theta": theta}}

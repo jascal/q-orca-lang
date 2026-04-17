@@ -41,8 +41,8 @@
 | Name            | Signature     | Effect                                                                      |
 |-----------------|---------------|-----------------------------------------------------------------------------|
 | hadamard_layer  | (qs) -> qs    | Hadamard(qs[0]); Hadamard(qs[1]); Hadamard(qs[2])                           |
-| cost_unitary    | (qs) -> qs    | RZZ(qs[0], qs[1], pi/4); RZZ(qs[1], qs[2], pi/4); RZZ(qs[0], qs[2], pi/4) |
-| mixer_unitary   | (qs) -> qs    | Rx(qs[0], pi/8); Rx(qs[1], pi/8); Rx(qs[2], pi/8)                          |
+| cost_unitary    | (qs) -> qs    | RZZ(qs[0], qs[1], gamma); RZZ(qs[1], qs[2], gamma); RZZ(qs[0], qs[2], gamma) |
+| mixer_unitary   | (qs) -> qs    | Rx(qs[0], beta); Rx(qs[1], beta); Rx(qs[2], beta)                          |
 
 ## verification rules
 - unitarity: all gates preserve norm

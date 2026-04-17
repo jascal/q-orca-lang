@@ -3,7 +3,7 @@
 import re
 
 from q_orca.ast import QMachineDef, QuantumGate, QTypeScalar, QTypeList, QTypeQubit
-from q_orca.compiler.qiskit import _parse_effect_string, _infer_bit_count
+from q_orca.compiler.qiskit import _build_angle_context, _parse_effect_string, _infer_bit_count
 
 
 def compile_to_qasm(machine: QMachineDef) -> str:
@@ -74,6 +74,7 @@ def _extract_gate_sequence(machine: QMachineDef) -> list:
     """Return (action_name, [gates], comment) triples ordered by BFS traversal."""
     steps = []
     action_map = {a.name: a for a in machine.actions}
+    angle_context = _build_angle_context(machine)
 
     initial = next((s for s in machine.states if s.is_initial), None)
     if not initial:
@@ -95,7 +96,7 @@ def _extract_gate_sequence(machine: QMachineDef) -> list:
                 action = action_map.get(t.action)
                 if action:
                     # Parse the full effect string (handles CX, multi-gate, etc.)
-                    gates = _parse_effect_string(action.effect) if action.effect else []
+                    gates = _parse_effect_string(action.effect, angle_context=angle_context) if action.effect else []
                     # Fall back to the single gate stored on the action if parsing gave nothing
                     if not gates and action.gate:
                         gates = [action.gate]
