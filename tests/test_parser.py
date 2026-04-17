@@ -237,6 +237,34 @@ class TestEvaluateAngle:
         with pytest.raises(ValueError):
             evaluate_angle("ctx.angle")
 
+    @pytest.mark.parametrize("text,expected", [
+        ("gamma", 0.5),
+        ("-gamma", -0.5),
+        ("2*gamma", 1.0),
+        ("2gamma", 1.0),
+        ("gamma/2", 0.25),
+        ("gamma*pi", 0.5 * math.pi),
+        ("pi*gamma", 0.5 * math.pi),
+        ("-gamma*pi", -0.5 * math.pi),
+    ])
+    def test_context_reference_forms(self, text, expected):
+        ctx = {"gamma": 0.5, "beta": 0.25, "theta": 0.7}
+        assert evaluate_angle(text, ctx) == pytest.approx(expected, rel=1e-9)
+
+    def test_pi_literal_shadowing_disabled(self):
+        # A field named `pi` must NOT shadow the literal `pi`.
+        assert evaluate_angle("pi", {"pi": 99.0}) == math.pi
+
+    def test_unknown_identifier_with_context_lists_available(self):
+        with pytest.raises(ValueError) as exc:
+            evaluate_angle("zzz", {"gamma": 0.5})
+        assert "zzz" in str(exc.value)
+        assert "gamma" in str(exc.value)
+
+    def test_no_context_still_rejects_identifier(self):
+        with pytest.raises(ValueError):
+            evaluate_angle("gamma")
+
 
 _ROTATION_MACHINE = """\
 # machine RotationTest
@@ -318,3 +346,104 @@ class TestRotationGateParsing:
         action = result.file.machines[0].actions[0]
         assert action.gate is None
         assert any("theta_custom" in e for e in result.errors)
+
+
+_CTX_ANGLE_MACHINE = """\
+# machine CtxAngleTest
+
+## context
+| Field  | Type        | Default            |
+|--------|-------------|--------------------|
+| qubits | list<qubit> | [q0, q1]           |
+| theta  | float       | 0.7                |
+| gamma  | float       | 0.5                |
+| beta   | float       | 0.25               |
+| frac   | float       | 0.5                |
+| n      | int         | 2                  |
+
+## events
+- rotate
+
+## state |00> [initial]
+> Ground state
+
+## state |out> [final]
+> After rotation
+
+## transitions
+| Source | Event  | Guard | Target | Action    |
+|--------|--------|-------|--------|-----------|
+| |00>   | rotate |       | |out>  | apply_gate |
+
+## actions
+| Name       | Signature  | Effect          |
+|------------|------------|-----------------|
+| apply_gate | (qs) -> qs | {effect}        |
+"""
+
+
+class TestContextAngleReferences:
+    """Tests for context-field references inside rotation gate angles."""
+
+    def _machine(self, effect: str):
+        source = _CTX_ANGLE_MACHINE.format(effect=effect)
+        return parse_q_orca_markdown(source)
+
+    def test_bare_identifier(self):
+        result = self._machine("Rx(qs[0], theta)")
+        action = result.file.machines[0].actions[0]
+        assert result.errors == []
+        assert action.gate is not None
+        assert action.gate.parameter == pytest.approx(0.7)
+
+    def test_negated_identifier(self):
+        result = self._machine("Ry(qs[0], -theta)")
+        action = result.file.machines[0].actions[0]
+        assert result.errors == []
+        assert action.gate.parameter == pytest.approx(-0.7)
+
+    def test_integer_scaling(self):
+        result = self._machine("Rz(qs[0], 2*beta)")
+        action = result.file.machines[0].actions[0]
+        assert result.errors == []
+        assert action.gate.parameter == pytest.approx(0.5)
+
+    def test_division_by_integer(self):
+        result = self._machine("Rx(qs[0], theta/2)")
+        action = result.file.machines[0].actions[0]
+        assert result.errors == []
+        assert action.gate.parameter == pytest.approx(0.35)
+
+    def test_pi_scaling(self):
+        result = self._machine("Rz(qs[0], frac*pi)")
+        action = result.file.machines[0].actions[0]
+        assert result.errors == []
+        assert action.gate.parameter == pytest.approx(math.pi / 2)
+
+    def test_two_qubit_gate_with_context_reference(self):
+        result = self._machine("RZZ(qs[0], qs[1], gamma)")
+        action = result.file.machines[0].actions[0]
+        assert result.errors == []
+        assert action.gate is not None
+        assert action.gate.kind == "RZZ"
+        assert action.gate.targets == [0, 1]
+        assert action.gate.parameter == pytest.approx(0.5)
+
+    def test_int_field_resolves(self):
+        result = self._machine("Rx(qs[0], n)")
+        action = result.file.machines[0].actions[0]
+        assert result.errors == []
+        assert action.gate.parameter == pytest.approx(2.0)
+
+    def test_unknown_identifier_produces_error(self):
+        result = self._machine("Rx(qs[0], unknown_field)")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is None
+        assert any("unknown_field" in e for e in result.errors)
+
+    def test_non_numeric_field_produces_error(self):
+        # `qubits` is list<qubit>, not numeric — must be rejected.
+        result = self._machine("Rx(qs[0], qubits)")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is None
+        assert any("qubits" in e for e in result.errors)

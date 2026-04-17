@@ -424,3 +424,121 @@ class TestFullPipeline:
             machine = _machine(source)
             result = verify(machine)
             assert result.valid, f"{f.name} failed verification: {[e.message for e in result.errors if e.severity == 'error']}"
+
+
+class TestContextAngleDynamicVerifier:
+    """Dynamic verifier must resolve context-field angle references."""
+
+    def test_context_ref_matches_literal_dynamic_simulation(self):
+        """A machine using `Rx(qs[0], theta)` with theta=pi/2 must produce the
+        same dynamic verification outcome as `Rx(qs[0], pi/2)`. We assert this
+        indirectly by checking that both verify cleanly under the same rules.
+        """
+        ctx_source = """\
+# machine CtxAngleDynamic
+
+## context
+| Field  | Type        | Default            |
+|--------|-------------|--------------------|
+| qubits | list<qubit> | [q0]               |
+| theta  | float       | 1.5707963267948966 |
+
+## events
+- rotate
+
+## state |0> [initial]
+## state |+> [final]
+
+## transitions
+| Source | Event  | Guard | Target | Action |
+|--------|--------|-------|--------|--------|
+| |0>    | rotate |       | |+>    | spin   |
+
+## actions
+| Name | Signature  | Effect           |
+|------|------------|------------------|
+| spin | (qs) -> qs | Rx(qs[0], theta) |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        machine = _machine(ctx_source)
+        result = verify(machine)
+        # A successful run means the dynamic verifier did not stumble on the
+        # bare-identifier angle and produced no errors.
+        assert result.valid, [e.message for e in result.errors]
+
+    def test_two_qubit_parameterized_gates_are_not_dropped(self):
+        """RXX/RYY/RZZ/CRx/CRy/CRz(qs[i], qs[j], <angle>) must survive the dynamic
+        verifier's effect-string parser. Regression for a silent drop where two-qubit
+        parameterized gates returned None and vanished from the gate sequence,
+        giving `valid=True` on circuits that actually simulated nothing.
+        """
+        from q_orca.verifier.dynamic import _build_gate_sequence
+
+        source = """\
+# machine TwoQubitParamDynamic
+
+## context
+| Field  | Type        | Default  |
+|--------|-------------|----------|
+| qubits | list<qubit> | [q0, q1] |
+| gamma  | float       | 0.5      |
+
+## events
+- entangle
+
+## state |00> [initial]
+## state |cost> [final]
+
+## transitions
+| Source | Event    | Guard | Target | Action       |
+|--------|----------|-------|--------|--------------|
+| |00>   | entangle |       | |cost> | cost_unitary |
+
+## actions
+| Name         | Signature  | Effect                   |
+|--------------|------------|--------------------------|
+| cost_unitary | (qs) -> qs | RZZ(qs[0], qs[1], gamma) |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        machine = _machine(source)
+        err, seq = _build_gate_sequence(machine)
+        assert err is None
+        flat = [g for step in seq for g in step]
+        rzz_gates = [g for g in flat if g["name"] == "RZZ"]
+        assert len(rzz_gates) == 1, (
+            f"RZZ was silently dropped from the gate sequence; got {flat}"
+        )
+        assert rzz_gates[0]["targets"] == [0, 1]
+        assert rzz_gates[0]["params"]["theta"] == 0.5
+
+        result = verify(machine)
+        assert result.valid, [e.message for e in result.errors]
+
+    def test_controlled_rotations_preserve_control_qubit(self):
+        """CRx/CRy/CRz(qs[ctrl], qs[tgt], <angle>) must parse as a controlled
+        rotation with `controls=[ctrl]` — not silently demote to a bare rotation.
+        Regression for a bug where the single-qubit `Rx(...)` regex was unanchored
+        and matched the substring starting after the leading `C`, returning
+        `name='RX', controls=[], theta=0.0` for what should have been a CRX.
+        """
+        from q_orca.verifier.dynamic import _parse_single_gate_to_dict
+
+        ctx = {"beta": 0.5, "gamma": 0.25}
+        cases = [
+            ("CRx(qs[0], qs[1], beta)",  "CRX", 0, 1, 0.5),
+            ("CRy(qs[0], qs[1], beta)",  "CRY", 0, 1, 0.5),
+            ("CRz(qs[1], qs[2], gamma)", "CRZ", 1, 2, 0.25),
+        ]
+        for effect_str, expected_name, ctrl, tgt, theta in cases:
+            gate = _parse_single_gate_to_dict(effect_str, angle_context=ctx)
+            assert gate is not None, f"{effect_str} returned None"
+            assert gate["name"] == expected_name, (
+                f"{effect_str} demoted to {gate['name']}; controls={gate['controls']}"
+            )
+            assert gate["controls"] == [ctrl], f"{effect_str}: controls={gate['controls']}"
+            assert gate["targets"] == [tgt], f"{effect_str}: targets={gate['targets']}"
+            assert gate["params"]["theta"] == theta, f"{effect_str}: theta={gate['params']['theta']}"

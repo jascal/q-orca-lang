@@ -21,10 +21,10 @@ from q_orca.verifier.types import QVerificationError, QVerificationResult
 # qutip 5.x split gate operations into the separate qutip_qip package.
 QUTIP_AVAILABLE = False
 try:
-    from qutip import basis, ket2dm, entropy_vn, qeye, Qobj
+    from qutip import basis, ket2dm, entropy_vn, qeye, Qobj, tensor, sigmax, sigmay, sigmaz
     from qutip_qip.operations import (
         hadamard_transform, cnot, x_gate, y_gate, z_gate,
-        rx, ry, rz, expand_operator, cz_gate, swap,
+        rx, ry, rz, expand_operator, cz_gate, swap, controlled_gate,
     )
     QUTIP_AVAILABLE = True
 except ImportError:
@@ -68,6 +68,7 @@ def _infer_qubit_count(machine: QMachineDef) -> int:
 def _build_gate_sequence(machine: QMachineDef, max_gates: int = 50) -> tuple[Optional[str], list[list[Dict[str, Any]]]]:
     """Extract gate sequence from machine transitions as gate dicts."""
     action_map = {a.name: a for a in machine.actions}
+    angle_context = _build_angle_context(machine)
 
     initial = next((s for s in machine.states if s.is_initial), None)
     if not initial:
@@ -90,7 +91,7 @@ def _build_gate_sequence(machine: QMachineDef, max_gates: int = 50) -> tuple[Opt
             if t.action:
                 action = action_map.get(t.action)
                 if action and action.effect:
-                    gates = _parse_effect_to_gate_dicts(action.effect)
+                    gates = _parse_effect_to_gate_dicts(action.effect, angle_context=angle_context)
                     gate_sequence.append(gates)
 
             is_measure = "measure" in t.event.lower() or "collapse" in t.event.lower()
@@ -100,21 +101,53 @@ def _build_gate_sequence(machine: QMachineDef, max_gates: int = 50) -> tuple[Opt
     return None, gate_sequence
 
 
-def _parse_effect_to_gate_dicts(effect_str: str) -> list[Dict[str, Any]]:
+def _build_angle_context(machine: QMachineDef) -> dict[str, float]:
+    """Mirror of `markdown_parser._build_angle_context` for the dynamic verifier.
+
+    Yields {name: float} for context fields with `int`/`float` type and a
+    numeric default — i.e. the identifiers that may appear inside rotation
+    gate angle expressions.
+    """
+    out: dict[str, float] = {}
+    for f in getattr(machine, "context", []) or []:
+        kind = getattr(f.type, "kind", "")
+        if kind not in ("int", "float"):
+            continue
+        if not f.default_value:
+            continue
+        try:
+            out[f.name] = float(f.default_value.strip())
+        except (ValueError, AttributeError):
+            continue
+    return out
+
+
+def _parse_effect_to_gate_dicts(
+    effect_str: str,
+    angle_context: Optional[Dict[str, float]] = None,
+) -> list[Dict[str, Any]]:
     """Parse an effect string into gate dictionaries."""
     gates = []
     for part in effect_str.split(";"):
         part = part.strip()
         if not part:
             continue
-        gate = _parse_single_gate_to_dict(part)
+        gate = _parse_single_gate_to_dict(part, angle_context=angle_context)
         if gate:
             gates.append(gate)
     return gates
 
 
-def _parse_single_gate_to_dict(effect_str: str) -> Optional[Dict[str, Any]]:
+def _parse_single_gate_to_dict(
+    effect_str: str,
+    angle_context: Optional[Dict[str, float]] = None,
+) -> Optional[Dict[str, Any]]:
     """Parse a single gate effect string into a gate dict."""
+    # TODO: Effect-string gate parsing is duplicated across three sites
+    # (q_orca/parser/markdown_parser.py, q_orca/compiler/qiskit.py::_parse_single_gate,
+    # and this function). Consolidate into a single shared parser to prevent
+    # drift — this class of bug already bit us twice on PR #11 (RZZ silently
+    # dropped; CRx/CRy/CRz demoted to bare rotations via regex ordering).
     effect_str = effect_str.strip()
 
     # Hadamard(qs[N])
@@ -142,13 +175,37 @@ def _parse_single_gate_to_dict(effect_str: str) -> Optional[Dict[str, Any]]:
     if m:
         return {"name": m.group(1), "targets": [int(m.group(3))], "controls": [], "params": {}}
 
-    # Rx(qs[N], <angle>), Ry(qs[N], <angle>), Rz(qs[N], <angle>) — canonical qubit-first
-    m = re.search(r"(Rx|Ry|Rz)\((\w+)\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
+    # Two-qubit parameterized gates: RXX/RYY/RZZ(qs[i], qs[j], <angle>) and
+    # CRx/CRy/CRz(qs[ctrl], qs[tgt], <angle>). Must run BEFORE the single-qubit
+    # Rx/Ry/Rz branch — otherwise `CRx(qs[0], qs[1], beta)` matches the embedded
+    # substring `Rx(qs[0], qs[1], beta)` and gets silently demoted to a bare Rx
+    # with no control qubit. Mirrors q_orca.compiler.qiskit._parse_single_gate.
+    m = re.search(
+        r"(CRx|CRy|CRz|RXX|RYY|RZZ)\(\s*(\w+)\[(\d+)\]\s*,\s*(\w+)\[(\d+)\]\s*,\s*([^)]+)\s*\)",
+        effect_str,
+        re.IGNORECASE,
+    )
+    if m:
+        kind = m.group(1).upper()
+        i = int(m.group(3))
+        j = int(m.group(5))
+        angle_str = m.group(6).strip()
+        try:
+            theta = evaluate_angle(angle_str, angle_context)
+        except ValueError:
+            theta = 0.0
+        if kind in ("CRX", "CRY", "CRZ"):
+            return {"name": kind, "targets": [j], "controls": [i], "params": {"theta": theta}}
+        return {"name": kind, "targets": [i, j], "controls": [], "params": {"theta": theta}}
+
+    # Rx(qs[N], <angle>), Ry(qs[N], <angle>), Rz(qs[N], <angle>) — canonical qubit-first.
+    # Anchored with ^ to avoid matching as a substring of CRx/CRy/CRz.
+    m = re.search(r"^(Rx|Ry|Rz)\((\w+)\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
     if m:
         kind = m.group(1).lower()
         angle_str = m.group(4).strip()
         try:
-            theta = evaluate_angle(angle_str)
+            theta = evaluate_angle(angle_str, angle_context)
         except ValueError:
             theta = 0.0
         return {"name": kind.upper(), "targets": [int(m.group(3))], "controls": [], "params": {"theta": theta}}
@@ -220,6 +277,22 @@ def _get_qutip_operator(gate: Dict[str, Any], n_qubits: int) -> Qobj:
     elif name == "RZ":
         theta = params.get("theta", 0.0)
         return expand_operator(rz(theta), dims=[2] * n_qubits, targets=targets[0])
+
+    elif name in ("RXX", "RYY", "RZZ"):
+        theta = params.get("theta", 0.0)
+        pauli = {"RXX": sigmax, "RYY": sigmay, "RZZ": sigmaz}[name]
+        pp = tensor(pauli(), pauli())
+        op = (-1j * theta / 2 * pp).expm()
+        tgt1, tgt2 = targets[0], targets[1] if len(targets) > 1 else targets[0]
+        return expand_operator(op, dims=[2] * n_qubits, targets=[tgt1, tgt2])
+
+    elif name in ("CRX", "CRY", "CRZ"):
+        theta = params.get("theta", 0.0)
+        rot = {"CRX": rx, "CRY": ry, "CRZ": rz}[name]
+        ctrl = controls[0] if controls else 0
+        tgt = targets[0]
+        op = controlled_gate(rot(theta), controls=0, targets=1, N=2)
+        return expand_operator(op, dims=[2] * n_qubits, targets=[ctrl, tgt])
 
     else:
         return qeye([2] * n_qubits)

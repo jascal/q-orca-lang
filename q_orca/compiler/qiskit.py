@@ -2,12 +2,37 @@
 
 import re
 from dataclasses import dataclass
+from typing import Mapping
 
 from q_orca.angle import evaluate_angle
 from q_orca.ast import QMachineDef, QuantumGate, QTypeQubit, QTypeScalar, QTypeList, NoiseModel
 
 
-def _parse_effect_string(effect_str: str) -> list[QuantumGate]:
+def _build_angle_context(machine: QMachineDef) -> dict[str, float]:
+    """Mirror of `markdown_parser._build_angle_context` for the compiler.
+
+    Kept here so that `_parse_effect_string` can resolve context-field
+    angle references identically to the parser, without importing across
+    layers.
+    """
+    out: dict[str, float] = {}
+    for f in getattr(machine, "context", []) or []:
+        kind = getattr(f.type, "kind", "")
+        if kind not in ("int", "float"):
+            continue
+        if not f.default_value:
+            continue
+        try:
+            out[f.name] = float(f.default_value.strip())
+        except (ValueError, AttributeError):
+            continue
+    return out
+
+
+def _parse_effect_string(
+    effect_str: str,
+    angle_context: Mapping[str, float] | None = None,
+) -> list[QuantumGate]:
     """Parse an effect string with semicolon-separated gates into a list of QuantumGate."""
     if not effect_str:
         return []
@@ -17,13 +42,16 @@ def _parse_effect_string(effect_str: str) -> list[QuantumGate]:
         part = part.strip()
         if not part:
             continue
-        gate = _parse_single_gate(part)
+        gate = _parse_single_gate(part, angle_context=angle_context)
         if gate:
             gates.append(gate)
     return gates
 
 
-def _parse_single_gate(effect_str: str) -> QuantumGate | None:
+def _parse_single_gate(
+    effect_str: str,
+    angle_context: Mapping[str, float] | None = None,
+) -> QuantumGate | None:
     """Parse a single gate from an effect string."""
     effect_str = effect_str.strip()
 
@@ -65,7 +93,7 @@ def _parse_single_gate(effect_str: str) -> QuantumGate | None:
         j = int(m.group(3))
         angle_str = m.group(4).strip()
         try:
-            theta = evaluate_angle(angle_str)
+            theta = evaluate_angle(angle_str, angle_context)
         except ValueError:
             return None
         if kind in ("CRx", "CRy", "CRz"):
@@ -80,7 +108,7 @@ def _parse_single_gate(effect_str: str) -> QuantumGate | None:
         idx = int(m.group(2))
         angle_str = m.group(3).strip()
         try:
-            theta = evaluate_angle(angle_str)
+            theta = evaluate_angle(angle_str, angle_context)
         except ValueError:
             theta = 0.0  # symbolic parameter — caller should validate upstream
         return QuantumGate(kind=f"R{axis}", targets=[idx], parameter=theta)
@@ -390,6 +418,7 @@ def _extract_gate_sequence(machine: QMachineDef) -> list:
     """Extract gate sequence from machine, handling multi-gate effects."""
     steps = []
     action_map = {a.name: a for a in machine.actions}
+    angle_context = _build_angle_context(machine)
 
     initial = next((s for s in machine.states if s.is_initial), None)
     if not initial:
@@ -411,7 +440,7 @@ def _extract_gate_sequence(machine: QMachineDef) -> list:
                 action = action_map.get(t.action)
                 if action:
                     # Use effect string to get all gates (not just the first)
-                    gates = _parse_effect_string(action.effect) if action.effect else []
+                    gates = _parse_effect_string(action.effect, angle_context=angle_context) if action.effect else []
                     # Also fall back to action.gate if effect parsing gave nothing
                     if not gates and action.gate:
                         gates = [action.gate]

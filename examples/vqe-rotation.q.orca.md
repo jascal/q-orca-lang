@@ -1,10 +1,11 @@
 # machine VqeRotation
 
 ## context
-| Field   | Type        | Default |
-|---------|-------------|---------|
-| qubits  | list<qubit> | [q0]    |
-| outcome | int         | -1      |
+| Field   | Type        | Default              |
+|---------|-------------|----------------------|
+| qubits  | list<qubit> | [q0]                 |
+| theta   | float       | 0.7853981633974483   |
+| outcome | int         | -1                   |
 
 ## events
 - rotate
@@ -43,7 +44,7 @@
 ## actions
 | Name       | Signature  | Effect          |
 |------------|------------|-----------------|
-| rotate_q0  | (qs) -> qs | Rx(qs[0], pi/4) |
+| rotate_q0  | (qs) -> qs | Rx(qs[0], theta) |
 | measure_q0 | (qs) -> qs | measure(qs[0])  |
 
 ## verification rules
