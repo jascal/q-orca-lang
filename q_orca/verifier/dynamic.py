@@ -170,20 +170,11 @@ def _parse_single_gate_to_dict(
     if m:
         return {"name": m.group(1), "targets": [int(m.group(3))], "controls": [], "params": {}}
 
-    # Rx(qs[N], <angle>), Ry(qs[N], <angle>), Rz(qs[N], <angle>) — canonical qubit-first
-    m = re.search(r"(Rx|Ry|Rz)\((\w+)\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        kind = m.group(1).lower()
-        angle_str = m.group(4).strip()
-        try:
-            theta = evaluate_angle(angle_str, angle_context)
-        except ValueError:
-            theta = 0.0
-        return {"name": kind.upper(), "targets": [int(m.group(3))], "controls": [], "params": {"theta": theta}}
-
     # Two-qubit parameterized gates: RXX/RYY/RZZ(qs[i], qs[j], <angle>) and
-    # CRx/CRy/CRz(qs[ctrl], qs[tgt], <angle>). Mirrors the pattern in
-    # q_orca.compiler.qiskit._parse_single_gate so parser/compiler/verifier agree.
+    # CRx/CRy/CRz(qs[ctrl], qs[tgt], <angle>). Must run BEFORE the single-qubit
+    # Rx/Ry/Rz branch — otherwise `CRx(qs[0], qs[1], beta)` matches the embedded
+    # substring `Rx(qs[0], qs[1], beta)` and gets silently demoted to a bare Rx
+    # with no control qubit. Mirrors q_orca.compiler.qiskit._parse_single_gate.
     m = re.search(
         r"(CRx|CRy|CRz|RXX|RYY|RZZ)\(\s*(\w+)\[(\d+)\]\s*,\s*(\w+)\[(\d+)\]\s*,\s*([^)]+)\s*\)",
         effect_str,
@@ -201,6 +192,18 @@ def _parse_single_gate_to_dict(
         if kind in ("CRX", "CRY", "CRZ"):
             return {"name": kind, "targets": [j], "controls": [i], "params": {"theta": theta}}
         return {"name": kind, "targets": [i, j], "controls": [], "params": {"theta": theta}}
+
+    # Rx(qs[N], <angle>), Ry(qs[N], <angle>), Rz(qs[N], <angle>) — canonical qubit-first.
+    # Anchored with ^ to avoid matching as a substring of CRx/CRy/CRz.
+    m = re.search(r"^(Rx|Ry|Rz)\((\w+)\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
+    if m:
+        kind = m.group(1).lower()
+        angle_str = m.group(4).strip()
+        try:
+            theta = evaluate_angle(angle_str, angle_context)
+        except ValueError:
+            theta = 0.0
+        return {"name": kind.upper(), "targets": [int(m.group(3))], "controls": [], "params": {"theta": theta}}
 
     # Generic single-qubit: GateName(qs[N])
     m = re.search(r"^([A-Za-z]+)\((\w+)\[(\d+)\]\s*\)", effect_str)

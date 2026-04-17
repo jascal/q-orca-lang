@@ -517,3 +517,28 @@ class TestContextAngleDynamicVerifier:
 
         result = verify(machine)
         assert result.valid, [e.message for e in result.errors]
+
+    def test_controlled_rotations_preserve_control_qubit(self):
+        """CRx/CRy/CRz(qs[ctrl], qs[tgt], <angle>) must parse as a controlled
+        rotation with `controls=[ctrl]` — not silently demote to a bare rotation.
+        Regression for a bug where the single-qubit `Rx(...)` regex was unanchored
+        and matched the substring starting after the leading `C`, returning
+        `name='RX', controls=[], theta=0.0` for what should have been a CRX.
+        """
+        from q_orca.verifier.dynamic import _parse_single_gate_to_dict
+
+        ctx = {"beta": 0.5, "gamma": 0.25}
+        cases = [
+            ("CRx(qs[0], qs[1], beta)",  "CRX", 0, 1, 0.5),
+            ("CRy(qs[0], qs[1], beta)",  "CRY", 0, 1, 0.5),
+            ("CRz(qs[1], qs[2], gamma)", "CRZ", 1, 2, 0.25),
+        ]
+        for effect_str, expected_name, ctrl, tgt, theta in cases:
+            gate = _parse_single_gate_to_dict(effect_str, angle_context=ctx)
+            assert gate is not None, f"{effect_str} returned None"
+            assert gate["name"] == expected_name, (
+                f"{effect_str} demoted to {gate['name']}; controls={gate['controls']}"
+            )
+            assert gate["controls"] == [ctrl], f"{effect_str}: controls={gate['controls']}"
+            assert gate["targets"] == [tgt], f"{effect_str}: targets={gate['targets']}"
+            assert gate["params"]["theta"] == theta, f"{effect_str}: theta={gate['params']['theta']}"
