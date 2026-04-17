@@ -143,6 +143,11 @@ def _parse_single_gate_to_dict(
     angle_context: Optional[Dict[str, float]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Parse a single gate effect string into a gate dict."""
+    # TODO: Effect-string gate parsing is duplicated across three sites
+    # (q_orca/parser/markdown_parser.py, q_orca/compiler/qiskit.py::_parse_single_gate,
+    # and this function). Consolidate into a single shared parser to prevent
+    # drift — this class of bug already bit us twice on PR #11 (RZZ silently
+    # dropped; CRx/CRy/CRz demoted to bare rotations via regex ordering).
     effect_str = effect_str.strip()
 
     # Hadamard(qs[N])
