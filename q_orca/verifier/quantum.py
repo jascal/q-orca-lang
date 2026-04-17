@@ -9,6 +9,7 @@ from q_orca.verifier.types import QVerificationError, QVerificationResult
 KNOWN_UNITARY_GATES = {
     "H", "X", "Y", "Z", "CNOT", "CZ", "SWAP", "T", "S", "Rx", "Ry", "Rz", "CCNOT", "CSWAP",
     "CRx", "CRy", "CRz", "RXX", "RYY", "RZZ",
+    "CCZ", "MCX", "MCZ",
 }
 
 ENTANGLED_PATTERNS = [

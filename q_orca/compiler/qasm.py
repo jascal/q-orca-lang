@@ -152,6 +152,23 @@ def _gate_to_qasm(gate: QuantumGate, qubit_count: int) -> str:
     if gate.kind == "CCNOT":
         ctrls = gate.controls or [0, 1]
         return f"ccx {t(ctrls[0])}, {t(ctrls[1] if len(ctrls) > 1 else 1)}, {t(gate.targets[0])};"
+    if gate.kind == "CCZ":
+        ctrls = gate.controls or [0, 1]
+        c0 = ctrls[0]
+        c1 = ctrls[1] if len(ctrls) > 1 else 1
+        tgt = gate.targets[0]
+        return f"h {t(tgt)}; ccx {t(c0)}, {t(c1)}, {t(tgt)}; h {t(tgt)};"
+    if gate.kind == "MCX":
+        ctrls = gate.controls or []
+        n = len(ctrls)
+        args = ", ".join(t(i) for i in list(ctrls) + [gate.targets[0]])
+        return f"ctrl({n}) @ x {args};"
+    if gate.kind == "MCZ":
+        ctrls = gate.controls or []
+        n = len(ctrls)
+        tgt = gate.targets[0]
+        args = ", ".join(t(i) for i in list(ctrls) + [tgt])
+        return f"h {t(tgt)}; ctrl({n}) @ x {args}; h {t(tgt)};"
     if gate.kind == "CSWAP":
         ctrl = gate.controls[0] if gate.controls else 0
         return f"cswap {t(ctrl)}, {t(gate.targets[0])}, {t(gate.targets[1] if len(gate.targets) > 1 else 2)};"

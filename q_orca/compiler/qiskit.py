@@ -62,6 +62,30 @@ def _parse_single_gate(
         indices = [int(x) for x in re.findall(r"\d+", indices_str)]
         return QuantumGate(kind="H", targets=indices)
 
+    # CCX / CCNOT / Toffoli / CCZ — two controls + one target (last argument)
+    m = re.search(
+        r"(CCX|CCNOT|Toffoli|CCZ)\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*\)",
+        effect_str,
+        re.IGNORECASE,
+    )
+    if m:
+        name = m.group(1).upper()
+        c0, c1, tgt = int(m.group(2)), int(m.group(3)), int(m.group(4))
+        kind = "CCZ" if name == "CCZ" else "CCNOT"
+        return QuantumGate(kind=kind, targets=[tgt], controls=[c0, c1])
+
+    # MCX / MCZ — variable arity, last argument is the target.
+    # Requires ≥3 args total (≥2 controls); for 2-control cases use CCX/CCZ.
+    m = re.search(
+        r"(MCX|MCZ)\(\s*((?:\w+\[\d+\]\s*,\s*){2,}\w+\[\d+\])\s*\)",
+        effect_str,
+        re.IGNORECASE,
+    )
+    if m:
+        kind = m.group(1).upper()
+        indices = [int(x) for x in re.findall(r"\d+", m.group(2))]
+        return QuantumGate(kind=kind, targets=[indices[-1]], controls=indices[:-1])
+
     # CNOT(qs[control], qs[target]) — also accepts CX alias
     m = re.search(r"(?:CNOT|CX)\(\s*(\w+\[(\d+)\])\s*,\s*(\w+\[(\d+)\])\s*\)", effect_str, re.IGNORECASE)
     if m:
@@ -247,7 +271,7 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
     lines.append("import sys")
     lines.append("import numpy as np")
     lines.append("")
-    lines.append("from qiskit import QuantumCircuit")
+    lines.append("from qiskit import QuantumCircuit, transpile")
     lines.append("from qiskit.quantum_info import Statevector, Operator")
     lines.append("from qiskit.providers.basic_provider import BasicSimulator")
     lines.append("")
@@ -324,6 +348,11 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
         lines.append("qc_shots.compose(qc, inplace=True)")
         lines.append("for i in range(qubit_count):")
         lines.append("    qc_shots.measure(i, i)")
+        lines.append("")
+        lines.append("# Decompose multi-controlled / composite gates into the simulator's basis")
+        lines.append("_basis = ['h', 'x', 'y', 'z', 's', 'sdg', 't', 'tdg', 'cx', 'cz', 'ccx',")
+        lines.append("          'rx', 'ry', 'rz', 'crx', 'cry', 'crz', 'swap', 'measure']")
+        lines.append("qc_shots = transpile(qc_shots, basis_gates=_basis)")
         lines.append("")
         lines.append("# Run with noise model if available")
         lines.append("if HAS_AER and noise_model is not None:")
@@ -520,6 +549,25 @@ def _gate_to_qiskit(gate: QuantumGate) -> str:
         if len(ctrls) < 2:
             raise ValueError(f"CCNOT gate requires 2 control qubits, got {len(ctrls)}: {ctrls}")
         return f"qc.ccx({ctrls[0]}, {ctrls[1]}, {gate.targets[0]})"
+    if gate.kind == "CCZ":
+        ctrls = gate.controls or []
+        if len(ctrls) < 2:
+            raise ValueError(f"CCZ gate requires 2 control qubits, got {len(ctrls)}: {ctrls}")
+        # CCZ = H(t) · CCX · H(t); avoids depending on Qiskit's optional ccz alias
+        t = gate.targets[0]
+        return f"qc.h({t})\nqc.ccx({ctrls[0]}, {ctrls[1]}, {t})\nqc.h({t})"
+    if gate.kind == "MCX":
+        ctrls = gate.controls or []
+        if len(ctrls) < 2:
+            raise ValueError(f"MCX gate requires ≥2 control qubits, got {len(ctrls)}: {ctrls}")
+        return f"qc.mcx({list(ctrls)}, {gate.targets[0]})"
+    if gate.kind == "MCZ":
+        ctrls = gate.controls or []
+        if len(ctrls) < 2:
+            raise ValueError(f"MCZ gate requires ≥2 control qubits, got {len(ctrls)}: {ctrls}")
+        # MCZ via H-sandwich on the target → MCX
+        t = gate.targets[0]
+        return f"qc.h({t})\nqc.mcx({list(ctrls)}, {t})\nqc.h({t})"
     if gate.kind == "CSWAP":
         ctrl = gate.controls[0] if gate.controls else 0
         t1 = gate.targets[1] if len(gate.targets) > 1 else 2
