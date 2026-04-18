@@ -567,3 +567,110 @@ class TestContextAngleCompilation:
         out = compile_to_qiskit(machine, QSimulationOptions(analytic=True, skip_qutip=True))
         assert "qc.rx(0.5, 0)" in out
         assert "qc.rzz(0.25, 0, 1)" in out
+
+
+def _multi_controlled_source(effect: str, qubits: str = "[q0, q1, q2]") -> str:
+    return f"""\
+# machine MultiCtrl
+
+## context
+| Field  | Type        | Default |
+|--------|-------------|---------|
+| qubits | list<qubit> | {qubits} |
+
+## events
+- run
+
+## state |s0> [initial]
+> Start
+
+## state |s1> [final]
+> End
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | run   |       | |s1>   | apply  |
+
+## actions
+| Name  | Signature   | Effect   |
+|-------|-------------|----------|
+| apply | (qs) -> qs  | {effect} |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+
+
+class TestMultiControlledGateEmission:
+    """QASM and Qiskit emission for CCZ/MCX/MCZ mirrors the CNOT/CCNOT cases."""
+
+    # --- CCZ (two controls + one target) ---
+
+    def test_qasm_ccz_expands_to_h_ccx_h_sandwich(self):
+        source = _multi_controlled_source("CCZ(qs[0], qs[1], qs[2])")
+        out = compile_to_qasm(_machine(source))
+        # CCZ is emitted as `h q[t]; ccx q[c0], q[c1], q[t]; h q[t];` on one line.
+        assert "h q[2]; ccx q[0], q[1], q[2]; h q[2];" in out
+
+    def test_qiskit_ccz_expands_to_h_ccx_h_sandwich(self):
+        source = _multi_controlled_source("CCZ(qs[0], qs[1], qs[2])")
+        out = compile_to_qiskit(_machine(source), QSimulationOptions(analytic=True, skip_qutip=True))
+        # Qiskit emits a 3-line block: pre-H, CCX, post-H. Line ordering is the
+        # load-bearing assertion — swapping pre/post-H breaks the CCZ identity.
+        idx_pre = out.index("qc.h(2)")
+        idx_ccx = out.index("qc.ccx(0, 1, 2)")
+        idx_post = out.index("qc.h(2)", idx_pre + 1)
+        assert idx_pre < idx_ccx < idx_post
+
+    # --- MCX (≥2 controls + one target) ---
+
+    def test_qasm_mcx_emits_ctrl_n_x(self):
+        source = _multi_controlled_source(
+            "MCX(qs[0], qs[1], qs[2], qs[3])",
+            qubits="[q0, q1, q2, q3]",
+        )
+        out = compile_to_qasm(_machine(source))
+        assert "ctrl(3) @ x q[0], q[1], q[2], q[3];" in out
+
+    def test_qiskit_mcx_emits_mcx_list_target(self):
+        source = _multi_controlled_source(
+            "MCX(qs[0], qs[1], qs[2], qs[3])",
+            qubits="[q0, q1, q2, q3]",
+        )
+        out = compile_to_qiskit(_machine(source), QSimulationOptions(analytic=True, skip_qutip=True))
+        assert "qc.mcx([0, 1, 2], 3)" in out
+
+    # --- MCZ (H-sandwich around MCX) ---
+
+    def test_qasm_mcz_expands_to_h_ctrl_n_x_h_sandwich(self):
+        source = _multi_controlled_source(
+            "MCZ(qs[0], qs[1], qs[2], qs[3])",
+            qubits="[q0, q1, q2, q3]",
+        )
+        out = compile_to_qasm(_machine(source))
+        assert "h q[3]; ctrl(3) @ x q[0], q[1], q[2], q[3]; h q[3];" in out
+
+    def test_qiskit_mcz_expands_to_h_mcx_h_sandwich(self):
+        source = _multi_controlled_source(
+            "MCZ(qs[0], qs[1], qs[2], qs[3])",
+            qubits="[q0, q1, q2, q3]",
+        )
+        out = compile_to_qiskit(_machine(source), QSimulationOptions(analytic=True, skip_qutip=True))
+        idx_pre = out.index("qc.h(3)")
+        idx_mcx = out.index("qc.mcx([0, 1, 2], 3)")
+        idx_post = out.index("qc.h(3)", idx_pre + 1)
+        assert idx_pre < idx_mcx < idx_post
+
+    # --- Shots branch transpiles against a fixed basis ---
+
+    def test_qiskit_shots_branch_transpiles_for_mcx(self):
+        source = _multi_controlled_source(
+            "MCX(qs[0], qs[1], qs[2], qs[3])",
+            qubits="[q0, q1, q2, q3]",
+        )
+        out = compile_to_qiskit(_machine(source), QSimulationOptions(analytic=False, shots=1024, skip_qutip=True))
+        # BasicSimulator does not run `mcx` natively, so the shots script must
+        # transpile to a fixed basis before simulating.
+        assert "transpile" in out
+        assert "basis_gates=_basis" in out

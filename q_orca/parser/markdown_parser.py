@@ -711,6 +711,29 @@ def _parse_gate_from_effect(
     if m:
         return QuantumGate(kind="CNOT", targets=[int(m.group(2))], controls=[int(m.group(1))])
 
+    # CCX / CCNOT / Toffoli / CCZ — two controls + one target (last argument)
+    m = re.search(
+        r"(CCX|CCNOT|Toffoli|CCZ)\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*\)",
+        effect_str,
+        re.IGNORECASE,
+    )
+    if m:
+        name = m.group(1).upper()
+        c0, c1, tgt = int(m.group(2)), int(m.group(3)), int(m.group(4))
+        kind = "CCZ" if name == "CCZ" else "CCNOT"
+        return QuantumGate(kind=kind, targets=[tgt], controls=[c0, c1])
+
+    # MCX / MCZ — variable arity (≥3 args), last argument is the target.
+    m = re.search(
+        r"(MCX|MCZ)\(\s*((?:\w+\[\d+\]\s*,\s*){2,}\w+\[\d+\])\s*\)",
+        effect_str,
+        re.IGNORECASE,
+    )
+    if m:
+        kind = m.group(1).upper()
+        indices = [int(x) for x in re.findall(r"\d+", m.group(2))]
+        return QuantumGate(kind=kind, targets=[indices[-1]], controls=indices[:-1])
+
     # Two-qubit parameterized gates: CRx/CRy/CRz/RXX/RYY/RZZ(qs[i], qs[j], angle)
     m = re.search(r"(CRx|CRy|CRz|RXX|RYY|RZZ)\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
     if m:

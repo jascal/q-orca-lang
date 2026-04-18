@@ -638,3 +638,53 @@ class TestRotationGateRoundTrip:
         m = re.search(r"qc\.rx\(([\d.]+),\s*\d+\)", qiskit_code)
         assert m, f"No qc.rx() in Qiskit output:\n{qiskit_code}"
         assert float(m.group(1)) == pytest.approx(math.pi / 4, rel=1e-6)
+
+
+# ── Grover demo end-to-end (MCZ on 3 controls) ───────────────────────────────
+
+class TestGroverDemoRegression:
+    """End-to-end regression for `examples/larql-gate-knn-grover.q.orca.md`.
+
+    The demo runs 3 Grover iterations on a 4-qubit index register with the
+    marked state at |1010> (index 10). For N=16, M=1 the theoretical success
+    probability after 3 iterations is > 96%; we assert > 95% on a shots run
+    to leave headroom for the simulator's sampling variance.
+    """
+
+    REPO_ROOT = Path(__file__).resolve().parents[1]
+    MACHINE_PATH = REPO_ROOT / "examples" / "larql-gate-knn-grover.q.orca.md"
+
+    def test_grover_compiles_and_recovers_marked_state(self):
+        pytest.importorskip("qiskit", reason="qiskit not installed")
+
+        from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
+        from q_orca.runtime.python import run_simulation
+
+        source = self.MACHINE_PATH.read_text()
+        machine = parse_q_orca_markdown(source).file.machines[0]
+
+        # Parse errors would indicate the multi-controlled effect grammar
+        # regressed before we ever got to the Qiskit stage.
+        assert machine.name == "LarqlGateKnnGrover"
+
+        script = compile_to_qiskit(
+            machine,
+            QSimulationOptions(analytic=False, shots=1024, run=True, skip_qutip=True),
+        )
+
+        # The generated script must transpile against a fixed basis so
+        # BasicSimulator (which does not run `mcx` natively) can execute.
+        assert "transpile" in script
+        assert "qc.mcx(" in script
+
+        sim = run_simulation(script)
+        assert sim.success, f"simulation failed: {sim.error}\n{sim.stderr}"
+
+        counts = sim.counts or {}
+        total = sum(counts.values()) or 1
+        marked = counts.get("1010", 0)
+        fraction = marked / total
+        assert fraction > 0.95, (
+            f"Grover demo did not concentrate probability mass on |1010>: "
+            f"got {marked}/{total} = {fraction:.2%}; full counts={counts}"
+        )

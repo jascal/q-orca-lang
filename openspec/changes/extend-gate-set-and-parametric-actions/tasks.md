@@ -28,18 +28,18 @@
       `specs/language/spec.md`, `specs/compiler/spec.md`, and
       `specs/verifier/spec.md` are reviewable in isolation from
       future changes.
-- [ ] 2.2 Add `tests/test_compiler.py` cases for CCZ/MCX/MCZ QASM and
+- [x] 2.2 Add `tests/test_compiler.py` cases for CCZ/MCX/MCZ QASM and
       Qiskit emission, mirroring the existing CNOT / CCNOT cases.
       Include the H-sandwich line ordering as an explicit assertion.
-- [ ] 2.3 Add `tests/test_verifier.py` cases that confirm
+- [x] 2.3 Add `tests/test_verifier.py` cases that confirm
       `unitarity` rules pass for CCZ/MCX/MCZ and that an
       `MCX(qs[c0], qs[c1], qs[c2], qs[c2])` (control = target) raises
       `CONTROL_TARGET_OVERLAP`.
-- [ ] 2.4 Add a regression test that runs the Grover demo machine
+- [x] 2.4 Add a regression test that runs the Grover demo machine
       through `compile_to_qiskit` + `BasicSimulator` shots and
       asserts a > 95% count on `|1010>` for 1024 shots — the same
       check the demo performs end-to-end.
-- [ ] 2.5 Add `MCX` / `MCZ` to the README / docs gate-set table.
+- [x] 2.5 Add `MCX` / `MCZ` to the README / docs gate-set table.
 
 ## 3. Parametric actions — parser
 
