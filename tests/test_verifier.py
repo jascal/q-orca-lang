@@ -542,3 +542,78 @@ class TestContextAngleDynamicVerifier:
             assert gate["controls"] == [ctrl], f"{effect_str}: controls={gate['controls']}"
             assert gate["targets"] == [tgt], f"{effect_str}: targets={gate['targets']}"
             assert gate["params"]["theta"] == theta, f"{effect_str}: theta={gate['params']['theta']}"
+
+
+def _multi_controlled_machine(effect: str, qubits: str = "[q0, q1, q2, q3]") -> str:
+    return f"""\
+# machine MultiCtrlVerify
+
+## context
+| Field  | Type        | Default |
+|--------|-------------|---------|
+| qubits | list<qubit> | {qubits} |
+
+## events
+- run
+
+## state |s0> [initial]
+> Start
+
+## state |s1> [final]
+> End
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | run   |       | |s1>   | apply  |
+
+## actions
+| Name  | Signature  | Effect   |
+|-------|------------|----------|
+| apply | (qs) -> qs | {effect} |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+
+
+class TestMultiControlledUnitarity:
+    """check_unitarity must accept CCZ/MCX/MCZ as known unitaries and still
+    enforce QUBIT_INDEX_OUT_OF_RANGE and CONTROL_TARGET_OVERLAP on them."""
+
+    def test_ccz_unitarity_clean(self):
+        machine = _machine(_multi_controlled_machine("CCZ(qs[0], qs[1], qs[2])", "[q0, q1, q2]"))
+        result = verify_quantum(machine)
+        assert result.valid, [e.message for e in result.errors]
+        # CCZ is recognized as a unitary kind — no UNVERIFIED_UNITARITY warning
+        codes = [e.code for e in result.errors]
+        assert "UNVERIFIED_UNITARITY" not in codes
+
+    def test_mcx_unitarity_clean(self):
+        machine = _machine(_multi_controlled_machine("MCX(qs[0], qs[1], qs[2], qs[3])"))
+        result = verify_quantum(machine)
+        assert result.valid, [e.message for e in result.errors]
+        codes = [e.code for e in result.errors]
+        assert "UNVERIFIED_UNITARITY" not in codes
+
+    def test_mcz_unitarity_clean(self):
+        machine = _machine(_multi_controlled_machine("MCZ(qs[0], qs[1], qs[2], qs[3])"))
+        result = verify_quantum(machine)
+        assert result.valid, [e.message for e in result.errors]
+        codes = [e.code for e in result.errors]
+        assert "UNVERIFIED_UNITARITY" not in codes
+
+    def test_mcx_control_target_overlap_detected(self):
+        """An MCX whose last control repeats the target qubit (e.g.
+        `MCX(qs[0], qs[1], qs[2], qs[2])`) must raise CONTROL_TARGET_OVERLAP —
+        a 3-control Toffoli can't share a wire between a control and its target."""
+        machine = _machine(_multi_controlled_machine("MCX(qs[0], qs[1], qs[2], qs[2])"))
+        result = verify_quantum(machine)
+        codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "CONTROL_TARGET_OVERLAP" in codes
+
+    def test_ccz_control_target_overlap_detected(self):
+        machine = _machine(_multi_controlled_machine("CCZ(qs[0], qs[1], qs[1])", "[q0, q1, q2]"))
+        result = verify_quantum(machine)
+        codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "CONTROL_TARGET_OVERLAP" in codes

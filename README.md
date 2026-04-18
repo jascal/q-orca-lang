@@ -472,6 +472,28 @@ The full source for every example is in [`examples/`](examples/). Here is `bell-
 
 ---
 
+## Supported Gates
+
+The effect-string grammar accepts the following gate kinds. All kinds listed
+below are emitted by both the OpenQASM 3.0 and Qiskit compilers and verified
+as unitary by the Stage-4 static checker.
+
+| Arity            | Syntax                                  | Example                            |
+|------------------|-----------------------------------------|------------------------------------|
+| Single-qubit     | `H` / `Hadamard`, `X`, `Y`, `Z`, `T`, `S` | `Hadamard(qs[0])`                |
+| Rotation         | `Rx`, `Ry`, `Rz`                        | `Rx(qs[0], pi/4)`                  |
+| Two-qubit        | `CNOT` / `CX`, `CZ`, `SWAP`             | `CNOT(qs[0], qs[1])`               |
+| Two-qubit param. | `CRx`, `CRy`, `CRz`, `RXX`, `RYY`, `RZZ` | `RZZ(qs[0], qs[1], gamma)`        |
+| Three-qubit      | `CCX` / `CCNOT` / `Toffoli`, `CCZ`, `CSWAP` | `CCNOT(qs[0], qs[1], qs[2])`   |
+| Many-controlled  | `MCX(c0, c1, …, t)`, `MCZ(c0, c1, …, t)` | `MCZ(qs[0], qs[1], qs[2], qs[3])` |
+
+`MCX` / `MCZ` accept any number of control qubits ≥ 2; the last argument is
+always the target. On the Qiskit side, shots-mode simulation transpiles the
+generated circuit against a fixed basis before running on `BasicSimulator`
+(which does not execute `mcx` natively).
+
+---
+
 ## Mid-Circuit Measurement & Classical Feedforward
 
 Q-Orca supports mid-circuit measurement with classical feedforward — measure a qubit mid-circuit and use the result to condition subsequent gates.
