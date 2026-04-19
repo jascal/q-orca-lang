@@ -5,9 +5,28 @@ from q_orca.verifier.types import QVerificationError, QVerificationResult
 from q_orca.verifier.structural import analyze_machine
 
 
+def _event_name_matches_measurement(name: str) -> bool:
+    n = name.lower()
+    return "measure" in n or "collapse" in n or "readout" in n
+
+
+def _event_has_measurement_action(machine: QMachineDef, event_name: str) -> bool:
+    action_map = {a.name: a for a in machine.actions}
+    for t in machine.transitions:
+        if t.event != event_name or not t.action:
+            continue
+        sig = action_map.get(t.action)
+        if sig is None:
+            continue
+        if sig.measurement is not None or sig.mid_circuit_measure is not None:
+            return True
+    return False
+
+
 def has_quantum_preparation_path(machine: QMachineDef) -> bool:
     has_measure = any(
-        "measure" in e.name.lower() or "collapse" in e.name.lower() or "readout" in e.name.lower()
+        _event_name_matches_measurement(e.name)
+        or _event_has_measurement_action(machine, e.name)
         for e in machine.events
     )
     if not has_measure:
