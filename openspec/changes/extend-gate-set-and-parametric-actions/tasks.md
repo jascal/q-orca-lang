@@ -40,17 +40,17 @@
       asserts a > 95% count on `|1010>` for 1024 shots — the same
       check the demo performs end-to-end.
 - [x] 2.5 Add `MCX` / `MCZ` to the README / docs gate-set table.
-- [ ] 2.6 Add `tests/test_compiler.py` coverage for `CSWAP`. The gate
+- [x] 2.6 Add `tests/test_compiler.py` coverage for `CSWAP`. The gate
       is listed in `KNOWN_UNITARY_GATES` and in the README gate table
       but has no compiler or verifier test anywhere — a
       documentation-without-test asymmetry flagged in PR #14 QA.
-- [ ] 2.7 Tighten `MCX` / `MCZ` arity validation to parse time.
+- [x] 2.7 Tighten `MCX` / `MCZ` arity validation to parse time.
       Today the markdown parser's regex silently no-matches on
       `MCX(qs[0], qs[1])` (only 2 args) and the error surfaces late
       at Qiskit compile with a `ValueError`. Promote this to a
       structured parser error naming the action and the minimum
       arity.
-- [ ] 2.8 Warn on unrecognized effect strings. The markdown parser
+- [x] 2.8 Warn on unrecognized effect strings. The markdown parser
       currently returns `None` for unknown gates (e.g. a typo like
       `MCXY(qs[0], ...)`), and the verifier silently skips the
       transition. Emit a structured warning so typos surface early

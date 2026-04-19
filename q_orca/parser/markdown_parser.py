@@ -472,6 +472,25 @@ def _parse_actions_table(
         mid_circuit_measure = _parse_mid_circuit_measure_from_effect(effect_str)
         conditional_gate = _parse_conditional_gate_from_effect(effect_str, errors, action_name=name, angle_context=angle_context)
 
+        if (
+            effect_str
+            and gate is None
+            and measurement is None
+            and mid_circuit_measure is None
+            and conditional_gate is None
+            and errors is not None
+            and _looks_like_gate_call(effect_str)
+            # Don't double-fire if _parse_gate_from_effect already surfaced a
+            # specific error for this effect (e.g. MCX with wrong arity).
+            and not any("requires at least" in e for e in errors)
+        ):
+            errors.append(
+                f"action {name!r}: effect {effect_str!r} looks like a gate call "
+                "but does not match any known gate. Check the gate name for typos "
+                "(known gates: H, X, Y, Z, T, S, CNOT, CZ, SWAP, CSWAP, CCNOT/CCX, "
+                "CCZ, MCX, MCZ, Rx, Ry, Rz, CRx, CRy, CRz, RXX, RYY, RZZ)."
+            )
+
         actions.append(QActionSignature(
             name=name,
             parameters=params,
@@ -691,6 +710,18 @@ def _parse_signature(text: str) -> tuple[list[str], str]:
     return [], "void"
 
 
+def _looks_like_gate_call(effect_str: str) -> bool:
+    """Return True if effect_str appears to be a gate-call expression.
+
+    Used by `_parse_actions_table` to surface typos in gate names: e.g.
+    `MCXY(qs[0], qs[1], qs[2])` doesn't match any known gate and would
+    otherwise be silently dropped. A literal `Name(qs[...]...)` shape is
+    sufficient to warn; non-gate effects (bare text, measurements,
+    conditionals) are already handled by their respective parsers.
+    """
+    return bool(re.match(r"^\s*[A-Za-z][A-Za-z0-9]*\s*\(\s*\w+\[", effect_str.strip()))
+
+
 def _parse_gate_from_effect(
     effect_str: str,
     errors: list[str] | None = None,
@@ -733,6 +764,38 @@ def _parse_gate_from_effect(
         kind = m.group(1).upper()
         indices = [int(x) for x in re.findall(r"\d+", m.group(2))]
         return QuantumGate(kind=kind, targets=[indices[-1]], controls=indices[:-1])
+
+    # MCX/MCZ with too few args — promote to a structured parser error.
+    # The happy-path regex above requires ≥3 qubit args; if we see the
+    # keyword but don't match, the user almost certainly typed the wrong
+    # arity (e.g. `MCX(qs[0], qs[1])`) rather than a completely unrelated
+    # effect that happens to contain "MCX(".
+    m_bad_mc = re.match(
+        r"^(MCX|MCZ)\(\s*((?:\w+\[\d+\](?:\s*,\s*)?)*)\s*\)\s*$",
+        effect_str,
+        re.IGNORECASE,
+    )
+    if m_bad_mc:
+        kind = m_bad_mc.group(1).upper()
+        n_args = len(re.findall(r"\w+\[\d+\]", m_bad_mc.group(2)))
+        if errors is not None:
+            prefix = f"action {action_name!r}: " if action_name else ""
+            alt = "CCX" if kind == "MCX" else "CCZ"
+            errors.append(
+                f"{prefix}{kind} requires at least 3 qubit arguments "
+                f"(≥2 controls + 1 target), got {n_args}. Use {alt} for the 2-control case."
+            )
+        return None
+
+    # CSWAP / Fredkin — 1 control + 2 swap targets.
+    m = re.search(
+        r"CSWAP\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*\)",
+        effect_str,
+        re.IGNORECASE,
+    )
+    if m:
+        ctrl, t1, t2 = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        return QuantumGate(kind="CSWAP", targets=[t1, t2], controls=[ctrl])
 
     # Two-qubit parameterized gates: CRx/CRy/CRz/RXX/RYY/RZZ(qs[i], qs[j], angle)
     m = re.search(r"(CRx|CRy|CRz|RXX|RYY|RZZ)\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)

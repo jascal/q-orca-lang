@@ -617,3 +617,18 @@ class TestMultiControlledUnitarity:
         result = verify_quantum(machine)
         codes = [e.code for e in result.errors if e.severity == "error"]
         assert "CONTROL_TARGET_OVERLAP" in codes
+
+    def test_cswap_unitarity_clean(self):
+        machine = _machine(_multi_controlled_machine("CSWAP(qs[0], qs[1], qs[2])", "[q0, q1, q2]"))
+        result = verify_quantum(machine)
+        assert result.valid, [e.message for e in result.errors]
+        codes = [e.code for e in result.errors]
+        assert "UNVERIFIED_UNITARITY" not in codes
+
+    def test_cswap_control_target_overlap_detected(self):
+        """CSWAP(ctrl, t1, t2) where ctrl == t1 must flag CONTROL_TARGET_OVERLAP —
+        the control qubit cannot simultaneously participate in the swap."""
+        machine = _machine(_multi_controlled_machine("CSWAP(qs[0], qs[0], qs[1])", "[q0, q1, q2]"))
+        result = verify_quantum(machine)
+        codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "CONTROL_TARGET_OVERLAP" in codes

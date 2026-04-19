@@ -86,6 +86,16 @@ def _parse_single_gate(
         indices = [int(x) for x in re.findall(r"\d+", m.group(2))]
         return QuantumGate(kind=kind, targets=[indices[-1]], controls=indices[:-1])
 
+    # CSWAP / Fredkin — 1 control + 2 swap targets.
+    m = re.search(
+        r"CSWAP\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*\)",
+        effect_str,
+        re.IGNORECASE,
+    )
+    if m:
+        ctrl, t1, t2 = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        return QuantumGate(kind="CSWAP", targets=[t1, t2], controls=[ctrl])
+
     # CNOT(qs[control], qs[target]) — also accepts CX alias
     m = re.search(r"(?:CNOT|CX)\(\s*(\w+\[(\d+)\])\s*,\s*(\w+\[(\d+)\])\s*\)", effect_str, re.IGNORECASE)
     if m:
