@@ -480,6 +480,9 @@ def _parse_actions_table(
             and conditional_gate is None
             and errors is not None
             and _looks_like_gate_call(effect_str)
+            # Don't double-fire if _parse_gate_from_effect already surfaced a
+            # specific error for this effect (e.g. MCX with wrong arity).
+            and not any("requires at least" in e for e in errors)
         ):
             errors.append(
                 f"action {name!r}: effect {effect_str!r} looks like a gate call "

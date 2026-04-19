@@ -520,6 +520,24 @@ class TestMCXMCZArityValidation:
         assert action.gate.controls == [0, 1, 2]
         assert action.gate.targets == [3]
 
+    def test_mcx_arity_error_does_not_double_fire_unknown_gate_warning(self):
+        # The wrong-arity MCX effect also matches `_looks_like_gate_call`,
+        # so without a guard the unrecognized-gate warning would fire in
+        # addition to the specific arity error. Only the more specific
+        # diagnostic should surface.
+        result = self._parse("MCX(qs[0], qs[1])")
+        assert any("MCX" in e and "at least 3" in e for e in result.errors)
+        assert not any("does not match any known gate" in e for e in result.errors), (
+            f"unrecognized-gate warning double-fired alongside MCX arity error: {result.errors}"
+        )
+
+    def test_mcz_arity_error_does_not_double_fire_unknown_gate_warning(self):
+        result = self._parse("MCZ(qs[0], qs[1])")
+        assert any("MCZ" in e and "at least 3" in e for e in result.errors)
+        assert not any("does not match any known gate" in e for e in result.errors), (
+            f"unrecognized-gate warning double-fired alongside MCZ arity error: {result.errors}"
+        )
+
 
 class TestUnrecognizedGateEffectWarning:
     """Regression: a typo like `MCXY(...)` used to silently produce
