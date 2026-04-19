@@ -116,6 +116,9 @@ q-orca simulate examples/bell-entangler.q.orca.md --run
 # Noisy simulation with 2048 shots
 q-orca simulate examples/bell-entangler.q.orca.md --run --shots 2048
 
+# Deterministic shots run (fixed RNG seed — useful in CI)
+q-orca simulate examples/bell-entangler.q.orca.md --run --shots 1024 --seed 42
+
 # With QuTiP verification
 q-orca simulate examples/bell-entangler.q.orca.md --run --verbose
 
@@ -304,6 +307,9 @@ q-orca simulate examples/bell-entangler.q.orca.md --run
 
 # Noisy simulation with 2048 shots
 q-orca simulate examples/bell-entangler.q.orca.md --run --shots 2048
+
+# Deterministic shots run (fixed RNG seed — useful in CI)
+q-orca simulate examples/bell-entangler.q.orca.md --run --shots 1024 --seed 42
 
 # Skip QuTiP verification
 q-orca simulate examples/bell-entangler.q.orca.md --run --skip-qutip

@@ -65,6 +65,8 @@ def main():
                    help="Use tensor-network contraction (cuquantum backend)")
     s.add_argument("--cudaq-target", default=None, metavar="TARGET",
                    help="CUDA-Q target (e.g. nvidia, qpp-cpu, ionq) — cudaq backend only")
+    s.add_argument("--seed", type=int, default=None, metavar="N",
+                   help="Seed for shots-based simulation (deterministic counts)")
 
     args = parser.parse_args()
 
@@ -225,6 +227,7 @@ def _cmd_simulate(parsed, args):
         verbose=args.verbose,
         skip_qutip=args.skip_qutip,
         run=args.run,
+        seed_simulator=args.seed,
     )
 
     backend_meta = _get_backend_meta(backend)

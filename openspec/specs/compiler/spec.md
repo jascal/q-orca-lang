@@ -98,16 +98,38 @@ contains `measure` or `collapse`.
 
 The Qiskit backend SHALL accept a `QSimulationOptions` dataclass with
 fields `analytic`, `shots`, `verbose`, `skip_qutip`, `skip_noise`,
-`run`. In analytic mode the script SHALL produce a probability
-dictionary keyed by bitstrings via `Statevector`. In shots mode the
-script SHALL run `BasicSimulator` by default and, when a noise model
-is present and `qiskit_aer` is available, `AerSimulator`.
+`run`, and `seed_simulator: int | None` (default `None`). In analytic
+mode the script SHALL produce a probability dictionary keyed by
+bitstrings via `Statevector`. In shots mode the script SHALL run
+`BasicSimulator` by default and, when a noise model is present and
+`qiskit_aer` is available, `AerSimulator`.
+
+When `seed_simulator` is set, the compiler SHALL emit
+`seed_simulator=<n>` as a keyword argument on both the `BasicSimulator`
+and `AerSimulator` `.run(...)` calls in the generated script, producing
+deterministic shot counts across repeated executions. When
+`seed_simulator` is `None`, no seed kwarg SHALL appear in the emitted
+script.
 
 #### Scenario: Analytic mode output
 
 - **WHEN** compiled with `QSimulationOptions(analytic=True)`
 - **THEN** the generated script's `result` dict contains a
   `probabilities` key mapping bitstrings to floats
+
+#### Scenario: Seeded shots mode emits seed_simulator kwarg
+
+- **WHEN** compiled with `QSimulationOptions(analytic=False, shots=1024, seed_simulator=42)`
+- **THEN** the generated script contains
+  `backend.run(qc_shots, shots=shots, seed_simulator=42)` and, on the
+  noise-model branch,
+  `noisy_backend.run(qc_shots, shots=shots, seed_simulator=42)`
+
+#### Scenario: Unseeded shots mode omits seed_simulator kwarg
+
+- **WHEN** compiled with `QSimulationOptions(analytic=False, shots=1024)`
+  (default `seed_simulator=None`)
+- **THEN** the generated script contains no `seed_simulator=` occurrence
 
 ### Requirement: Noise Model Compilation
 

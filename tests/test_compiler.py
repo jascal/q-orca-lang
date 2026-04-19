@@ -370,6 +370,19 @@ class TestQiskitCompiler:
         assert "shots = 2048" in output
         assert "BasicSimulator" in output
 
+    def test_shots_mode_unseeded_omits_seed_kwarg(self, bell_source):
+        machine = _machine(bell_source)
+        opts = QSimulationOptions(analytic=False, shots=1024)
+        output = compile_to_qiskit(machine, opts)
+        assert "seed_simulator" not in output
+
+    def test_shots_mode_seeded_threads_seed_kwarg(self, bell_source):
+        machine = _machine(bell_source)
+        opts = QSimulationOptions(analytic=False, shots=1024, seed_simulator=7)
+        output = compile_to_qiskit(machine, opts)
+        assert "backend.run(qc_shots, shots=shots, seed_simulator=7)" in output
+        assert "noisy_backend.run(qc_shots, shots=shots, seed_simulator=7)" in output
+
     def test_skip_qutip(self, bell_source):
         machine = _machine(bell_source)
         opts = QSimulationOptions(analytic=True, skip_qutip=True)

@@ -647,8 +647,10 @@ class TestGroverDemoRegression:
 
     The demo runs 3 Grover iterations on a 4-qubit index register with the
     marked state at |1010> (index 10). For N=16, M=1 the theoretical success
-    probability after 3 iterations is > 96%; we assert > 95% on a shots run
-    to leave headroom for the simulator's sampling variance.
+    probability after 3 iterations is ~96.2%; at 1024 shots the one-sigma
+    band is ~0.6% so an unseeded run occasionally dips below a 95% threshold.
+    We pin `seed_simulator` to remove shot-noise flake — the assertion then
+    exercises compiler correctness, not the sampler's RNG draws.
     """
 
     REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -669,7 +671,13 @@ class TestGroverDemoRegression:
 
         script = compile_to_qiskit(
             machine,
-            QSimulationOptions(analytic=False, shots=1024, run=True, skip_qutip=True),
+            QSimulationOptions(
+                analytic=False,
+                shots=1024,
+                run=True,
+                skip_qutip=True,
+                seed_simulator=42,
+            ),
         )
 
         # The generated script must transpile against a fixed basis so

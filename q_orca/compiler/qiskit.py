@@ -258,6 +258,7 @@ class QSimulationOptions:
     skip_qutip: bool = False
     skip_noise: bool = False
     run: bool = False
+    seed_simulator: int | None = None
 
 
 def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
@@ -354,16 +355,21 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
         lines.append("          'rx', 'ry', 'rz', 'crx', 'cry', 'crz', 'swap', 'measure']")
         lines.append("qc_shots = transpile(qc_shots, basis_gates=_basis)")
         lines.append("")
+        seed_kwarg = (
+            f", seed_simulator={options.seed_simulator}"
+            if options.seed_simulator is not None
+            else ""
+        )
         lines.append("# Run with noise model if available")
         lines.append("if HAS_AER and noise_model is not None:")
         lines.append("    from qiskit_aer import AerSimulator")
         lines.append("    noisy_backend = AerSimulator(noise_model=noise_model)")
-        lines.append("    job = noisy_backend.run(qc_shots, shots=shots)")
+        lines.append(f"    job = noisy_backend.run(qc_shots, shots=shots{seed_kwarg})")
         lines.append("    counts = job.result().get_counts(qc_shots)")
         lines.append("    simulation_method = 'noisy'")
         lines.append("else:")
         lines.append("    backend = BasicSimulator()")
-        lines.append("    job = backend.run(qc_shots, shots=shots)")
+        lines.append(f"    job = backend.run(qc_shots, shots=shots{seed_kwarg})")
         lines.append("    counts = job.result().get_counts(qc_shots)")
         lines.append("    simulation_method = 'ideal'")
 
