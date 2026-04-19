@@ -447,3 +447,121 @@ class TestContextAngleReferences:
         action = result.file.machines[0].actions[0]
         assert action.gate is None
         assert any("qubits" in e for e in result.errors)
+
+
+_GATE_EFFECT_MACHINE = """\
+# machine GateEffect
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0, q1, q2, q3] |
+
+## events
+- run
+
+## state |s0> [initial]
+> start
+
+## state |s1> [final]
+> end
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | run   |       | |s1>   | apply  |
+
+## actions
+| Name  | Signature  | Effect   |
+|-------|------------|----------|
+| apply | (qs) -> qs | {effect} |
+"""
+
+
+class TestMCXMCZArityValidation:
+    """Regression: `MCX(qs[0], qs[1])` with only two args used to silently
+    no-match the parser regex, leaving the transition with no gate and
+    surfacing only as a late ValueError from the Qiskit emitter. Task 2.7
+    promotes this to a structured parse-time error naming the action and
+    required minimum arity.
+    """
+
+    def _parse(self, effect: str):
+        source = _GATE_EFFECT_MACHINE.format(effect=effect)
+        return parse_q_orca_markdown(source)
+
+    def test_mcx_with_two_args_produces_arity_error(self):
+        result = self._parse("MCX(qs[0], qs[1])")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is None
+        assert any("MCX" in e and "at least 3" in e for e in result.errors), result.errors
+        # Error names the action so the user can locate it.
+        assert any("apply" in e for e in result.errors)
+
+    def test_mcz_with_two_args_produces_arity_error(self):
+        result = self._parse("MCZ(qs[0], qs[1])")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is None
+        assert any("MCZ" in e and "at least 3" in e for e in result.errors), result.errors
+
+    def test_mcx_with_three_args_still_parses(self):
+        result = self._parse("MCX(qs[0], qs[1], qs[2])")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is not None
+        assert action.gate.kind == "MCX"
+        assert action.gate.controls == [0, 1]
+        assert action.gate.targets == [2]
+
+    def test_mcz_with_four_args_still_parses(self):
+        result = self._parse("MCZ(qs[0], qs[1], qs[2], qs[3])")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is not None
+        assert action.gate.kind == "MCZ"
+        assert action.gate.controls == [0, 1, 2]
+        assert action.gate.targets == [3]
+
+
+class TestUnrecognizedGateEffectWarning:
+    """Regression: a typo like `MCXY(...)` used to silently produce
+    `action.gate == None` and the verifier skipped the transition
+    entirely. Task 2.8 emits a structured warning so typos surface early
+    instead of becoming silent test gaps.
+    """
+
+    def _parse(self, effect: str):
+        source = _GATE_EFFECT_MACHINE.format(effect=effect)
+        return parse_q_orca_markdown(source)
+
+    def test_typo_in_gate_name_produces_warning(self):
+        result = self._parse("MCXY(qs[0], qs[1], qs[2])")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is None
+        assert any(
+            "MCXY" in e and "does not match any known gate" in e
+            for e in result.errors
+        ), result.errors
+
+    def test_unknown_multi_qubit_gate_name_produces_warning(self):
+        # Multi-arg typos have no fallback — the generic single-qubit regex
+        # requires exactly one argument, so e.g. `Flip(qs[0], qs[1])` returns
+        # None across all gate patterns and must warn.
+        result = self._parse("Flip(qs[0], qs[1])")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is None
+        assert any("does not match any known gate" in e for e in result.errors), result.errors
+
+    def test_known_gate_does_not_trigger_warning(self):
+        result = self._parse("H(qs[0])")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is not None
+        assert not any("does not match any known gate" in e for e in result.errors)
+
+    def test_measurement_effect_does_not_trigger_warning(self):
+        result = self._parse("measure(qs[0])")
+        # Measurements go through a different parser; the unknown-gate
+        # warning must not false-positive on them.
+        assert not any("does not match any known gate" in e for e in result.errors)
+
+    def test_empty_effect_does_not_trigger_warning(self):
+        result = self._parse("")
+        assert not any("does not match any known gate" in e for e in result.errors)

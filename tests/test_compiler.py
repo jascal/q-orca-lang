@@ -687,3 +687,21 @@ class TestMultiControlledGateEmission:
         # transpile to a fixed basis before simulating.
         assert "transpile" in out
         assert "basis_gates=_basis" in out
+
+
+class TestCSWAPGateEmission:
+    """CSWAP (Fredkin) is the odd 3-qubit gate: 1 control + 2 swap targets.
+    It was in `KNOWN_UNITARY_GATES` and the README gate table but had no
+    compiler test — a documentation-without-test asymmetry flagged by PR #14
+    QA. These tests close the loop.
+    """
+
+    def test_qasm_cswap_emits_cswap_with_ctrl_and_two_targets(self):
+        source = _multi_controlled_source("CSWAP(qs[0], qs[1], qs[2])")
+        out = compile_to_qasm(_machine(source))
+        assert "cswap q[0], q[1], q[2];" in out
+
+    def test_qiskit_cswap_emits_cswap_with_ctrl_and_two_targets(self):
+        source = _multi_controlled_source("CSWAP(qs[0], qs[1], qs[2])")
+        out = compile_to_qiskit(_machine(source), QSimulationOptions(analytic=True, skip_qutip=True))
+        assert "qc.cswap(0, 1, 2)" in out
