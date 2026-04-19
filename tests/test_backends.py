@@ -317,6 +317,77 @@ class TestCompileToCudaQ:
         assert "import cudaq" in proc.stdout
         assert "@cudaq.kernel" in proc.stdout
 
+    def _compile_effect(self, effect_source: str) -> str:
+        """Build a minimal machine whose single action has the given effect,
+        then compile it to a CUDA-Q kernel string."""
+        source = f"""\
+# machine MultiCtrlDemo
+
+## context
+| Field  | Type        | Default            |
+|--------|-------------|--------------------|
+| qubits | list<qubit> | [q0, q1, q2, q3]   |
+
+## events
+- go
+
+## state |start> [initial]
+## state |done>  [final]
+
+## transitions
+| Source  | Event | Guard | Target | Action |
+|---------|-------|-------|--------|--------|
+| |start> | go    |       | |done> | apply  |
+
+## actions
+| Name  | Signature  | Effect        |
+|-------|------------|---------------|
+| apply | (qs) -> qs | {effect_source} |
+"""
+        from q_orca.parser.markdown_parser import parse_q_orca_markdown
+        from q_orca.compiler.cudaq import compile_to_cudaq
+        machine = parse_q_orca_markdown(source).file.machines[0]
+        return compile_to_cudaq(machine)
+
+    def test_ccx_emits_x_ctrl_with_two_controls(self):
+        output = self._compile_effect("CCX(qs[0], qs[1], qs[2])")
+        assert "cudaq.x.ctrl(qvec[0], qvec[1], qvec[2])" in output
+
+    def test_toffoli_alias_emits_x_ctrl(self):
+        output = self._compile_effect("Toffoli(qs[0], qs[1], qs[2])")
+        assert "cudaq.x.ctrl(qvec[0], qvec[1], qvec[2])" in output
+
+    def test_ccz_emits_z_ctrl_with_two_controls(self):
+        output = self._compile_effect("CCZ(qs[0], qs[1], qs[2])")
+        assert "cudaq.z.ctrl(qvec[0], qvec[1], qvec[2])" in output
+
+    def test_mcx_emits_x_ctrl_with_variable_arity(self):
+        output = self._compile_effect("MCX(qs[0], qs[1], qs[2], qs[3])")
+        assert "cudaq.x.ctrl(qvec[0], qvec[1], qvec[2], qvec[3])" in output
+
+    def test_mcz_emits_z_ctrl_with_variable_arity(self):
+        output = self._compile_effect("MCZ(qs[0], qs[1], qs[2], qs[3])")
+        assert "cudaq.z.ctrl(qvec[0], qvec[1], qvec[2], qvec[3])" in output
+
+
+class TestCudaQBackendStubWarning:
+    """The cudaq backend verify() falls through to dynamic_verify; it must
+    surface that substitution as a warning so users are not misled into
+    thinking the CUDA-Q runtime actually executed anything."""
+
+    def test_verify_emits_fallback_warning(self):
+        from q_orca.backends.cudaq_backend import CudaQBackend, AVAILABLE
+        if not AVAILABLE:
+            pytest.skip("cudaq is not installed")
+        machine = _parse_bell()
+        backend = CudaQBackend()
+        result, backend_result = backend.verify(machine)
+        codes = [e.code for e in result.errors]
+        assert "CUDAQ_VERIFY_FALLBACK" in codes
+        warn = next(e for e in result.errors if e.code == "CUDAQ_VERIFY_FALLBACK")
+        assert warn.severity == "warning"
+        assert backend_result.metadata.get("fallback") == "qutip"
+
 
 # ---------------------------------------------------------------------------
 # Task 9.3 — CLI integration tests

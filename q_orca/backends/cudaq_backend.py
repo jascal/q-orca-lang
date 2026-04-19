@@ -47,14 +47,30 @@ class CudaQBackend(BackendAdapter):
                 "cudaq is not installed or failed to import (matplotlib is required). "
                 "Install with: pip install cudaq matplotlib"
             )
-        # When available, delegate to dynamic_verify (CUDA-Q execution path reserved for future)
+        # CUDA-Q execution path reserved for future — fall back to QuTiP-based
+        # dynamic verification and surface that substitution as a warning.
         from q_orca.verifier.dynamic import dynamic_verify
+        from q_orca.verifier.types import QVerificationError
+
         result = dynamic_verify(machine)
+        result.errors.insert(
+            0,
+            QVerificationError(
+                code="CUDAQ_VERIFY_FALLBACK",
+                message=(
+                    "CudaQBackend.verify() is a stub: verification was executed "
+                    "on the CPU via QuTiP, not on a CUDA-Q target. Results are "
+                    "correct but do not exercise the cudaq runtime."
+                ),
+                severity="warning",
+                suggestion="Set --backend qutip explicitly to remove this warning.",
+            ),
+        )
         backend_result = BackendResult(
             name=self.name,
             version=self.version,
             errors=[e.message for e in result.errors],
-            metadata={"target": self.target},
+            metadata={"target": self.target, "fallback": "qutip"},
         )
         return result, backend_result
 

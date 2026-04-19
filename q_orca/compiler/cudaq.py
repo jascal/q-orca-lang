@@ -83,6 +83,39 @@ def _parse_single_gate_to_cudaq(effect_str: str, n_qubits: int) -> Optional[str]
     if m:
         return f"    cudaq.z.ctrl(qvec[{m.group(1)}], qvec[{m.group(2)}])"
 
+    # CCX / CCNOT / Toffoli — two controls + one target
+    m = re.search(
+        r"(CCX|CCNOT|Toffoli)\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*\)",
+        effect_str,
+        re.IGNORECASE,
+    )
+    if m:
+        c0, c1, tgt = m.group(2), m.group(3), m.group(4)
+        return f"    cudaq.x.ctrl(qvec[{c0}], qvec[{c1}], qvec[{tgt}])"
+
+    # CCZ — two controls + one target
+    m = re.search(
+        r"CCZ\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*\)",
+        effect_str,
+        re.IGNORECASE,
+    )
+    if m:
+        c0, c1, tgt = m.group(1), m.group(2), m.group(3)
+        return f"    cudaq.z.ctrl(qvec[{c0}], qvec[{c1}], qvec[{tgt}])"
+
+    # MCX / MCZ — variable arity (≥3 args), last argument is the target.
+    m = re.search(
+        r"(MCX|MCZ)\(\s*((?:\w+\[\d+\]\s*,\s*){2,}\w+\[\d+\])\s*\)",
+        effect_str,
+        re.IGNORECASE,
+    )
+    if m:
+        kind = m.group(1).upper()
+        indices = [int(x) for x in re.findall(r"\d+", m.group(2))]
+        op = "x" if kind == "MCX" else "z"
+        qvec_args = ", ".join(f"qvec[{i}]" for i in indices)
+        return f"    cudaq.{op}.ctrl({qvec_args})"
+
     # SWAP(qs[a], qs[b])
     m = re.search(r"SWAP\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*\)", effect_str, re.IGNORECASE)
     if m:
