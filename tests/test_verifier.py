@@ -5,7 +5,7 @@ import unicodedata
 from q_orca.parser.markdown_parser import parse_q_orca_markdown
 from q_orca.verifier import verify, VerifyOptions
 from q_orca.verifier.structural import check_structural, analyze_machine
-from q_orca.verifier.completeness import check_completeness
+from q_orca.verifier.completeness import check_completeness, has_quantum_preparation_path
 from q_orca.verifier.determinism import check_determinism
 from q_orca.verifier.quantum import verify_quantum
 from q_orca.verifier.superposition import check_superposition_leaks
@@ -258,6 +258,167 @@ class TestCompletenessVerification:
         # Bell entangler is a quantum preparation path, so completeness is relaxed
         error_codes = [e.code for e in result.errors if e.severity == "error"]
         assert "INCOMPLETE_EVENT_HANDLING" not in error_codes or result.valid
+
+
+class TestPreparationPathDetection:
+    """Exercise `has_quantum_preparation_path`'s dual detection paths.
+
+    The detector must treat an event as a measurement event if EITHER
+    its name matches `measure|collapse|readout` OR any of its
+    transition actions carries a `measurement` / `mid_circuit_measure`
+    effect. See change `harden-completeness-detection`.
+    """
+
+    _LINEAR_SKELETON = """\
+# machine {name}
+
+## context
+| Field | Type | Default |
+|-------|------|---------|
+| qubits | list<qubit> | [q0, q1, q2] |
+| bits | list<bit> | [b_err] |
+
+## events
+- prepare_prior
+- encode_data
+- compute_error
+- {measure_event}
+
+## state |init> [initial]
+> Start
+
+## state |prior_ready>
+> Prior prepared
+
+## state |joined>
+> Data encoded
+
+## state |error_extracted>
+> Parity in ancilla
+
+## state |bit_read> [final]
+> Classical bit read
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |init>             | prepare_prior  |  | |prior_ready>     | apply_ansatz      |
+| |prior_ready>      | encode_data    |  | |joined>          | encode_datum      |
+| |joined>           | compute_error  |  | |error_extracted> | parity_to_ancilla |
+| |error_extracted>  | {measure_event}|  | |bit_read>        | measure_ancilla   |
+
+## actions
+| Name | Signature | Effect |
+|------|-----------|--------|
+| apply_ansatz      | (qs) -> qs | H(qs[0]) |
+| encode_datum      | (qs) -> qs | H(qs[1]) |
+| parity_to_ancilla | (qs) -> qs | CNOT(qs[0], qs[2]); CNOT(qs[1], qs[2]) |
+| measure_ancilla   | (qs) -> qs | measure(qs[2]) -> bits[0] |
+"""
+
+    def test_action_effect_detected_without_name_match(self):
+        """Event `read_error` misses the name heuristic but its action
+        has a `mid_circuit_measure` effect — structural detection
+        should classify this as a preparation path."""
+        source = self._LINEAR_SKELETON.format(
+            name="ActionOnlyDetection", measure_event="read_error"
+        )
+        machine = _machine(source)
+        assert has_quantum_preparation_path(machine) is True
+        result = check_completeness(machine)
+        codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "INCOMPLETE_EVENT_HANDLING" not in codes, (
+            f"preparation path should relax completeness, got: {result.errors}"
+        )
+
+    def test_name_match_still_works(self):
+        """Keep the name-based fallback: event `measure_error` (which
+        also has a measurement action) stays classified — no
+        regression on the historical detection signal."""
+        source = self._LINEAR_SKELETON.format(
+            name="NameAndActionDetection", measure_event="measure_error"
+        )
+        machine = _machine(source)
+        assert has_quantum_preparation_path(machine) is True
+        result = check_completeness(machine)
+        codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "INCOMPLETE_EVENT_HANDLING" not in codes
+
+    def test_actionless_collapse_still_detected(self):
+        """vqe-rotation-style: event named `collapse` with no action
+        attached. Only the name heuristic can catch this, so the
+        fallback must remain in place."""
+        source = """\
+# machine ActionlessCollapse
+
+## events
+- prepare
+- evolve
+- collapse
+
+## state |0> [initial]
+> Start
+
+## state |+>
+> Superposition
+
+## state |ψ>
+> Post-evolve
+
+## state |out> [final]
+> Measured
+
+## transitions
+| Source | Event    | Guard | Target | Action   |
+|--------|----------|-------|--------|----------|
+| |0>    | prepare  |       | |+>    | apply_h  |
+| |+>    | evolve   |       | |ψ>    | apply_rx |
+| |ψ>    | collapse |       | |out>  |          |
+
+## actions
+| Name     | Signature | Effect     |
+|----------|-----------|------------|
+| apply_h  | (qs) -> qs | H(qs[0])  |
+| apply_rx | (qs) -> qs | Rx(qs[0], 0.5) |
+"""
+        machine = _machine(source)
+        assert has_quantum_preparation_path(machine) is True
+
+    def test_no_measurement_signal_is_not_preparation_path(self):
+        """Negative case: no measurement-name events and no
+        measurement actions — must NOT be classified as preparation
+        path, so the standard every-state-handles-every-event rule
+        still applies."""
+        source = """\
+# machine PureUnitary
+
+## events
+- prepare
+- evolve
+
+## state |0> [initial]
+> Start
+
+## state |+>
+> Superposition
+
+## state |done> [final]
+> Done
+
+## transitions
+| Source | Event   | Guard | Target  | Action |
+|--------|---------|-------|---------|--------|
+| |0>    | prepare |       | |+>     | apply_h |
+| |+>    | evolve  |       | |done>  | apply_rx |
+
+## actions
+| Name     | Signature | Effect     |
+|----------|-----------|------------|
+| apply_h  | (qs) -> qs | H(qs[0])  |
+| apply_rx | (qs) -> qs | Rx(qs[0], 0.5) |
+"""
+        machine = _machine(source)
+        assert has_quantum_preparation_path(machine) is False
 
 
 class TestDeterminismVerification:
