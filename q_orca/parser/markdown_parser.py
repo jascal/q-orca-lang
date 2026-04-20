@@ -14,6 +14,7 @@ from q_orca.ast import (
     QGuardRef, QuantumGate, Measurement, CollapseOutcome,
     QGuardTrue, QGuardFalse, QGuardCompare, QGuardProbability, QGuardFidelity,
     VariableRef, ValueRef, QEffectMeasure, QEffectConditional,
+    QContextMutation, QEffectContextUpdate,
 )
 
 
@@ -467,17 +468,51 @@ def _parse_actions_table(
             continue
 
         params, return_type = _parse_signature(sig_str)
+        context_update = _parse_context_update_from_effect(effect_str, errors, action_name=name)
         gate = _parse_gate_from_effect(effect_str, errors, action_name=name, angle_context=angle_context)
         measurement = _parse_measurement_from_effect(effect_str)
         mid_circuit_measure = _parse_mid_circuit_measure_from_effect(effect_str)
         conditional_gate = _parse_conditional_gate_from_effect(effect_str, errors, action_name=name, angle_context=angle_context)
 
+        has_other_effect = (
+            gate is not None
+            or measurement is not None
+            or mid_circuit_measure is not None
+            or conditional_gate is not None
+        )
+
+        # If the parser recognized a context-update AND any other effect,
+        # that's a mixed-kind effect — rejected in v1.
+        if context_update is not None and has_other_effect:
+            if errors is not None:
+                errors.append(
+                    f"action {name!r}: context-update effect cannot be combined with "
+                    f"gate, measurement, mid-circuit measurement, or conditional-gate "
+                    f"effects in a single action (v1)."
+                )
+            context_update = None
+        # Otherwise, a gate+something string may still hide an unparsed
+        # mutation tail (e.g. `H(qs[0]); iteration += 1`). Detect the
+        # mutation-operator pattern in any `;`-delimited segment that isn't
+        # the first and isn't a parsed gate.
+        elif has_other_effect and effect_str and _has_trailing_mutation(effect_str):
+            if errors is not None:
+                errors.append(
+                    f"action {name!r}: context-update effect cannot be combined with "
+                    f"gate, measurement, mid-circuit measurement, or conditional-gate "
+                    f"effects in a single action (v1)."
+                )
+
+        # Skip the "looks-like-gate" warning when the effect parsed as a
+        # context-update; otherwise we'd spuriously flag `iteration += 1`
+        # as a gate typo.
         if (
             effect_str
             and gate is None
             and measurement is None
             and mid_circuit_measure is None
             and conditional_gate is None
+            and context_update is None
             and errors is not None
             and _looks_like_gate_call(effect_str)
             # Don't double-fire if _parse_gate_from_effect already surfaced a
@@ -501,6 +536,7 @@ def _parse_actions_table(
             measurement=measurement,
             mid_circuit_measure=mid_circuit_measure,
             conditional_gate=conditional_gate,
+            context_update=context_update,
         ))
 
     return actions
@@ -909,3 +945,247 @@ def _parse_conditional_gate_from_effect(
     if gate is None:
         return None
     return QEffectConditional(bit_idx=bit_idx, value=value, gate=gate)
+
+
+# ============================================================
+# Context-update parsing
+# ============================================================
+
+# A single mutation like:   iteration += 1   |   theta[0] -= eta
+_MUTATION_RE = re.compile(
+    r"""
+    ^\s*
+    (?P<lhs>[A-Za-z_][A-Za-z0-9_]*)          # field name
+    (?:\[\s*(?P<idx>-?\d+)\s*\])?             # optional [int] index
+    \s*(?P<op>=|\+=|-=)\s*
+    (?P<rhs>[^\s].*?)
+    \s*$
+    """,
+    re.VERBOSE,
+)
+
+_FLOAT_LITERAL_RE = re.compile(r"^-?\d+(\.\d+)?([eE][+-]?\d+)?$")
+
+
+def _parse_single_mutation(
+    mut_str: str,
+    errors: list[str] | None,
+    action_name: str,
+) -> Optional[QContextMutation]:
+    """Parse one `<lhs> <op> <rhs>` atom into a QContextMutation."""
+    m = _MUTATION_RE.match(mut_str)
+    if not m:
+        if errors is not None:
+            errors.append(
+                f"action {action_name!r}: malformed context-update mutation {mut_str!r} "
+                f"(expected `<field> = | += | -= <literal | field>`)."
+            )
+        return None
+
+    target_field = m.group("lhs")
+    idx_str = m.group("idx")
+    target_idx: Optional[int] = None
+    if idx_str is not None:
+        try:
+            target_idx = int(idx_str)
+        except ValueError:
+            if errors is not None:
+                errors.append(
+                    f"action {action_name!r}: non-integer list index in mutation {mut_str!r}."
+                )
+            return None
+        if target_idx < 0:
+            if errors is not None:
+                errors.append(
+                    f"action {action_name!r}: negative list index in mutation {mut_str!r}."
+                )
+            return None
+
+    op = m.group("op")
+    rhs = m.group("rhs").strip()
+
+    rhs_literal: Optional[float] = None
+    rhs_field: Optional[str] = None
+    if _FLOAT_LITERAL_RE.match(rhs):
+        try:
+            rhs_literal = float(rhs)
+        except ValueError:
+            if errors is not None:
+                errors.append(
+                    f"action {action_name!r}: unrecognized numeric RHS {rhs!r} in mutation {mut_str!r}."
+                )
+            return None
+    elif re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", rhs):
+        rhs_field = rhs
+    else:
+        if errors is not None:
+            errors.append(
+                f"action {action_name!r}: RHS {rhs!r} in mutation {mut_str!r} must be a "
+                f"numeric literal or a bare context-field identifier."
+            )
+        return None
+
+    return QContextMutation(
+        target_field=target_field,
+        target_idx=target_idx,
+        op=op,
+        rhs_literal=rhs_literal,
+        rhs_field=rhs_field,
+    )
+
+
+def _parse_mutation_sequence(
+    seq_str: str,
+    errors: list[str] | None,
+    action_name: str,
+) -> list[QContextMutation]:
+    """Parse `mut (; mut)*` into a list of QContextMutation."""
+    mutations: list[QContextMutation] = []
+    for piece in seq_str.split(";"):
+        piece = piece.strip()
+        if not piece:
+            continue
+        mut = _parse_single_mutation(piece, errors, action_name)
+        if mut is not None:
+            mutations.append(mut)
+    return mutations
+
+
+def _parse_context_update_from_effect(
+    effect_str: str,
+    errors: list[str] | None = None,
+    action_name: str = "",
+) -> Optional[QEffectContextUpdate]:
+    """Parse a context-update effect string into a QEffectContextUpdate.
+
+    Returns None if the effect does not match the context-update grammar,
+    so the other effect parsers still get a chance. Emits structured
+    errors only for forms that are clearly context-update intent but
+    malformed.
+    """
+    if not effect_str:
+        return None
+
+    stripped = effect_str.strip()
+
+    # Ignore the conditional-gate form: it starts with `if bits[...` but the
+    # body is a gate call, not a mutation. We detect "context-update intent"
+    # by the presence of `;` or a mutation operator (= / += / -=) somewhere
+    # after the colon.
+    cond_match = re.match(
+        r"^if\s+bits\[(\d+)\]\s*==\s*([01])\s*:\s*(.*)$",
+        stripped,
+        re.IGNORECASE,
+    )
+    if cond_match:
+        bit_idx = int(cond_match.group(1))
+        bit_value = int(cond_match.group(2))
+        body = cond_match.group(3).strip()
+        then_part, else_part = _split_then_else(body)
+
+        has_nested_if = bool(
+            re.search(r"\bif\s+bits\[", then_part, re.IGNORECASE)
+            or (else_part is not None and re.search(r"\bif\s+bits\[", else_part, re.IGNORECASE))
+        )
+
+        # If the body contains nested `if bits[...]`, decide whether the
+        # innermost form is mutation-intent (context-update) or gate-intent
+        # (nested conditional gates — also not supported, but handled
+        # elsewhere). Look anywhere in the body for a mutation operator
+        # (`=` / `+=` / `-=`, not `==`) on a field-like LHS; if present,
+        # the user is writing a nested context-update.
+        if has_nested_if:
+            if re.search(r"[A-Za-z_]\w*(?:\[\s*-?\d+\s*\])?\s*(\+=|-=|(?<!=)=(?!=))", body):
+                if errors is not None:
+                    errors.append(
+                        f"action {action_name!r}: nested `if bits[...]` conditions "
+                        f"are not allowed in context-update effects (v1)."
+                    )
+                return None
+            # Non-mutation nested case: let the conditional-gate parser try.
+            return None
+
+        # Only treat as context-update if the then branch looks like a
+        # mutation (has an assignment op). Otherwise let the conditional-gate
+        # parser handle it.
+        if not _looks_like_mutation_sequence(then_part):
+            return None
+
+        then_muts = _parse_mutation_sequence(then_part, errors, action_name)
+        else_muts: list[QContextMutation] = []
+        if else_part is not None:
+            else_muts = _parse_mutation_sequence(else_part, errors, action_name)
+
+        if not then_muts:
+            return None
+
+        return QEffectContextUpdate(
+            bit_idx=bit_idx,
+            bit_value=bit_value,
+            then_mutations=then_muts,
+            else_mutations=else_muts,
+            raw=stripped,
+        )
+
+    # Unconditional single-or-sequence form.
+    if _looks_like_mutation_sequence(stripped):
+        muts = _parse_mutation_sequence(stripped, errors, action_name)
+        if not muts:
+            return None
+        return QEffectContextUpdate(
+            bit_idx=None,
+            bit_value=None,
+            then_mutations=muts,
+            else_mutations=[],
+            raw=stripped,
+        )
+
+    return None
+
+
+def _looks_like_mutation_sequence(text: str) -> bool:
+    """Heuristic: text begins with `<ident>([<int>])? <op>` where op is =/+=/-=.
+
+    The op must not be `==` (that's a comparison, used in bit conditions).
+    """
+    if not text:
+        return False
+    m = re.match(
+        r"^\s*[A-Za-z_][A-Za-z0-9_]*(?:\[\s*-?\d+\s*\])?\s*(=(?!=)|\+=|-=)",
+        text,
+    )
+    return m is not None
+
+
+# Any `<ident>([<int>])? (= | += | -=)` occurring after a semicolon or at a
+# non-start position — used to detect mixed gate/context-update effects
+# like `H(qs[0]); iteration += 1`.
+_MUTATION_OP_PAT = re.compile(
+    r"(?:^|;)\s*[A-Za-z_][A-Za-z0-9_]*(?:\[\s*-?\d+\s*\])?\s*(=(?!=)|\+=|-=)"
+)
+
+
+def _has_trailing_mutation(effect_str: str) -> bool:
+    """True if any segment of `effect_str` looks like a mutation.
+
+    Used to catch `gate; mutation` combinations that the context-update
+    parser rejected as a whole but that still indicate mixed intent.
+    """
+    return _MUTATION_OP_PAT.search(effect_str) is not None
+
+
+def _split_then_else(body: str) -> tuple[str, Optional[str]]:
+    """Split a context-update body on a top-level `else:` keyword.
+
+    Only splits on `else:` that appears between semicolon-separated
+    mutations — otherwise we'd mis-split on an `else` inside some other
+    construct. For v1 (no nesting), a simple `else:` token search is
+    sufficient.
+    """
+    # Look for `else:` with word boundaries; take the first match.
+    m = re.search(r"\belse\s*:\s*", body)
+    if not m:
+        return body.strip(), None
+    then_part = body[:m.start()].strip().rstrip(";").strip()
+    else_part = body[m.end():].strip()
+    return then_part, else_part
