@@ -210,6 +210,26 @@ class QEffectConditional:
 
 
 @dataclass
+class QContextMutation:
+    """A single classical-context mutation: <lhs> <op> <rhs>."""
+    target_field: str
+    target_idx: Optional[int] = None  # None for scalar, int for list element
+    op: str = "="                      # "=", "+=", "-="
+    rhs_literal: Optional[float] = None
+    rhs_field: Optional[str] = None    # mutually exclusive with rhs_literal
+
+
+@dataclass
+class QEffectContextUpdate:
+    """Optionally-bit-gated mutation of classical context fields."""
+    then_mutations: list["QContextMutation"] = field(default_factory=list)
+    else_mutations: list["QContextMutation"] = field(default_factory=list)
+    bit_idx: Optional[int] = None
+    bit_value: Optional[int] = None   # 0 or 1; None iff bit_idx is None
+    raw: Optional[str] = None          # original effect string for round-trip emission
+
+
+@dataclass
 class QActionSignature:
     name: str
     parameters: list[str] = field(default_factory=list)
@@ -221,6 +241,7 @@ class QActionSignature:
     measurement: Optional[Measurement] = None
     mid_circuit_measure: Optional[QEffectMeasure] = None
     conditional_gate: Optional[QEffectConditional] = None
+    context_update: Optional[QEffectContextUpdate] = None
 
 
 @dataclass

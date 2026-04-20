@@ -7,6 +7,7 @@ from q_orca.ast import QMachineDef
 from q_orca.verifier.structural import check_structural
 from q_orca.verifier.completeness import check_completeness
 from q_orca.verifier.determinism import check_determinism
+from q_orca.verifier.classical_context import check_classical_context
 from q_orca.verifier.quantum import verify_quantum
 from q_orca.verifier.superposition import check_superposition_leaks
 from q_orca.verifier.types import QVerificationResult, QVerificationError
@@ -18,6 +19,7 @@ class VerifyOptions:
     skip_quantum: bool = False
     skip_qutip: bool = False
     skip_dynamic: bool = False
+    skip_classical_context: bool = False
     backend: str = "qutip"
 
 
@@ -41,6 +43,11 @@ def verify(machine: QMachineDef, options: Optional[VerifyOptions] = None) -> QVe
     # Stage 3: Determinism
     determinism = check_determinism(machine)
     all_errors.extend(determinism.errors)
+
+    # Stage 3b: Classical-context (types + feedforward completeness)
+    if not opts.skip_classical_context:
+        classical = check_classical_context(machine)
+        all_errors.extend(classical.errors)
 
     # Stage 4: Quantum-specific checks
     if not opts.skip_quantum:

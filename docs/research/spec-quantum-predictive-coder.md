@@ -35,7 +35,7 @@ The predictive-coding loop is then a **hybrid** q-orca machine: the unitary piec
 - Parametric gates with `angle_context` references — **shipped** (see `openspec/changes/archive/2026-04-18-context-angle-references/`)
 - Mid-circuit measurement (`measure(qs[N]) -> bits[M]`) and classical-feedforward conditionals — **shipped** (archive `2026-04-17-mid-circuit-measurement`)
 - Runtime state-category assertions (e.g., `[assert:separable]`, `[assert:entangled]`) — **proposed** in `openspec/changes/add-runtime-state-assertions/`; would let the verifier confirm the ancilla is disentangled after measurement
-- Parameter-update actions that mutate `list<float>` context fields — **not yet shipped**; this is the one new primitive the QPC needs
+- Parameter-update actions that mutate `list<float>` context fields — **grammar, AST, verifier, and compiler annotations landed** in OpenSpec change `add-classical-context-updates`. Shot-to-shot runtime execution of the mutation is parked for a follow-up change.
 
 Nothing in this architecture requires rewriting the q-orca execution model. What it requires is a single new action kind: a **classical context update** that reads a classical bit from the machine's bit-register and writes a new float into the angle register. Concretely: `if bits[0] == 1: θ[0] -= η · δ; else: θ[0] += η · δ` as an effect, where `δ` and `η` are further context fields. This is a strictly classical operation on the context record and does not touch the quantum state; it only runs between simulator shots.
 
