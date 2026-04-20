@@ -931,22 +931,50 @@ q_orca/
 
 ## Roadmap
 
-> Detailed feature specs are in [`docs/specs/`](docs/specs/).
+Feature planning goes through OpenSpec. Active proposals live in [`openspec/changes/`](openspec/changes/); archived (shipped) proposals in [`openspec/changes/archive/`](openspec/changes/archive/). Items below are marked with their spec status.
 
-**Near-term**
-- ~~**Parameterized gates** — `Rx(θ)`, `Ry(θ)`, `Rz(θ)` with symbolic angles in the Markdown action table~~ ✅ **Shipped** — see [CHANGELOG](CHANGELOG.md) for the `0.3.3` entry
-- ~~**Parameterized two-qubit gates** — `CRz`, `RXX`, `RYY`, `RZZ` with symbolic angles~~ ✅ **Shipped** — see [PR #5](../../pull/5)
-- ~~**Hybrid classical/quantum transitions** — mid-circuit measurement + feedforward~~ ✅ **Shipped** — see [PR #5](../../pull/5)
-- ~~**Pluggable execution backends** — cuQuantum GPU acceleration, CUDA-Q compilation target~~ ✅ **Shipped** — see [PR #7](../../pull/7)
-- **Noise models** — depolarizing, amplitude damping, thermal noise in `## context`; propagate into Qiskit noise simulation
-- **QASM 3.0 import** — parse existing `.qasm` files and lift them into Q-Orca state machines
+### Recently shipped
 
-**Longer-term**
-- **Multi-machine composition** — link two machines via shared qubits or classical channels, verified jointly
-- **VS Code extension** — syntax highlighting, inline verification on save, Mermaid preview
+Each of these entered main with a full OpenSpec proposal → implementation → archive cycle.
+
+- ✅ **Parameterized single-qubit gates** — `Rx(θ)`, `Ry(θ)`, `Rz(θ)` with symbolic angles *(`add-parameterized-gates`, `0.3.3`)*
+- ✅ **Parameterized two-qubit gates** — `CRx`, `CRy`, `CRz`, `RXX`, `RYY`, `RZZ` *(`add-parameterized-two-qubit-gates`, [PR #5](../../pull/5))*
+- ✅ **Context-resolved angles** — rotation gates accept context field references (`theta[0]`) in addition to literals *(`context-angle-references`)*
+- ✅ **Mid-circuit measurement + classical feedforward** — `measure(...) -> bits[N]` + `if bits[N] == v: Gate(...)` *(`mid-circuit-measurement`, [PR #5](../../pull/5))*
+- ✅ **Classical context updates** — `theta[0] -= eta` / conditional mutations on `int` and `list<float>` with static type-checking *(`add-classical-context-updates`, [PR #21](../../pull/21))*
+- ✅ **Pluggable execution backends** — cuQuantum GPU, CUDA-Q compilation target *(`execution-backends`, [PR #7](../../pull/7))*
+- ✅ **Noise models** — `depolarizing`, `amplitude_damping`, `phase_damping`, `thermal(T1, T2)` in `## context`, propagated into Qiskit Aer *(`fix-noise-models`)*
+- ✅ **CCZ / MCX / MCZ gate set** — many-controlled gates formalized and round-tripped through every backend *(partial archive; parametric-action half tracked below)*
+- ✅ **Completeness-check hardening** — measurement-bearing transitions are detected by action effect, not just event name *(`harden-completeness-detection`)*
+- ✅ **Bell-pair compiler fixture** — per-backend regression tests against the canonical two-qubit circuit *(`bell-pair-example`)*
+
+See each folder under [`openspec/changes/archive/`](openspec/changes/archive/) for the proposal, design, and scenarios that shipped.
+
+### Near-term — specced, implementation pending
+
+Proposals with an OpenSpec folder and agreed scope, awaiting code.
+
+- 🧾 **Cross-machine composition** — `[invoke: Child(args) shots=N]` state-level delegation with static arg/return type-checking and a `## returns` section. Mermaid renders composed machines; QASM/Qiskit refuse until a runtime lands. *([`add-parameterized-invoke`](openspec/changes/add-parameterized-invoke/))*
+- 🧾 **Per-state runtime assertions** — `[assert: classical(qs[0]); entangled(qs[0], qs[1])]` annotations backed by statistical sampling on Stage 4b, with a `## assertion policy` section for shots/confidence/on-failure. *([`add-runtime-state-assertions`](openspec/changes/add-runtime-state-assertions/))*
+- 🧾 **Resource estimation** — CX-count, T-count, depth, Clifford+T checks; a `## resource budget` section that turns overruns into verifier errors. *([`add-resource-estimation`](openspec/changes/add-resource-estimation/))*
+- 🧾 **Parametric actions** — one `query_concept | (qs, c: int) -> qs | Hadamard(qs[c])` action callable as `query_concept(0)`, `query_concept(1)`, ... instead of N copy-pasted rows. *([`extend-gate-set-and-parametric-actions`](openspec/changes/extend-gate-set-and-parametric-actions/))*
+- 🧾 **Gate-parser consolidation** — unify the three existing gate-effect parsers (parser, Qiskit/QASM compiler, dynamic verifier) behind one implementation so drift bugs stop shipping. *([`consolidate-gate-parser`](openspec/changes/consolidate-gate-parser/))*
+
+### Longer-term — research / not yet specced
+
+Ideas we've sketched but not yet turned into an OpenSpec proposal.
+
+- 📝 **Quantum predictive coder** — 3-register (model / data / ancilla) predictive-coding architecture with classical feedback. Research proposal at [`docs/research/spec-quantum-predictive-coder.md`](docs/research/spec-quantum-predictive-coder.md); drives several of the specced items above.
+- 💡 **Composed-machine runtime** — the Python dispatcher that actually walks a composed machine, batches shots, and wires child returns back into parent context. Parked as a follow-up under `add-parameterized-invoke`.
+- 💡 **QASM 3.0 import** — lift existing `.qasm` files into Q-Orca state machines.
+- 💡 **VS Code extension** — syntax highlighting, inline verification on save, Mermaid preview.
+
+### Backlog
+
+- 🧰 [`tech-debt-backlog`](openspec/changes/tech-debt-backlog/) — rolling collection of small cleanup items (naming, error-reporting consistency) that aren't big enough to warrant their own change.
 
 ---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, good first issues, and research directions. Detailed feature specs are in [`docs/specs/`](docs/specs/).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, good first issues, and research directions. Feature specs live under [`openspec/changes/`](openspec/changes/) (active) and [`openspec/changes/archive/`](openspec/changes/archive/) (shipped).
