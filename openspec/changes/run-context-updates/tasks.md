@@ -1,54 +1,54 @@
 ## 1. Runtime types
 
-- [ ] 1.1 Add `QIterationTrace` dataclass in
+- [x] 1.1 Add `QIterationTrace` dataclass in
   `q_orca/runtime/types.py` with fields `iteration: int`,
   `source_state: str`, `target_state: str`, `event: str`,
   `action: Optional[str]`, `measurement_bits: dict[int, int]`,
   `context_snapshot: dict[str, object]`.
-- [ ] 1.2 Add `QIterativeSimulationOptions` dataclass extending
+- [x] 1.2 Add `QIterativeSimulationOptions` dataclass extending
   `QSimulationOptions` with `inner_shots: int = 1`,
   `iteration_ceiling: int = 10_000`, `record_trace: bool = True`.
-- [ ] 1.3 Add `QIterativeSimulationResult` dataclass with
+- [x] 1.3 Add `QIterativeSimulationResult` dataclass with
   `machine: str`, `success: bool`, `final_state: str`,
   `final_context: dict`, `trace: list[QIterationTrace]`,
   `aggregate_counts: dict[str, int]`, `error: Optional[str]`.
-- [ ] 1.4 Add exception type `QIterativeRuntimeError` in
+- [x] 1.4 Add exception type `QIterativeRuntimeError` in
   `q_orca/runtime/types.py`.
 
 ## 2. Guard evaluator
 
-- [ ] 2.1 Create `q_orca/runtime/guards.py` with
+- [x] 2.1 Create `q_orca/runtime/guards.py` with
   `evaluate_guard(expr: QGuardExpression, ctx: dict,
   bits: dict[int, int]) -> bool`. Handle the existing expression
   kinds: `ctx_field_compare` (field, op, literal), `bit_compare`
   (idx, value), boolean `and`/`or`/`not`, empty/missing guard
   (always True).
-- [ ] 2.2 Reject unsupported expression kinds at runtime with
+- [x] 2.2 Reject unsupported expression kinds at runtime with
   `QIterativeRuntimeError`. Probability-based guards SHALL fall
   through to the iteration's most-recent measurement and use the
   observed bit-value, NOT analytic probability (see design
   §Guard evaluator).
-- [ ] 2.3 Unit tests in `tests/test_run_context_updates.py`
+- [x] 2.3 Unit tests in `tests/test_run_context_updates.py`
   covering each expression kind, nested boolean combos, and the
   "no guard" / "missing field" / "missing bit" cases.
 
 ## 3. Context-mutation interpreter
 
-- [ ] 3.1 Create `q_orca/runtime/context_ops.py` with
+- [x] 3.1 Create `q_orca/runtime/context_ops.py` with
   `apply(effect: QEffectContextUpdate, ctx: dict,
   bits: dict[int, int]) -> dict` returning a *new* snapshot
   (original unchanged).
-- [ ] 3.2 Evaluate the bit condition, pick then/else branch,
+- [x] 3.2 Evaluate the bit condition, pick then/else branch,
   apply each `QContextMutation` atomically: `=` overwrites, `+=`
   and `-=` arithmetic on `int` scalar or `list[float]` element.
   RHS is literal or context-field reference; resolve the ref
   against the incoming snapshot.
-- [ ] 3.3 Raise `QIterativeRuntimeError` on type mismatch at
+- [x] 3.3 Raise `QIterativeRuntimeError` on type mismatch at
   runtime (belt-and-braces against a verifier miss). The
   happy path is verified to typecheck by the parser + verifier
   stages; the runtime check is a safety net, not the primary
   defense.
-- [ ] 3.4 Unit tests: unconditional scalar increment, list-element
+- [x] 3.4 Unit tests: unconditional scalar increment, list-element
   +=/-=/= with literal RHS, list-element update with field-ref
   RHS, then-only conditional, then+else conditional, snapshot
   immutability.
