@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.5.0 (2026-04-21)
+
+### Added
+
+- **Pluggable execution backends** — new backend abstraction lets machines compile to `qutip`, `cuquantum`, or `cudaq` in addition to Qiskit. Select via backend name; each backend is opt-in and imported lazily.
+- **Real GPU gate simulation** — CuPy-backed path for `cuquantum`/`cudaq` backends; QuTiP 5.x compatibility shims so `qutip` backend works with the current release line.
+- **Multi-controlled gates end-to-end** — `CCX`, `CCZ`, `MCX`, `MCZ` supported in parser, verifier, and compilers (Qiskit + QASM). Includes CSWAP tests and an explicit arity error for malformed multi-control calls.
+- **Classical context updates** — context fields can now be mutated from action effects (grammar, verifier, compiler). See the `add-classical-context-updates` spec for the full surface.
+- **Context-field angle references in rotation gates** — `Rx(qs[0], ctx.theta)` and related forms are resolved at compile time instead of requiring a literal.
+- **Quantum-path detection via action effects** — `check_superposition_leaks` and friends now identify preparation paths by effect content, not just event naming conventions, reducing false positives on custom event names.
+- **CI infrastructure** — scheduled nightly job and automated PR-review job; prompts are now repo-canonical.
+
+### Fixed
+
+- QASM qubit count inference now scans both gate targets and controls, fixing undercount on circuits that only use a qubit as a control.
+- Grover CI flake resolved by seeding the shots simulator.
+- Two CUDA-Q backend bugs (severity/`valid` field inconsistency, missing regression coverage on `CCX`/`CCZ`/`MCX`/`MCZ` emit paths).
+- Five Hermes-flagged bugs from prior QA reports (see #6).
+
+### Changed
+
+- Internal parser helper `_has_trailing_mutation` renamed to `_contains_mutation_segment` for accuracy — it matches anywhere in the segment, not just the trailing position.
+- `docs/specs/` reframed as `docs/research/` drafts; execution-backends feature spec promoted into the drafts tree.
+
+---
+
 ## 0.4.0 (2026-04-14)
 
 ### Added
