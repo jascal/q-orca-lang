@@ -26,6 +26,7 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/jascal/q-orca-lang"
 Source = "https://github.com/jascal/q-orca-lang"
+Documentation = "https://deepwiki.com/jascal/q-orca-lang"
 "Bug Tracker" = "https://github.com/jascal/q-orca-lang/issues"
 
 [project.optional-dependencies]
