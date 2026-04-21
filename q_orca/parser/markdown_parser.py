@@ -495,7 +495,7 @@ def _parse_actions_table(
         # mutation tail (e.g. `H(qs[0]); iteration += 1`). Detect the
         # mutation-operator pattern in any `;`-delimited segment that isn't
         # the first and isn't a parsed gate.
-        elif has_other_effect and effect_str and _has_trailing_mutation(effect_str):
+        elif has_other_effect and effect_str and _contains_mutation_segment(effect_str):
             if errors is not None:
                 errors.append(
                     f"action {name!r}: context-update effect cannot be combined with "
@@ -1157,19 +1157,22 @@ def _looks_like_mutation_sequence(text: str) -> bool:
     return m is not None
 
 
-# Any `<ident>([<int>])? (= | += | -=)` occurring after a semicolon or at a
-# non-start position — used to detect mixed gate/context-update effects
-# like `H(qs[0]); iteration += 1`.
+# Any `<ident>([<int>])? (= | += | -=)` occurring at the start of a
+# segment (beginning of the string or after a `;`) — used to detect
+# mixed gate/context-update effects like `H(qs[0]); iteration += 1`.
 _MUTATION_OP_PAT = re.compile(
     r"(?:^|;)\s*[A-Za-z_][A-Za-z0-9_]*(?:\[\s*-?\d+\s*\])?\s*(=(?!=)|\+=|-=)"
 )
 
 
-def _has_trailing_mutation(effect_str: str) -> bool:
-    """True if any segment of `effect_str` looks like a mutation.
+def _contains_mutation_segment(effect_str: str) -> bool:
+    """True if any `;`-separated segment of `effect_str` starts with a
+    mutation op (`=`, `+=`, `-=`).
 
     Used to catch `gate; mutation` combinations that the context-update
     parser rejected as a whole but that still indicate mixed intent.
+    The match is anchored at segment boundaries, so substrings like
+    `==` inside a gate-call argument don't trigger.
     """
     return _MUTATION_OP_PAT.search(effect_str) is not None
 
