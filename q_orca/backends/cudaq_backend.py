@@ -52,19 +52,25 @@ class CudaQBackend(BackendAdapter):
         from q_orca.verifier.dynamic import dynamic_verify
         from q_orca.verifier.types import QVerificationError
 
-        result = dynamic_verify(machine)
-        result.errors.insert(
-            0,
-            QVerificationError(
-                code="CUDAQ_VERIFY_FALLBACK",
-                message=(
-                    "CudaQBackend.verify() is a stub: verification was executed "
-                    "on the CPU via QuTiP, not on a CUDA-Q target. Results are "
-                    "correct but do not exercise the cudaq runtime."
-                ),
-                severity="warning",
-                suggestion="Set --backend qutip explicitly to remove this warning.",
+        inner = dynamic_verify(machine)
+        fallback_warning = QVerificationError(
+            code="CUDAQ_VERIFY_FALLBACK",
+            message=(
+                "CudaQBackend.verify() is a stub: verification was executed "
+                "on the CPU via QuTiP, not on a CUDA-Q target. Results are "
+                "correct but do not exercise the cudaq runtime."
             ),
+            severity="warning",
+            suggestion="Set --backend qutip explicitly to remove this warning.",
+        )
+        # Prepend the fallback warning and re-derive `valid` from the merged
+        # error list so the severity/valid invariant (valid iff no error-level
+        # entries) is preserved even if the inserted code is ever changed to
+        # severity="error".
+        merged_errors = [fallback_warning] + list(inner.errors)
+        result = QVerificationResult(
+            valid=not any(e.severity == "error" for e in merged_errors),
+            errors=merged_errors,
         )
         backend_result = BackendResult(
             name=self.name,

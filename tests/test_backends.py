@@ -388,6 +388,22 @@ class TestCudaQBackendStubWarning:
         assert warn.severity == "warning"
         assert backend_result.metadata.get("fallback") == "qutip"
 
+    def test_severity_valid_invariant_holds(self):
+        """valid must be True iff no error-level entries are present
+        (warnings alone are fine). This guards against drift where the
+        fallback-warning insertion forgets to re-derive valid."""
+        from q_orca.backends.cudaq_backend import CudaQBackend, AVAILABLE
+        if not AVAILABLE:
+            pytest.skip("cudaq is not installed")
+        machine = _parse_bell()
+        backend = CudaQBackend()
+        result, _ = backend.verify(machine)
+        has_error = any(e.severity == "error" for e in result.errors)
+        assert result.valid == (not has_error), (
+            "severity/valid invariant violated: "
+            f"valid={result.valid}, errors={[(e.code, e.severity) for e in result.errors]}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Task 9.3 — CLI integration tests
