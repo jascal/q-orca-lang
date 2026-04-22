@@ -55,7 +55,32 @@ class MdBlockquote:
 MdElement = MdHeading | MdTable | MdBulletList | MdBlockquote
 
 
-def parse_markdown_structure(source: str) -> list[MdElement]:
+# Level-2 section keywords recognized by the semantic parser. A heading like
+# `## context | F | T | D |` is a common user mistake where the table's header
+# row got glued onto the section heading; we detect this shape to recover.
+_KNOWN_SECTIONS = frozenset({
+    "context", "events", "transitions", "guards", "actions", "effects",
+    "verification rules", "invariants",
+})
+
+
+def _section_key(heading_text: str) -> str:
+    """Return the canonical section keyword for matching a level-2 heading.
+
+    Strips inline table-header content (`| ... |`) that users sometimes leave
+    attached to a heading line by mistake. State headings are passed through
+    untouched because ket notation legitimately uses `|`.
+    """
+    text = heading_text.strip().lower()
+    if text.startswith("state "):
+        return text
+    return text.split("|", 1)[0].strip()
+
+
+def parse_markdown_structure(
+    source: str,
+    errors: Optional[list[str]] = None,
+) -> list[MdElement]:
     lines = source.split("\n")
     elements: list[MdElement] = []
     i = 0
@@ -84,12 +109,42 @@ def parse_markdown_structure(source: str) -> list[MdElement]:
         # Heading
         heading_match = re.match(r"^(#{1,6})\s+(.+)$", trimmed)
         if heading_match:
-            elements.append(MdHeading(
-                level=len(heading_match.group(1)),
-                text=heading_match.group(2).strip(),
-                line=i + 1,
-            ))
+            level = len(heading_match.group(1))
+            raw_text = heading_match.group(2).strip()
+            # Detect `## context | F | T | D |` — a level-2 section heading
+            # where the table header row has been glued onto the heading line.
+            # Split into a clean heading and feed the inline pipe tokens into
+            # the following table as its first row.
+            inline_header: Optional[str] = None
+            clean_text = raw_text
+            if level == 2 and "|" in raw_text:
+                head, _pipe, rest = raw_text.partition("|")
+                head_norm = head.strip().lower()
+                if head_norm in _KNOWN_SECTIONS:
+                    clean_text = head.strip()
+                    inline_header = "|" + rest
+                    if errors is not None:
+                        errors.append(
+                            f"Line {i + 1}: section heading '## {raw_text}' has "
+                            f"inline table content; place the table header row "
+                            f"on the next line."
+                        )
+            elements.append(MdHeading(level=level, text=clean_text, line=i + 1))
             i += 1
+            if inline_header is not None:
+                # Gather any following table lines and treat inline_header as
+                # the first header row of that table.
+                table_lines = [inline_header]
+                start_line = i + 1
+                while i < len(lines) and lines[i].strip().startswith("|"):
+                    table_lines.append(lines[i].strip())
+                    i += 1
+                if len(table_lines) >= 2:
+                    headers = _parse_table_row(table_lines[0])
+                    is_separator = re.match(r"^\|[\s\-:|]+\|$", table_lines[1]) is not None
+                    data_start = 2 if is_separator else 1
+                    rows = [_parse_table_row(line) for line in table_lines[data_start:]]
+                    elements.append(MdTable(headers=headers, rows=rows, line=start_line))
             continue
 
         # Blockquote
@@ -150,9 +205,9 @@ def _parse_table_row(line: str) -> list[str]:
 # ============================================================
 
 def parse_q_orca_markdown(source: str) -> QParseResult:
-    elements = parse_markdown_structure(source)
-    machines = []
     errors: list[str] = []
+    elements = parse_markdown_structure(source, errors=errors)
+    machines = []
 
     chunks = _split_by_separator(elements)
     for chunk in chunks:
@@ -183,7 +238,7 @@ def _prescan_context(elements: list[MdElement]) -> list[ContextField]:
         if (
             isinstance(el, MdHeading)
             and el.level == 2
-            and el.text.lower() == "context"
+            and _section_key(el.text) == "context"
         ):
             if j + 1 < len(elements) and isinstance(elements[j + 1], MdTable):
                 return _parse_context_table(elements[j + 1])
@@ -239,7 +294,7 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
             continue
 
         if isinstance(el, MdHeading) and el.level == 2:
-            section_name_lower = el.text.lower()  # full lowercased text for comparison
+            section_name_lower = _section_key(el.text)  # canonical key; strips inline `| ... |`
             section_full = el.text  # original text (for state headings with Greek letters)
 
             if section_name_lower == "context":

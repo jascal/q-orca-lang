@@ -75,6 +75,95 @@ class TestMarkdownStructure:
         assert table.rows[0][2] == "|11>"
 
 
+class TestInlineTableHeading:
+    """Section headings with inline table-header rows must still be recognized.
+
+    Users occasionally type `## context | Field | Type | Default |` (the header
+    row glued onto the heading). Before the fix this was silently ignored,
+    producing 0 parsed fields; now the parser recovers and emits a warning.
+    """
+
+    CLEAN = """\
+# machine T
+## context
+| Field | Type | Default |
+|-------|------|---------|
+| x | int | 0 |
+| y | float | 1.5 |
+
+## state |0> [initial]
+"""
+
+    INLINE = """\
+# machine T
+## context | Field | Type | Default |
+|-------|------|---------|
+| x | int | 0 |
+| y | float | 1.5 |
+
+## state |0> [initial]
+"""
+
+    def test_clean_and_inline_produce_equal_context(self):
+        clean = parse_q_orca_markdown(self.CLEAN).file.machines[0]
+        inline = parse_q_orca_markdown(self.INLINE).file.machines[0]
+        assert [(f.name, f.default_value) for f in clean.context] == \
+               [(f.name, f.default_value) for f in inline.context]
+        assert len(clean.context) == 2
+
+    def test_clean_form_emits_no_warning(self):
+        result = parse_q_orca_markdown(self.CLEAN)
+        assert result.errors == []
+
+    def test_inline_form_emits_warning(self):
+        result = parse_q_orca_markdown(self.INLINE)
+        assert any("inline table content" in e for e in result.errors)
+
+    def test_inline_form_recognized_for_all_known_sections(self):
+        """All 7 pipe-table section keywords recover from inline-header gluing."""
+        source = """\
+# machine T
+## context | Field | Type | Default |
+|-------|------|---------|
+| x | int | 0 |
+
+## state |0> [initial]
+
+## transitions | Source | Event | Guard | Target | Action |
+|---|---|---|---|---|
+| |0> | go | | |0> | noop |
+
+## guards | Name | Expression |
+|---|---|
+| always | ctx.x == 0 |
+
+## actions | Name | Signature | Effect |
+|---|---|---|
+| noop | (qs) -> qs | |
+
+## effects | Name | Input | Output |
+|---|---|---|
+| myfx | a | b |
+"""
+        result = parse_q_orca_markdown(source)
+        m = result.file.machines[0]
+        assert len(m.context) == 1
+        assert len(m.transitions) == 1
+        assert len(m.guards) == 1
+        assert len(m.actions) == 1
+        assert len(m.effects) == 1
+        # One warning per affected section heading.
+        assert sum("inline table content" in e for e in result.errors) == 5
+
+    def test_state_heading_with_ket_is_not_stripped(self):
+        """`## state |00>` must NOT be treated as inline-header misuse."""
+        source = "# machine T\n## state |00> [initial]\n## state |11> [final]\n"
+        result = parse_q_orca_markdown(source)
+        assert result.errors == []
+        names = [s.name for s in result.file.machines[0].states]
+        assert names == ["|00>", "|11>"]
+
+
 class TestSemanticParsing:
     def test_parse_machine_name(self, bell_source):
         result = parse_q_orca_markdown(bell_source)
