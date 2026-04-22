@@ -672,3 +672,266 @@ class TestUnrecognizedGateEffectWarning:
     def test_empty_effect_does_not_trigger_warning(self):
         result = self._parse("")
         assert not any("does not match any known gate" in e for e in result.errors)
+
+
+_PARAMETRIC_MACHINE = """\
+# machine Parametric
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0, q1, q2] |
+
+## events
+- go
+
+## state |s0> [initial]
+> start
+
+## state |s1> [final]
+> end
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | go    |       | |s1>   | {action} |
+
+## actions
+| Name            | Signature                       | Effect           |
+|-----------------|---------------------------------|------------------|
+| apply_h         | (qs) -> qs                      | Hadamard(qs[0])  |
+| query_concept   | (qs, c: int) -> qs              | Hadamard(qs[c])  |
+| rotate          | (qs, theta: angle) -> qs        | Rx(qs[0], theta) |
+| mix             | (qs, c: int, theta: angle) -> qs | Rx(qs[c], theta) |
+"""
+
+
+class TestParametricActionSignature:
+    """Signature-side grammar: typed parameters on the actions table."""
+
+    def _parse_signature(self, sig: str):
+        source = (
+            "# machine S\n\n"
+            "## state |s0> [initial]\n\n"
+            "## actions\n"
+            "| Name | Signature | Effect |\n"
+            "|------|-----------|--------|\n"
+            f"| act  | {sig}     |        |\n"
+        )
+        return parse_q_orca_markdown(source)
+
+    def test_zero_parameter_signature_parses_unchanged(self):
+        result = self._parse_signature("(qs) -> qs")
+        action = result.file.machines[0].actions[0]
+        assert action.parameters == []
+        assert action.return_type == "qs"
+
+    def test_ctx_signature_remains_valid(self):
+        # Classical context-update actions use `(ctx) -> ctx`; they are not
+        # parametric and must continue to parse as zero-parameter.
+        result = self._parse_signature("(ctx) -> ctx")
+        assert result.errors == []
+        action = result.file.machines[0].actions[0]
+        assert action.parameters == []
+        assert action.return_type == "ctx"
+
+    def test_single_int_parameter(self):
+        result = self._parse_signature("(qs, c: int) -> qs")
+        action = result.file.machines[0].actions[0]
+        assert len(action.parameters) == 1
+        assert action.parameters[0].name == "c"
+        assert action.parameters[0].type == "int"
+
+    def test_single_angle_parameter(self):
+        result = self._parse_signature("(qs, theta: angle) -> qs")
+        action = result.file.machines[0].actions[0]
+        assert len(action.parameters) == 1
+        assert action.parameters[0].name == "theta"
+        assert action.parameters[0].type == "angle"
+
+    def test_mixed_int_and_angle_parameters_in_order(self):
+        result = self._parse_signature("(qs, c: int, theta: angle) -> qs")
+        action = result.file.machines[0].actions[0]
+        assert [(p.name, p.type) for p in action.parameters] == [
+            ("c", "int"),
+            ("theta", "angle"),
+        ]
+
+    def test_whitespace_around_colon_and_comma_is_insignificant(self):
+        result = self._parse_signature("(qs ,  c  :  int  ,  theta  :  angle) -> qs")
+        action = result.file.machines[0].actions[0]
+        assert [(p.name, p.type) for p in action.parameters] == [
+            ("c", "int"),
+            ("theta", "angle"),
+        ]
+
+    def test_duplicate_parameter_name_is_error(self):
+        result = self._parse_signature("(qs, c: int, c: int) -> qs")
+        assert any("duplicate parameter" in e and "'c'" in e for e in result.errors), (
+            result.errors
+        )
+
+    def test_unknown_parameter_type_is_error(self):
+        result = self._parse_signature("(qs, c: float) -> qs")
+        assert any(
+            "unsupported parameter type" in e and "'float'" in e
+            for e in result.errors
+        ), result.errors
+
+    def test_parametric_signature_without_leading_qs_is_error(self):
+        result = self._parse_signature("(ctx, c: int) -> qs")
+        assert any(
+            "parametric signature must begin with `qs`" in e for e in result.errors
+        ), result.errors
+
+
+class TestParametricTransitionCall:
+    """Transition-side grammar: bare name vs call form; arity and type
+    checks; forward-reference resolution."""
+
+    def _parse_with_action_cell(self, action_cell: str):
+        return parse_q_orca_markdown(
+            _PARAMETRIC_MACHINE.format(action=action_cell)
+        )
+
+    def test_bare_name_to_non_parametric_action(self):
+        result = self._parse_with_action_cell("apply_h")
+        t = result.file.machines[0].transitions[0]
+        assert t.action == "apply_h"
+        assert t.bound_arguments is None
+        assert t.action_label is None
+
+    def test_call_form_with_int_literal(self):
+        result = self._parse_with_action_cell("query_concept(3)")
+        t = result.file.machines[0].transitions[0]
+        assert t.action == "query_concept"
+        assert t.action_label == "query_concept(3)"
+        assert t.bound_arguments == [
+            t.bound_arguments[0].__class__(name="c", value=3)
+        ]
+
+    def test_call_form_with_angle_expression(self):
+        result = self._parse_with_action_cell("rotate(pi/4)")
+        t = result.file.machines[0].transitions[0]
+        assert t.action == "rotate"
+        assert t.action_label == "rotate(pi/4)"
+        assert len(t.bound_arguments) == 1
+        assert t.bound_arguments[0].name == "theta"
+        assert math.isclose(t.bound_arguments[0].value, math.pi / 4)
+
+    def test_call_form_with_mixed_arguments(self):
+        result = self._parse_with_action_cell("mix(1, 2*pi/3)")
+        t = result.file.machines[0].transitions[0]
+        assert t.action == "mix"
+        assert len(t.bound_arguments) == 2
+        assert t.bound_arguments[0].name == "c"
+        assert t.bound_arguments[0].value == 1
+        assert t.bound_arguments[1].name == "theta"
+        assert math.isclose(t.bound_arguments[1].value, 2 * math.pi / 3)
+
+    def test_bare_name_reference_to_parametric_action_is_error(self):
+        result = self._parse_with_action_cell("query_concept")
+        assert any(
+            "is parametric and requires arguments" in e
+            for e in result.errors
+        ), result.errors
+
+    def test_call_form_to_non_parametric_action_is_error(self):
+        result = self._parse_with_action_cell("apply_h(0)")
+        assert any(
+            "is not parametric" in e for e in result.errors
+        ), result.errors
+
+    def test_call_form_arity_mismatch_is_error(self):
+        result = self._parse_with_action_cell("query_concept(0, 1)")
+        assert any(
+            "expects 1 argument" in e and "got 2" in e for e in result.errors
+        ), result.errors
+
+    def test_call_form_int_type_mismatch_is_error(self):
+        result = self._parse_with_action_cell("query_concept(pi/4)")
+        assert any(
+            "expects an int literal" in e for e in result.errors
+        ), result.errors
+
+    def test_call_form_unknown_action_is_error(self):
+        result = self._parse_with_action_cell("unknown_action(0)")
+        assert any(
+            "call-form action" in e and "is not declared" in e
+            for e in result.errors
+        ), result.errors
+
+
+class TestParametricActionForwardReference:
+    """Forward references: a transition SHALL be able to invoke an action
+    that is declared later in the markdown (actions table after
+    transitions table)."""
+
+    def test_transition_calls_action_declared_later(self):
+        source = """\
+# machine Forward
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0, q1, q2] |
+
+## events
+- go
+
+## state |s0> [initial]
+## state |s1> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | go    |       | |s1>   | query_concept(2) |
+
+## actions
+| Name          | Signature          | Effect          |
+|---------------|--------------------|-----------------|
+| query_concept | (qs, c: int) -> qs | Hadamard(qs[c]) |
+"""
+        result = parse_q_orca_markdown(source)
+        assert not any(
+            "is not declared" in e for e in result.errors
+        ), result.errors
+        t = result.file.machines[0].transitions[0]
+        assert t.action == "query_concept"
+        assert t.bound_arguments[0].value == 2
+
+
+class TestParametricActionIdentifierSubscriptWarning:
+    """The `looks like a gate but not known` warning must not fire for a
+    parametric action that legitimately uses an identifier subscript in
+    its effect (per-call-site expansion — Section 4 — resolves those)."""
+
+    def test_parametric_action_does_not_emit_unknown_gate_warning(self):
+        source = """\
+# machine PAS
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0, q1, q2] |
+
+## events
+- go
+
+## state |s0> [initial]
+## state |s1> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | go    |       | |s1>   | query_concept(0) |
+
+## actions
+| Name          | Signature          | Effect          |
+|---------------|--------------------|-----------------|
+| query_concept | (qs, c: int) -> qs | Hadamard(qs[c]) |
+"""
+        result = parse_q_orca_markdown(source)
+        assert not any(
+            "does not match any known gate" in e for e in result.errors
+        ), result.errors
