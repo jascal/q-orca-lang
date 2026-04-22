@@ -171,6 +171,59 @@ class TestContextUpdateParser:
         action = next(a for a in machine.actions if a.name == "bad")
         assert action.context_update is None
 
+    def test_ctx_prefix_on_scalar_increment(self):
+        """`ctx.iteration += 1` should parse identically to `iteration += 1`."""
+        source = _base_machine_with_update("ctx.iteration += 1", action_name="tick")
+        machine = _parse(source).file.machines[0]
+        tick = next(a for a in machine.actions if a.name == "tick")
+        assert tick.context_update is not None
+        mut = tick.context_update.then_mutations[0]
+        # The `ctx.` prefix is stripped — the stored field name is bare.
+        assert mut.target_field == "iteration"
+        assert mut.op == "+="
+
+    def test_ctx_prefix_on_list_element(self):
+        """`ctx.theta[0] -= eta` should parse like the bare form."""
+        source = _base_machine_with_update("ctx.theta[0] -= eta")
+        machine = _parse(source).file.machines[0]
+        action = next(a for a in machine.actions if a.name == "gradient_step")
+        mut = action.context_update.then_mutations[0]
+        assert mut.target_field == "theta"
+        assert mut.target_idx == 0
+        assert mut.op == "-="
+        assert mut.rhs_field == "eta"
+
+    def test_ctx_prefix_inside_conditional(self):
+        """`ctx.` prefix works in the then/else branches of a bit-gated update."""
+        effect = "if bits[0] == 1: ctx.theta[0] -= eta else: ctx.theta[0] += eta"
+        source = _base_machine_with_update(effect)
+        machine = _parse(source).file.machines[0]
+        action = next(a for a in machine.actions if a.name == "gradient_step")
+        cu = action.context_update
+        assert cu is not None
+        assert cu.bit_idx == 0
+        assert cu.then_mutations[0].target_field == "theta"
+        assert cu.else_mutations[0].target_field == "theta"
+
+    def test_int_literal_preserved_as_int(self):
+        """`iteration += 1` stores `rhs_literal=1` (int), not `1.0` (float)."""
+        source = _base_machine_with_update("iteration += 1", action_name="tick")
+        machine = _parse(source).file.machines[0]
+        tick = next(a for a in machine.actions if a.name == "tick")
+        mut = tick.context_update.then_mutations[0]
+        assert mut.rhs_literal == 1
+        assert isinstance(mut.rhs_literal, int)
+        assert not isinstance(mut.rhs_literal, bool)
+
+    def test_float_literal_preserved_as_float(self):
+        """`theta[0] += 0.5` stores a float."""
+        source = _base_machine_with_update("theta[0] += 0.5")
+        machine = _parse(source).file.machines[0]
+        action = next(a for a in machine.actions if a.name == "gradient_step")
+        mut = action.context_update.then_mutations[0]
+        assert mut.rhs_literal == 0.5
+        assert isinstance(mut.rhs_literal, float)
+
     def test_raw_effect_string_preserved(self):
         effect = "if bits[0] == 1: theta[0] -= eta else: theta[0] += eta"
         source = _base_machine_with_update(effect)

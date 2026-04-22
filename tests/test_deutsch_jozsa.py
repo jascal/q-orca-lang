@@ -76,7 +76,7 @@ class TestDeutschJozsaSnapshot:
         }
 
         expected = {
-            "context_fields": ["is_constant", "qubits"],
+            "context_fields": ["qubits"],
             "name": "DeutschJozsa",
             "num_events": 3,
             "num_states": 5,

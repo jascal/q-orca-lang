@@ -952,9 +952,13 @@ def _parse_conditional_gate_from_effect(
 # ============================================================
 
 # A single mutation like:   iteration += 1   |   theta[0] -= eta
+# Accepts an optional `ctx.` prefix for consistency with guard expressions
+# (e.g., `ctx.iteration += 1`); the prefix is stripped before the name is
+# stored on the AST.
 _MUTATION_RE = re.compile(
     r"""
     ^\s*
+    (?:ctx\.)?                                # optional `ctx.` prefix
     (?P<lhs>[A-Za-z_][A-Za-z0-9_]*)          # field name
     (?:\[\s*(?P<idx>-?\d+)\s*\])?             # optional [int] index
     \s*(?P<op>=|\+=|-=)\s*
@@ -964,6 +968,7 @@ _MUTATION_RE = re.compile(
     re.VERBOSE,
 )
 
+_INT_LITERAL_RE = re.compile(r"^-?\d+$")
 _FLOAT_LITERAL_RE = re.compile(r"^-?\d+(\.\d+)?([eE][+-]?\d+)?$")
 
 
@@ -1006,7 +1011,16 @@ def _parse_single_mutation(
 
     rhs_literal: Optional[float] = None
     rhs_field: Optional[str] = None
-    if _FLOAT_LITERAL_RE.match(rhs):
+    if _INT_LITERAL_RE.match(rhs):
+        try:
+            rhs_literal = int(rhs)
+        except ValueError:
+            if errors is not None:
+                errors.append(
+                    f"action {action_name!r}: unrecognized integer RHS {rhs!r} in mutation {mut_str!r}."
+                )
+            return None
+    elif _FLOAT_LITERAL_RE.match(rhs):
         try:
             rhs_literal = float(rhs)
         except ValueError:
@@ -1151,7 +1165,7 @@ def _looks_like_mutation_sequence(text: str) -> bool:
     if not text:
         return False
     m = re.match(
-        r"^\s*[A-Za-z_][A-Za-z0-9_]*(?:\[\s*-?\d+\s*\])?\s*(=(?!=)|\+=|-=)",
+        r"^\s*(?:ctx\.)?[A-Za-z_][A-Za-z0-9_]*(?:\[\s*-?\d+\s*\])?\s*(=(?!=)|\+=|-=)",
         text,
     )
     return m is not None
@@ -1161,7 +1175,7 @@ def _looks_like_mutation_sequence(text: str) -> bool:
 # segment (beginning of the string or after a `;`) — used to detect
 # mixed gate/context-update effects like `H(qs[0]); iteration += 1`.
 _MUTATION_OP_PAT = re.compile(
-    r"(?:^|;)\s*[A-Za-z_][A-Za-z0-9_]*(?:\[\s*-?\d+\s*\])?\s*(=(?!=)|\+=|-=)"
+    r"(?:^|;)\s*(?:ctx\.)?[A-Za-z_][A-Za-z0-9_]*(?:\[\s*-?\d+\s*\])?\s*(=(?!=)|\+=|-=)"
 )
 
 
