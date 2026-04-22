@@ -60,26 +60,29 @@
 
 ## 3. Parametric actions — parser
 
-- [ ] 3.1 Extend `q_orca/ast.py` with `ActionParameter(name: str,
+- [x] 3.1 Extend `q_orca/ast.py` with `ActionParameter(name: str,
       type: Literal["int", "angle"])` and add
       `parameters: list[ActionParameter] = []` to
       `QActionSignature`. Add `bound_arguments: list[BoundArg] | None
       = None` and `action_label: str | None = None` to
       `QTransition`.
-- [ ] 3.2 Extend `q_orca/parser/markdown_parser.py`'s signature
+- [x] 3.2 Extend `q_orca/parser/markdown_parser.py`'s signature
       parser to accept `(qs, name1: type1, name2: type2, ...) -> qs`.
       Reject duplicate names and unknown types with structured
       errors. Preserve the zero-parameter form as a no-op change.
-- [ ] 3.3 Extend the same module's transitions-table parser to
+      Typed-parameter grammar is opt-in via the presence of `:` in a
+      parameter slot, so `(ctx) -> ctx` signatures used by classical
+      context-update actions continue to parse as zero-parameter.
+- [x] 3.3 Extend the same module's transitions-table parser to
       accept `name(arg1, arg2, ...)` in the Action column. Validate
       arity and per-argument type against the referenced action's
       signature. Populate `QTransition.bound_arguments` and
       `QTransition.action_label`.
-- [ ] 3.4 Bare-name references to a parameterized action and
+- [x] 3.4 Bare-name references to a parameterized action and
       call-form references to a non-parameterized action SHALL raise
       structured errors with both the action name and the source
       line of the offending transition.
-- [ ] 3.5 Resolve action references in a two-pass approach: collect
+- [x] 3.5 Resolve action references in a two-pass approach: collect
       all action definitions first, then walk transitions resolving
       against the collected set, so forward references parse without
       ordering constraints.

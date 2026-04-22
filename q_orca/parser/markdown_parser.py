@@ -15,6 +15,7 @@ from q_orca.ast import (
     QGuardTrue, QGuardFalse, QGuardCompare, QGuardProbability, QGuardFidelity,
     VariableRef, ValueRef, QEffectMeasure, QEffectConditional,
     QContextMutation, QEffectContextUpdate,
+    ActionParameter, BoundArg,
 )
 
 
@@ -364,6 +365,11 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
     if not name:
         return None
 
+    # Resolve transition action cells against the collected action
+    # signatures. Running this after both tables are parsed lets
+    # transitions reference actions declared later in the file.
+    _resolve_transition_actions(transitions, actions, angle_context, errors)
+
     # Mark first state as initial if none explicitly marked
     if states and not any(s.is_initial for s in states):
         states[0].is_initial = True
@@ -487,6 +493,127 @@ def _parse_transitions_table(table: MdTable) -> list[QTransition]:
     return transitions
 
 
+_CALL_FORM_RE = re.compile(
+    r"^([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*$", re.DOTALL
+)
+
+
+def _resolve_transition_actions(
+    transitions: list[QTransition],
+    actions: list[QActionSignature],
+    angle_context: Optional[dict[str, float]] = None,
+    errors: Optional[list[str]] = None,
+) -> None:
+    """Resolve each transition's Action cell against the collected actions.
+
+    Runs as a second pass after both the transitions and actions tables
+    have been parsed, so forward references (a transition that invokes
+    an action declared later in the file) parse without ordering
+    constraints.
+
+    For call-form cells (`name(args)`), verifies arity and per-argument
+    type against the referenced action's signature, populates
+    `QTransition.action` with the bare name, `action_label` with the
+    verbatim source text, and `bound_arguments` with one `BoundArg` per
+    declared parameter. For bare-name cells referencing a parametric
+    action, emits a structured error — parametric actions MUST be
+    invoked with their arguments.
+    """
+    actions_by_name = {a.name: a for a in actions}
+
+    for t in transitions:
+        if not t.action:
+            continue
+        raw = t.action.strip()
+        transition_ref = f"transition {t.source!r} --{t.event}--> {t.target!r}"
+        m = _CALL_FORM_RE.match(raw)
+
+        if m:
+            name = m.group(1)
+            args_str = m.group(2).strip()
+            sig = actions_by_name.get(name)
+            if sig is None:
+                if errors is not None:
+                    errors.append(
+                        f"{transition_ref}: call-form action {name!r} is not "
+                        f"declared in the actions table."
+                    )
+                continue
+            if not sig.parameters:
+                if errors is not None:
+                    errors.append(
+                        f"{transition_ref}: action {name!r} is not parametric "
+                        f"(signature takes no arguments); use the bare-name "
+                        f"form."
+                    )
+                continue
+            raw_args: list[str] = (
+                [a.strip() for a in args_str.split(",")] if args_str else []
+            )
+            if len(raw_args) != len(sig.parameters):
+                if errors is not None:
+                    errors.append(
+                        f"{transition_ref}: action {name!r} expects "
+                        f"{len(sig.parameters)} argument(s), got {len(raw_args)}."
+                    )
+                continue
+
+            bound: list[BoundArg] = []
+            ok = True
+            for param, arg_text in zip(sig.parameters, raw_args):
+                if param.type == "int":
+                    if not re.fullmatch(r"-?\d+", arg_text):
+                        if errors is not None:
+                            errors.append(
+                                f"{transition_ref}: action {name!r} parameter "
+                                f"{param.name!r} expects an int literal, got "
+                                f"{arg_text!r}."
+                            )
+                        ok = False
+                        break
+                    bound.append(BoundArg(name=param.name, value=int(arg_text)))
+                elif param.type == "angle":
+                    try:
+                        val = _evaluate_angle(arg_text, angle_context)
+                    except ValueError as exc:
+                        if errors is not None:
+                            errors.append(
+                                f"{transition_ref}: action {name!r} parameter "
+                                f"{param.name!r}: {exc}"
+                            )
+                        ok = False
+                        break
+                    bound.append(BoundArg(name=param.name, value=val))
+                else:
+                    # Defensive — signature parser restricts types to the
+                    # supported set, so this branch should be unreachable.
+                    if errors is not None:
+                        errors.append(
+                            f"{transition_ref}: action {name!r} parameter "
+                            f"{param.name!r} has unsupported type "
+                            f"{param.type!r}."
+                        )
+                    ok = False
+                    break
+            if not ok:
+                continue
+            t.action = name
+            t.action_label = raw
+            t.bound_arguments = bound
+        else:
+            # Bare-name reference; validate only that it doesn't skip
+            # required parametric arguments. Undeclared bare-name actions
+            # are left alone to preserve historical parser behavior.
+            sig = actions_by_name.get(raw)
+            if sig is not None and sig.parameters:
+                if errors is not None:
+                    errors.append(
+                        f"{transition_ref}: action {raw!r} is parametric and "
+                        f"requires arguments (expected {len(sig.parameters)} "
+                        f"argument(s))."
+                    )
+
+
 def _parse_guards_table(table: MdTable) -> list[QGuardDef]:
     guards: list[QGuardDef] = []
     name_idx = _find_column_index(table.headers, "name")
@@ -522,7 +649,7 @@ def _parse_actions_table(
         if not name:
             continue
 
-        params, return_type = _parse_signature(sig_str)
+        params, return_type = _parse_signature(sig_str, errors=errors, action_name=name)
         context_update = _parse_context_update_from_effect(effect_str, errors, action_name=name)
         gate = _parse_gate_from_effect(effect_str, errors, action_name=name, angle_context=angle_context)
         measurement = _parse_measurement_from_effect(effect_str)
@@ -560,7 +687,10 @@ def _parse_actions_table(
 
         # Skip the "looks-like-gate" warning when the effect parsed as a
         # context-update; otherwise we'd spuriously flag `iteration += 1`
-        # as a gate typo.
+        # as a gate typo. Also skip for parametric actions, whose effect
+        # strings legitimately use identifier subscripts (`qs[c]`) that the
+        # current gate-effect parser cannot resolve — per-call-site
+        # expansion handles them at compile time.
         if (
             effect_str
             and gate is None
@@ -568,6 +698,7 @@ def _parse_actions_table(
             and mid_circuit_measure is None
             and conditional_gate is None
             and context_update is None
+            and not params
             and errors is not None
             and _looks_like_gate_call(effect_str)
             # Don't double-fire if _parse_gate_from_effect already surfaced a
@@ -791,14 +922,85 @@ def _parse_value_ref(text: str):
         return ValueRef(type="string", value=text)
 
 
-def _parse_signature(text: str) -> tuple[list[str], str]:
+_SUPPORTED_PARAM_TYPES = frozenset({"int", "angle"})
+
+
+def _parse_signature(
+    text: str,
+    errors: list[str] | None = None,
+    action_name: str = "",
+) -> tuple[list[ActionParameter], str]:
+    """Parse an action signature string into typed parameters + return type.
+
+    Accepted forms:
+      - `(qs) -> qs` → empty parameter list
+      - `(qs, name: type, ...) -> qs` → one typed parameter per extra slot
+    Supported parameter types are `int` and `angle`. Duplicate parameter
+    names and unsupported types are reported through ``errors`` and the
+    offending parameter is dropped.
+    """
     if not text:
         return [], "void"
     m = re.match(r"^\(([^)]*)\)\s*->\s*(.+)$", text)
-    if m:
-        params = [p.strip() for p in m.group(1).split(",") if p.strip()]
-        return params, m.group(2).strip()
-    return [], "void"
+    if not m:
+        return [], "void"
+    raw_params = [p.strip() for p in m.group(1).split(",") if p.strip()]
+    return_type = m.group(2).strip()
+
+    # Typed-parameter grammar is opt-in: only triggered when a slot contains
+    # a `: type` annotation. Signatures with no typed slots (the historical
+    # form for quantum and classical actions alike — `(qs) -> qs`,
+    # `(ctx) -> ctx`) parse with an empty `parameters` list.
+    if not any(":" in slot for slot in raw_params):
+        return [], return_type
+
+    # Typed form: leading slot must be the bare qubit-list binder `qs`.
+    head, *tail = raw_params
+    if head != "qs":
+        if errors is not None:
+            errors.append(
+                f"action {action_name!r}: parametric signature must begin "
+                f"with `qs` (got {head!r})."
+            )
+        return [], return_type
+
+    parameters: list[ActionParameter] = []
+    seen: set[str] = set()
+    for slot in tail:
+        # Each typed parameter is `name: type`.
+        if ":" not in slot:
+            if errors is not None:
+                errors.append(
+                    f"action {action_name!r}: parameter slot {slot!r} must have "
+                    f"the form `name: type` (supported types: int, angle)."
+                )
+            continue
+        name_part, type_part = slot.split(":", 1)
+        name = name_part.strip()
+        type_name = type_part.strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+            if errors is not None:
+                errors.append(
+                    f"action {action_name!r}: invalid parameter name {name!r}."
+                )
+            continue
+        if type_name not in _SUPPORTED_PARAM_TYPES:
+            if errors is not None:
+                errors.append(
+                    f"action {action_name!r}: unsupported parameter type "
+                    f"{type_name!r} for parameter {name!r} "
+                    f"(supported: int, angle)."
+                )
+            continue
+        if name in seen:
+            if errors is not None:
+                errors.append(
+                    f"action {action_name!r}: duplicate parameter name {name!r}."
+                )
+            continue
+        seen.add(name)
+        parameters.append(ActionParameter(name=name, type=type_name))
+    return parameters, return_type
 
 
 def _looks_like_gate_call(effect_str: str) -> bool:

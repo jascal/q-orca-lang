@@ -234,9 +234,23 @@ class QEffectContextUpdate:
 
 
 @dataclass
+class ActionParameter:
+    """A typed positional parameter on a parametric action signature."""
+    name: str
+    type: str  # "int" or "angle"
+
+
+@dataclass
+class BoundArg:
+    """A literal argument bound at a parametric action call site."""
+    name: str
+    value: int | float  # int for "int" params, float for "angle" params
+
+
+@dataclass
 class QActionSignature:
     name: str
-    parameters: list[str] = field(default_factory=list)
+    parameters: list[ActionParameter] = field(default_factory=list)
     return_type: str = "void"
     effect: Optional[str] = None
     has_effect: bool = False
@@ -278,6 +292,11 @@ class QTransition:
     target: str
     guard: Optional[QGuardRef] = None
     action: Optional[str] = None
+    # Populated for call-form references (`query_concept(3)`); `None` for bare-name refs.
+    bound_arguments: Optional[list[BoundArg]] = None
+    # Source-form text of the Action cell, preserved for display (e.g. Mermaid labels).
+    # `None` for bare-name refs; set to the verbatim cell text for call-form refs.
+    action_label: Optional[str] = None
 
 
 @dataclass
