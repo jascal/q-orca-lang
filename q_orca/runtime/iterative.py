@@ -5,7 +5,8 @@ live context, accumulates gate-carrying actions into a segment, flushes the
 segment into an in-process Qiskit circuit run, applies context mutations,
 records a per-transition trace, and enforces a hard iteration ceiling.
 
-See `openspec/changes/run-context-updates/design.md` for the full design.
+See `openspec/changes/archive/2026-04-21-run-context-updates/design.md`
+for the full design.
 """
 
 from __future__ import annotations
