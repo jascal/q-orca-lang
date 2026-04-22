@@ -13,6 +13,7 @@ from q_orca.compiler.qasm import compile_to_qasm
 from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
 from q_orca.compiler.cudaq import compile_to_cudaq
 from q_orca.runtime.python import check_python_dependencies, simulate_machine
+from q_orca.runtime.types import QIterativeSimulationResult
 from q_orca.tools import Q_ORCA_TOOLS
 
 
@@ -236,6 +237,10 @@ def _cmd_simulate(parsed, args):
         if args.run:
             result = simulate_machine(machine, options)
 
+            if isinstance(result, QIterativeSimulationResult):
+                _print_iterative_result(machine, result, backend_meta, args)
+                continue
+
             if args.json:
                 import json as _json
                 qutip_dict = None
@@ -279,6 +284,57 @@ def _cmd_simulate(parsed, args):
         else:
             script = compile_to_qiskit(machine, options)
             print(script)
+
+
+def _print_iterative_result(machine, result, backend_meta, args):
+    """Render a QIterativeSimulationResult. Collapsed unless --verbose."""
+    if args.json:
+        import json as _json
+
+        trace_entries = [
+            {
+                "iteration": t.iteration,
+                "source": t.source_state,
+                "target": t.target_state,
+                "event": t.event,
+                "action": t.action,
+                "bits": t.measurement_bits,
+                "context": t.context_snapshot,
+            }
+            for t in (result.trace if args.verbose else [])
+        ]
+        print(_json.dumps({
+            "machine": machine.name,
+            "runtime": "iterative",
+            "success": result.success,
+            "final_state": result.final_state,
+            "final_context": result.final_context,
+            "aggregate_counts": result.aggregate_counts,
+            "iterations": len(result.trace),
+            "trace": trace_entries,
+            "error": result.error,
+            "backend": backend_meta,
+        }, indent=2))
+        return
+
+    print(f"\n  Machine: {machine.name} (iterative runtime)")
+    print(f"  Success: {result.success}")
+    if result.final_state:
+        print(f"  Final state: {result.final_state}")
+    if result.final_context:
+        print(f"  Final context: {result.final_context}")
+    if result.aggregate_counts:
+        print(f"  Aggregate counts: {result.aggregate_counts}")
+    print(f"  Iterations: {len(result.trace)}")
+    if args.verbose and result.trace:
+        print("  Trace:")
+        for t in result.trace:
+            print(
+                f"    [{t.iteration}] {t.source_state} -> {t.target_state} "
+                f"event={t.event} action={t.action} bits={t.measurement_bits}"
+            )
+    if result.error:
+        print(f"  Error: {result.error}")
 
 
 def _get_backend_meta(backend_name: str) -> dict:

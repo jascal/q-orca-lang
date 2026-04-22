@@ -4,7 +4,6 @@
 | Field       | Type          | Default   |
 |-------------|---------------|-----------|
 | qubits      | list<qubit>   | [q0, q1] |
-| is_constant | bool          | false     |
 
 ## events
 - prepare
@@ -44,8 +43,8 @@
 |----------------|-------------------|------------------|
 | apply_H_both   | (qs) -> qs        | Hadamard(qs[0])  |
 | apply_U_f      | (qs) -> qs        | oracle_query     |
-| mark_constant  | (ctx) -> ctx      | ctx.is_constant = true |
-| mark_balanced  | (ctx) -> ctx      | ctx.is_constant = false |
+| mark_constant  | (qs) -> qs        |                  |
+| mark_balanced  | (qs) -> qs        |                  |
 
 ## effects
 | Name          | Input          | Output          |

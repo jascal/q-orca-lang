@@ -7,7 +7,13 @@ import os
 import tempfile
 from typing import Optional
 
-from q_orca.runtime.types import PythonCheckResult, QSimulationResult, QuTiPVerificationResult
+from q_orca.runtime.types import (
+    PythonCheckResult,
+    QIterativeSimulationOptions,
+    QIterativeSimulationResult,
+    QSimulationResult,
+    QuTiPVerificationResult,
+)
 from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
 from q_orca.ast import QMachineDef
 
@@ -121,8 +127,14 @@ def run_simulation(script: str, verbose: bool = False) -> QSimulationResult:
 def simulate_machine(
     machine: QMachineDef,
     options: QSimulationOptions,
-) -> QSimulationResult:
-    """Compile and run a simulation of a quantum machine."""
+):
+    """Compile and run a simulation of a quantum machine.
+
+    Dispatches to the iterative runtime if the machine declares any
+    context-update actions; otherwise runs the flat-circuit Qiskit script
+    path. Returns ``QSimulationResult`` in the flat case and
+    ``QIterativeSimulationResult`` in the iterative case.
+    """
     deps = check_python_dependencies()
 
     if not deps.python3:
@@ -139,9 +151,41 @@ def simulate_machine(
             error="qiskit not installed. Run: pip install qiskit",
         )
 
+    if _requires_iterative_runtime(machine):
+        from q_orca.runtime.iterative import simulate_iterative
+        from q_orca.runtime.types import QIterativeRuntimeError
+
+        iter_options = _as_iterative_options(options)
+        try:
+            return simulate_iterative(machine, iter_options)
+        except QIterativeRuntimeError as exc:
+            return QIterativeSimulationResult(
+                machine=machine.name,
+                success=False,
+                error=str(exc),
+            )
+
     script = compile_to_qiskit(machine, options)
     result = run_simulation(script, verbose=options.verbose)
     return result
+
+
+def _requires_iterative_runtime(machine: QMachineDef) -> bool:
+    return any(a.context_update is not None for a in machine.actions)
+
+
+def _as_iterative_options(options: QSimulationOptions) -> QIterativeSimulationOptions:
+    if isinstance(options, QIterativeSimulationOptions):
+        return options
+    return QIterativeSimulationOptions(
+        analytic=options.analytic,
+        shots=options.shots,
+        verbose=options.verbose,
+        skip_qutip=options.skip_qutip,
+        skip_noise=options.skip_noise,
+        run=options.run,
+        seed_simulator=getattr(options, "seed_simulator", None),
+    )
 
 
 def _parse_qutip(data) -> Optional[QuTiPVerificationResult]:

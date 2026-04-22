@@ -4,9 +4,6 @@ Covers the parser, verifier, and compiler facets of the
 `add-classical-context-updates` change.
 """
 
-import pytest
-
-from q_orca.ast import QEffectContextUpdate
 from q_orca.compiler.qasm import compile_to_qasm
 from q_orca.compiler.qiskit import QSimulationOptions, compile_to_qiskit
 from q_orca.parser.markdown_parser import parse_q_orca_markdown
@@ -171,6 +168,59 @@ class TestContextUpdateParser:
         action = next(a for a in machine.actions if a.name == "bad")
         assert action.context_update is None
 
+    def test_ctx_prefix_on_scalar_increment(self):
+        """`ctx.iteration += 1` should parse identically to `iteration += 1`."""
+        source = _base_machine_with_update("ctx.iteration += 1", action_name="tick")
+        machine = _parse(source).file.machines[0]
+        tick = next(a for a in machine.actions if a.name == "tick")
+        assert tick.context_update is not None
+        mut = tick.context_update.then_mutations[0]
+        # The `ctx.` prefix is stripped — the stored field name is bare.
+        assert mut.target_field == "iteration"
+        assert mut.op == "+="
+
+    def test_ctx_prefix_on_list_element(self):
+        """`ctx.theta[0] -= eta` should parse like the bare form."""
+        source = _base_machine_with_update("ctx.theta[0] -= eta")
+        machine = _parse(source).file.machines[0]
+        action = next(a for a in machine.actions if a.name == "gradient_step")
+        mut = action.context_update.then_mutations[0]
+        assert mut.target_field == "theta"
+        assert mut.target_idx == 0
+        assert mut.op == "-="
+        assert mut.rhs_field == "eta"
+
+    def test_ctx_prefix_inside_conditional(self):
+        """`ctx.` prefix works in the then/else branches of a bit-gated update."""
+        effect = "if bits[0] == 1: ctx.theta[0] -= eta else: ctx.theta[0] += eta"
+        source = _base_machine_with_update(effect)
+        machine = _parse(source).file.machines[0]
+        action = next(a for a in machine.actions if a.name == "gradient_step")
+        cu = action.context_update
+        assert cu is not None
+        assert cu.bit_idx == 0
+        assert cu.then_mutations[0].target_field == "theta"
+        assert cu.else_mutations[0].target_field == "theta"
+
+    def test_int_literal_preserved_as_int(self):
+        """`iteration += 1` stores `rhs_literal=1` (int), not `1.0` (float)."""
+        source = _base_machine_with_update("iteration += 1", action_name="tick")
+        machine = _parse(source).file.machines[0]
+        tick = next(a for a in machine.actions if a.name == "tick")
+        mut = tick.context_update.then_mutations[0]
+        assert mut.rhs_literal == 1
+        assert isinstance(mut.rhs_literal, int)
+        assert not isinstance(mut.rhs_literal, bool)
+
+    def test_float_literal_preserved_as_float(self):
+        """`theta[0] += 0.5` stores a float."""
+        source = _base_machine_with_update("theta[0] += 0.5")
+        machine = _parse(source).file.machines[0]
+        action = next(a for a in machine.actions if a.name == "gradient_step")
+        mut = action.context_update.then_mutations[0]
+        assert mut.rhs_literal == 0.5
+        assert isinstance(mut.rhs_literal, float)
+
     def test_raw_effect_string_preserved(self):
         effect = "if bits[0] == 1: theta[0] -= eta else: theta[0] += eta"
         source = _base_machine_with_update(effect)
@@ -199,7 +249,7 @@ class TestContextUpdateVerifier:
         assert "UNDECLARED_CONTEXT_FIELD" in codes
 
     def test_wrong_type_scalar_mutation(self):
-        source = f"""\
+        source = """\
 # machine WrongType
 
 ## context
@@ -238,7 +288,7 @@ class TestContextUpdateVerifier:
         assert "CONTEXT_INDEX_OUT_OF_RANGE" in codes
 
     def test_bit_read_before_write_no_measurement_anywhere(self):
-        source = f"""\
+        source = """\
 # machine Unread
 
 ## context
@@ -349,7 +399,7 @@ class TestContextUpdateCompiler:
         machine = _machine(source)
         qiskit_script = compile_to_qiskit(machine, QSimulationOptions(skip_qutip=True))
         assert f"# context_update: {effect}" in qiskit_script
-        assert "context-update actions are annotations only" in qiskit_script
+        assert "executed by the iterative runtime" in qiskit_script
 
     def test_qiskit_no_banner_when_no_context_update(self):
         source = """\
@@ -393,3 +443,182 @@ class TestContextUpdateCompiler:
         # should NOT leak into the mermaid output.
         assert "gradient_step" in mermaid
         assert "theta[0]" not in mermaid
+
+
+# ============================================================
+# UNBOUNDED_CONTEXT_LOOP termination warning
+# ============================================================
+
+_BOUNDED_LEARNING_MACHINE = """\
+# machine BoundedLearner
+
+## context
+| Field     | Type        | Default      |
+|-----------|-------------|--------------|
+| qubits    | list<qubit> | [q0]         |
+| bits      | list<bit>   | [b0]         |
+| iteration | int         | 0            |
+| max_iter  | int         | 3            |
+
+## events
+- measure_e
+- tick_e
+- finalize
+
+## state |s0> [initial]
+## state |s1>
+## state |s2>
+## state |done> [final]
+
+## guards
+| Name     | Expression                |
+|----------|---------------------------|
+| continue | ctx.iteration < max_iter  |
+| done     | ctx.iteration >= max_iter |
+
+## transitions
+| Source | Event      | Guard    | Target  | Action          |
+|--------|------------|----------|---------|-----------------|
+| |s0>   | measure_e  |          | |s1>    | measure_ancilla |
+| |s1>   | tick_e     | continue | |s0>    | tick            |
+| |s1>   | finalize   | done     | |done>  |                 |
+
+## actions
+| Name            | Signature                | Effect                     |
+|-----------------|--------------------------|----------------------------|
+| measure_ancilla | (qs, bits) -> (qs, bits) | measure(qs[0]) -> bits[0]  |
+| tick            | (ctx) -> ctx             | iteration += 1             |
+"""
+
+
+_UNBOUNDED_FLOAT_ONLY_MACHINE = """\
+# machine FloatOnlyLoop
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0]         |
+| bits   | list<bit>   | [b0]         |
+| theta  | list<float> | [0.0, 0.0]   |
+| eta    | float       | 0.1          |
+
+## events
+- measure_e
+- step_e
+- finalize
+
+## state |s0> [initial]
+## state |s1>
+## state |done> [final]
+
+## guards
+| Name | Expression     |
+|------|----------------|
+| hot  | theta[0] < eta |
+
+## transitions
+| Source | Event     | Guard | Target  | Action          |
+|--------|-----------|-------|---------|-----------------|
+| |s0>   | measure_e |       | |s1>    | measure_ancilla |
+| |s1>   | step_e    | hot   | |s0>    | drift           |
+| |s1>   | finalize  |       | |done>  |                 |
+
+## actions
+| Name            | Signature                | Effect                     |
+|-----------------|--------------------------|----------------------------|
+| measure_ancilla | (qs, bits) -> (qs, bits) | measure(qs[0]) -> bits[0]  |
+| drift           | (ctx) -> ctx             | theta[0] += eta            |
+"""
+
+
+_NO_GUARDS_AT_ALL_MACHINE = """\
+# machine UnguardedLoop
+
+## context
+| Field     | Type        | Default  |
+|-----------|-------------|----------|
+| qubits    | list<qubit> | [q0]     |
+| bits      | list<bit>   | [b0]     |
+| iteration | int         | 0        |
+
+## events
+- measure_e
+- tick_e
+- finalize
+
+## state |s0> [initial]
+## state |s1>
+## state |done> [final]
+
+## transitions
+| Source | Event     | Guard | Target  | Action          |
+|--------|-----------|-------|---------|-----------------|
+| |s0>   | measure_e |       | |s1>    | measure_ancilla |
+| |s1>   | tick_e    |       | |s0>    | tick            |
+| |s1>   | finalize  |       | |done>  |                 |
+
+## actions
+| Name            | Signature                | Effect                     |
+|-----------------|--------------------------|----------------------------|
+| measure_ancilla | (qs, bits) -> (qs, bits) | measure(qs[0]) -> bits[0]  |
+| tick            | (ctx) -> ctx             | iteration += 1             |
+"""
+
+
+class TestIterativeTerminationWarning:
+    def test_bounded_int_guard_suppresses_warning(self):
+        machine = _machine(_BOUNDED_LEARNING_MACHINE)
+        result = check_classical_context(machine)
+        codes = [e.code for e in result.errors]
+        assert "UNBOUNDED_CONTEXT_LOOP" not in codes
+
+    def test_float_only_guard_still_warns(self):
+        machine = _machine(_UNBOUNDED_FLOAT_ONLY_MACHINE)
+        result = check_classical_context(machine)
+        warnings = [e for e in result.errors if e.code == "UNBOUNDED_CONTEXT_LOOP"]
+        assert len(warnings) == 1
+        assert warnings[0].severity == "warning"
+
+    def test_no_guards_emits_warning(self):
+        machine = _machine(_NO_GUARDS_AT_ALL_MACHINE)
+        result = check_classical_context(machine)
+        warnings = [e for e in result.errors if e.code == "UNBOUNDED_CONTEXT_LOOP"]
+        assert len(warnings) == 1
+
+    def test_machine_without_context_updates_is_silent(self):
+        source = """\
+# machine Plain
+
+## context
+| Field  | Type        | Default |
+|--------|-------------|---------|
+| qubits | list<qubit> | [q0]    |
+
+## events
+- go
+
+## state |0> [initial]
+## state |1> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |0>    | go    |       | |1>    | apply_h |
+
+## actions
+| Name    | Signature  | Effect  |
+|---------|------------|---------|
+| apply_h | (qs) -> qs | H(qs[0]) |
+"""
+        machine = _machine(source)
+        result = check_classical_context(machine)
+        codes = [e.code for e in result.errors]
+        assert "UNBOUNDED_CONTEXT_LOOP" not in codes
+
+    def test_skip_flag_suppresses_warning(self):
+        machine = _machine(_NO_GUARDS_AT_ALL_MACHINE)
+        result = verify(
+            machine, VerifyOptions(skip_classical_context=True, skip_dynamic=True)
+        )
+        codes = [e.code for e in result.errors]
+        assert "UNBOUNDED_CONTEXT_LOOP" not in codes

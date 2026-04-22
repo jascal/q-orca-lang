@@ -173,9 +173,9 @@ This correspondence is the reason the three-register structure is minimum-viable
 1. Read arXiv:2202.01230 in full to confirm the autoencoder-based QPC architecture and identify what it does *not* cover (the paper focuses on compression; this proposal adds the online-learning feedback loop).
 2. Read arXiv:2601.04812 §II–III to map the continuous-time quantum Kalman SDE onto a discrete-time q-orca state machine. The mapping `innovation process → classical feedback bit` is the key bridge.
 3. Write a one-qubit-model / one-qubit-data / one-ancilla worked example as `examples/predictive-coder-minimal.q.orca.md`, using only currently-shipped q-orca features — skip the `gradient_step` classical-update action until the new primitive is scoped. The example should at minimum generate-and-measure without the learning loop, proving the unitary skeleton verifies.
-4. Scope the **classical context update effect** as an OpenSpec change (`add-classical-context-updates` or similar). This is the one language-level blocker for a full QPC.
+4. ✅ **Landed** — `add-classical-context-updates` (parser/verifier/compile-time annotations) shipped in v0.5.0, and `run-context-updates` wired the iterative Python runtime (`q_orca.runtime.iterative`) that actually executes those effects shot-to-shot. The full learning loop is now representable in q-orca syntax and executable end-to-end on the Qiskit backend.
 5. Optional: index the Friston free-energy corpus (2010 Nature Reviews Neuroscience paper, 2019 Parr & Friston active-inference paper) into q-orca-kb if a future iteration wants to make a Friston-style claim. Not needed to make the Kalman/autoencoder version work.
-6. Once the primitive lands, extend the example to a full learning loop and benchmark convergence vs. a classical baseline (e.g. a small NN trained to match the same target state distribution), and against the 2202.01230 autoencoder compression baseline on sequential quantum data.
+6. **Unblocked** — extend `examples/predictive-coder-learning.q.orca.md` (already shipped as the minimal loop under `run-context-updates`) into a convergence benchmark: sweep the QPC learning loop and plot error-vs-iteration against a classical baseline (e.g. a small NN trained to match the same target state distribution), and against the 2202.01230 autoencoder compression baseline on sequential quantum data.
 
 ---
 

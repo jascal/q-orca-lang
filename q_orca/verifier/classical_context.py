@@ -20,6 +20,10 @@ from q_orca.ast import (
     QActionSignature,
     QContextMutation,
     ContextField,
+    QGuardAnd,
+    QGuardCompare,
+    QGuardNot,
+    QGuardOr,
     QTypeScalar,
     QTypeList,
 )
@@ -253,6 +257,185 @@ def _check_feedforward_completeness(
     return errors
 
 
+_BOUNDING_OPS = {"lt", "le", "gt", "ge"}
+
+
+def _int_field_names(machine: QMachineDef) -> set[str]:
+    out: set[str] = set()
+    for f in machine.context:
+        if isinstance(f.type, QTypeScalar) and f.type.kind == "int":
+            out.add(f.name)
+    return out
+
+
+def _compare_uses_int_bound(
+    expr: QGuardCompare, int_fields: set[str]
+) -> bool:
+    if expr.op not in _BOUNDING_OPS:
+        return False
+    left = expr.left
+    if left is None or not left.path:
+        return False
+    # Path forms we accept: ["ctx", "field"] or ["field"]. Either way the
+    # trailing segment is the field name.
+    field = left.path[-1]
+    return field in int_fields
+
+
+def _guard_has_int_bound(expr, int_fields: set[str]) -> bool:
+    if expr is None:
+        return False
+    if isinstance(expr, QGuardCompare):
+        return _compare_uses_int_bound(expr, int_fields)
+    if isinstance(expr, QGuardNot):
+        return _guard_has_int_bound(expr.expr, int_fields)
+    if isinstance(expr, (QGuardAnd, QGuardOr)):
+        return (
+            _guard_has_int_bound(expr.left, int_fields)
+            or _guard_has_int_bound(expr.right, int_fields)
+        )
+    return False
+
+
+def _machine_has_context_update_cycle(machine: QMachineDef) -> bool:
+    """True if the transition graph has a cycle whose edges include at
+    least one context-updating action.
+
+    DAG machines (e.g. `BellEntangler`, which writes `ctx.outcome = 0/1`
+    on terminal transitions) can mutate context without ever looping,
+    so they shouldn't trigger the unbounded-loop warning.
+    """
+    action_map = {a.name: a for a in machine.actions}
+    outgoing: dict[str, list] = {}
+    for t in machine.transitions:
+        outgoing.setdefault(t.source, []).append(t)
+
+    # Tarjan-style SCC detection is overkill; a DFS-with-recursion-stack
+    # suffices to find any back-edge whose transition has a context-update
+    # action. Cycles may be self-loops or longer.
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color: dict[str, int] = {s.name: WHITE for s in machine.states}
+
+    def edge_updates_context(t) -> bool:
+        act = action_map.get(t.action) if t.action else None
+        return act is not None and act.context_update is not None
+
+    found = False
+
+    def dfs(state: str) -> None:
+        nonlocal found
+        if found:
+            return
+        color[state] = GRAY
+        for t in outgoing.get(state, []):
+            nxt = t.target
+            if color.get(nxt, WHITE) == GRAY:
+                # Back-edge: `state -> nxt` closes a cycle. That cycle
+                # is problematic only if *some* edge on it updates
+                # context; easiest sound check is to require this edge
+                # itself (or some already-grey predecessor) to do so.
+                # We approximate: if this edge is a context-update, the
+                # cycle is context-updating. Otherwise the walk continues
+                # and any later grey back-edge on a context-updating
+                # transition will flip `found`.
+                if edge_updates_context(t):
+                    found = True
+                    return
+                # Even if this specific edge doesn't update context,
+                # another edge on the same SCC may; we record that a
+                # cycle exists and let the caller scan transitions.
+                # (Handled outside via a second pass below.)
+                continue
+            if color.get(nxt, WHITE) == WHITE:
+                dfs(nxt)
+                if found:
+                    return
+        color[state] = BLACK
+
+    for s in machine.states:
+        if color.get(s.name, WHITE) == WHITE:
+            dfs(s.name)
+            if found:
+                return True
+
+    # Second pass: if any cycle exists at all, and any context-updating
+    # transition lies on that cycle, warn. Simpler version — detect via
+    # SCC-ish reachability: a transition (u -> v) is on a cycle iff u is
+    # reachable from v.
+    reach: dict[str, set[str]] = {}
+
+    def reachable_from(start: str) -> set[str]:
+        if start in reach:
+            return reach[start]
+        seen: set[str] = set()
+        stack = [start]
+        while stack:
+            s = stack.pop()
+            for t in outgoing.get(s, []):
+                if t.target not in seen:
+                    seen.add(t.target)
+                    stack.append(t.target)
+        reach[start] = seen
+        return seen
+
+    for t in machine.transitions:
+        if not edge_updates_context(t):
+            continue
+        if t.source in reachable_from(t.target):
+            return True
+
+    return False
+
+
+def check_iterative_termination(
+    machine: QMachineDef,
+) -> list[QVerificationError]:
+    """Warn when an iterative machine has no guard that could plausibly
+    terminate its context-update loop.
+
+    Conservative v1 heuristic: a machine is considered bounded if any
+    declared guard (or transition-inline guard) contains a `<`, `<=`, `>`,
+    or `>=` comparison whose LHS resolves to an int context field.
+
+    Skip machines whose transition graph is a DAG — their context writes
+    run at most once per path and can't cause an unbounded loop.
+    """
+    if not any(a.context_update is not None for a in machine.actions):
+        return []
+
+    if not _machine_has_context_update_cycle(machine):
+        return []
+
+    int_fields = _int_field_names(machine)
+    if not int_fields:
+        return [_unbounded_warning(machine)]
+
+    for gdef in machine.guards:
+        if _guard_has_int_bound(gdef.expression, int_fields):
+            return []
+
+    return [_unbounded_warning(machine)]
+
+
+def _unbounded_warning(machine: QMachineDef) -> QVerificationError:
+    return QVerificationError(
+        code="UNBOUNDED_CONTEXT_LOOP",
+        message=(
+            f"Machine '{machine.name}' has context-update actions but no "
+            "bounding guard on an `int` context field (e.g., "
+            "`ctx.iteration < max_iter`). The iterative runtime will rely "
+            "on its iteration ceiling to terminate."
+        ),
+        severity="warning",
+        location={"machine": machine.name},
+        suggestion=(
+            "Add a guard comparing an `int` context field against a literal "
+            "or another bound (`<`, `<=`, `>`, `>=`) on at least one path "
+            "to a [final] state."
+        ),
+    )
+
+
 def check_classical_context(machine: QMachineDef) -> QVerificationResult:
     errors: list[QVerificationError] = []
 
@@ -264,6 +447,7 @@ def check_classical_context(machine: QMachineDef) -> QVerificationResult:
             errors.extend(_check_mutation_typing(mut, machine, action.name))
 
     errors.extend(_check_feedforward_completeness(machine))
+    errors.extend(check_iterative_termination(machine))
 
     return QVerificationResult(
         valid=not any(e.severity == "error" for e in errors),

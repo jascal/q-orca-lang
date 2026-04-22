@@ -943,6 +943,7 @@ Each of these entered main with a full OpenSpec proposal → implementation → 
 - ✅ **Context-resolved angles** — rotation gates accept context field references (`theta[0]`) in addition to literals *(`context-angle-references`)*
 - ✅ **Mid-circuit measurement + classical feedforward** — `measure(...) -> bits[N]` + `if bits[N] == v: Gate(...)` *(`mid-circuit-measurement`, [PR #5](../../pull/5))*
 - ✅ **Classical context updates** — `theta[0] -= eta` / conditional mutations on `int` and `list<float>` with static type-checking *(`add-classical-context-updates`, [PR #21](../../pull/21))*
+- ✅ **Iterative runtime for context updates** — `simulate_machine` dispatches context-update machines to `q_orca.runtime.iterative`, which walks back-edges, rebuilds per-segment Qiskit circuits at the live context, and threads a deterministic per-iteration seed. Ships the QPC learning loop as `examples/predictive-coder-learning.q.orca.md`. *(`run-context-updates`)*
 - ✅ **Pluggable execution backends** — cuQuantum GPU, CUDA-Q compilation target *(`execution-backends`, [PR #7](../../pull/7))*
 - ✅ **Noise models** — `depolarizing`, `amplitude_damping`, `phase_damping`, `thermal(T1, T2)` in `## context`, propagated into Qiskit Aer *(`fix-noise-models`)*
 - ✅ **CCZ / MCX / MCZ gate set** — many-controlled gates formalized and round-tripped through every backend *(partial archive; parametric-action half tracked below)*

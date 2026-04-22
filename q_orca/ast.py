@@ -215,6 +215,10 @@ class QContextMutation:
     target_field: str
     target_idx: Optional[int] = None  # None for scalar, int for list element
     op: str = "="                      # "=", "+=", "-="
+    # Literal RHS. `int` when the source literal has no decimal point or
+    # exponent (e.g., `iteration += 1`); `float` otherwise. Storing the
+    # narrower type preserves `int` through `int += 1` so runtime
+    # mutations don't silently promote an `int` field to `float`.
     rhs_literal: Optional[float] = None
     rhs_field: Optional[str] = None    # mutually exclusive with rhs_literal
 
