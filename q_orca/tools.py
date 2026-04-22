@@ -145,6 +145,11 @@ Q_ORCA_TOOLS = [
                     "description": "Skip QuTiP verification",
                     "default": False,
                 },
+                "verbose": {
+                    "type": "boolean",
+                    "description": "When running a machine under the iterative runtime, include the full per-iteration trace in the response.",
+                    "default": False,
+                },
             },
         },
     },

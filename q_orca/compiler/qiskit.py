@@ -278,8 +278,8 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
     lines.append(f"# Machine: {machine.name}")
     if any(a.context_update is not None for a in machine.actions):
         lines.append(
-            "# NOTE: context-update actions are annotations only; "
-            "shot-to-shot execution not yet implemented."
+            "# NOTE: context-update actions are executed by the iterative "
+            "runtime (q_orca.runtime.iterative)."
         )
     lines.append("")
 
@@ -619,6 +619,119 @@ def _infer_bit_count(machine: QMachineDef) -> int:
         if action.conditional_gate is not None:
             max_bit = max(max_bit, action.conditional_gate.bit_idx)
     return max_bit + 1 if max_bit >= 0 else 0
+
+
+def build_circuit_for_iteration(
+    machine: QMachineDef,
+    ctx: Mapping[str, object],
+    actions: list,
+):
+    """Build an in-process `QuantumCircuit` for one iteration segment.
+
+    `actions` is a list of `QActionSignature` objects (in execution order)
+    whose effects should be applied on a fresh circuit. Any angle references
+    are resolved against `ctx` (the live context snapshot), not the machine's
+    static defaults. Mid-circuit and terminal measurements are added in the
+    order they appear.
+
+    Raises `ImportError` if qiskit is not installed — callers (the iterative
+    runtime) should dependency-check before invoking.
+    """
+    from qiskit import QuantumCircuit  # local import: runtime-only dep
+
+    n_qubits = _infer_qubit_count(machine)
+    n_bits = _infer_bit_count(machine)
+    qc = QuantumCircuit(n_qubits, n_bits) if n_bits else QuantumCircuit(n_qubits)
+
+    # Build the angle context once: machine defaults overlaid with the live
+    # ctx so unmentioned fields still fall back to the machine declaration.
+    angle_ctx: dict[str, float] = dict(_build_angle_context(machine))
+    for key, value in ctx.items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            angle_ctx[key] = float(value)
+
+    for action in actions:
+        # Mid-circuit measurement: qubit N -> bit M.
+        if action.mid_circuit_measure is not None:
+            m = action.mid_circuit_measure
+            qc.measure(m.qubit_idx, m.bit_idx)
+            continue
+
+        # Classical feedforward (conditional gate) — rare, left to the
+        # existing flat-circuit path; the iterative runtime's per-segment
+        # dispatch hands these off as-is.
+        if action.conditional_gate is not None:
+            cond = action.conditional_gate
+            with qc.if_test((qc.clbits[cond.bit_idx], cond.value)):
+                _apply_gate_to_circuit(qc, cond.gate)
+            continue
+
+        # Regular gate-bearing action: parse effect (live angles) or fall
+        # back to the pre-parsed gate.
+        gates = (
+            _parse_effect_string(action.effect, angle_context=angle_ctx)
+            if action.effect
+            else []
+        )
+        if not gates and action.gate:
+            gates = [action.gate]
+        for gate in gates:
+            _apply_gate_to_circuit(qc, gate)
+
+    return qc
+
+
+def _apply_gate_to_circuit(qc, gate) -> None:
+    """Apply a QuantumGate to an in-process QuantumCircuit."""
+    kind = gate.kind
+    if kind == "H":
+        qc.h(gate.targets[0]); return
+    if kind == "X":
+        qc.x(gate.targets[0]); return
+    if kind == "Y":
+        qc.y(gate.targets[0]); return
+    if kind == "Z":
+        qc.z(gate.targets[0]); return
+    if kind == "T":
+        qc.t(gate.targets[0]); return
+    if kind == "S":
+        qc.s(gate.targets[0]); return
+    if kind == "I":
+        qc.id(gate.targets[0]); return
+    if kind == "CNOT":
+        ctrl = gate.controls[0] if gate.controls else 0
+        qc.cx(ctrl, gate.targets[0]); return
+    if kind == "CZ":
+        ctrl = gate.controls[0] if gate.controls else 0
+        qc.cz(ctrl, gate.targets[0]); return
+    if kind == "SWAP":
+        qc.swap(gate.targets[0], gate.targets[1]); return
+    if kind in ("Rx", "Ry", "Rz"):
+        theta = float(gate.parameter or 0.0)
+        getattr(qc, kind.lower())(theta, gate.targets[0]); return
+    if kind in ("CRx", "CRy", "CRz"):
+        ctrl = gate.controls[0] if gate.controls else 0
+        theta = float(gate.parameter or 0.0)
+        getattr(qc, f"c{kind[1:].lower()}")(theta, ctrl, gate.targets[0]); return
+    if kind in ("RXX", "RYY", "RZZ"):
+        theta = float(gate.parameter or 0.0)
+        getattr(qc, kind.lower())(theta, gate.targets[0], gate.targets[1]); return
+    if kind == "CCNOT":
+        ctrls = gate.controls or []
+        qc.ccx(ctrls[0], ctrls[1], gate.targets[0]); return
+    if kind == "CCZ":
+        ctrls = gate.controls or []
+        t = gate.targets[0]
+        qc.h(t); qc.ccx(ctrls[0], ctrls[1], t); qc.h(t); return
+    if kind == "MCX":
+        qc.mcx(list(gate.controls or []), gate.targets[0]); return
+    if kind == "MCZ":
+        t = gate.targets[0]
+        qc.h(t); qc.mcx(list(gate.controls or []), t); qc.h(t); return
+    if kind == "CSWAP":
+        ctrl = gate.controls[0] if gate.controls else 0
+        qc.cswap(ctrl, gate.targets[0], gate.targets[1]); return
+    raise ValueError(f"iterative runtime does not yet support gate kind {kind!r}")
 
 
 def _infer_qubit_count(machine: QMachineDef) -> int:

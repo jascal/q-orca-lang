@@ -125,6 +125,34 @@ async def call_tool(name: str, arguments: dict) -> dict:
             )
             if opts.run:
                 result = simulate_machine(machine, opts)
+                from q_orca.runtime.types import QIterativeSimulationResult
+
+                if isinstance(result, QIterativeSimulationResult):
+                    verbose = bool(arguments.get("verbose", False))
+                    trace_entries = [
+                        {
+                            "iteration": t.iteration,
+                            "source": t.source_state,
+                            "target": t.target_state,
+                            "event": t.event,
+                            "action": t.action,
+                            "bits": t.measurement_bits,
+                            "context": t.context_snapshot,
+                        }
+                        for t in (result.trace if verbose else [])
+                    ]
+                    return {
+                        "success": result.success,
+                        "machine": machine.name,
+                        "runtime": "iterative",
+                        "finalState": result.final_state,
+                        "finalContext": result.final_context,
+                        "aggregateCounts": result.aggregate_counts,
+                        "iterations": len(result.trace),
+                        "trace": trace_entries,
+                        "error": result.error,
+                    }
+
                 # QuTiPVerificationResult is a dataclass — convert to dict for JSON
                 import dataclasses
                 qutip_dict = (

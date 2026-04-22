@@ -20,6 +20,10 @@ from q_orca.ast import (
     QActionSignature,
     QContextMutation,
     ContextField,
+    QGuardAnd,
+    QGuardCompare,
+    QGuardNot,
+    QGuardOr,
     QTypeScalar,
     QTypeList,
 )
@@ -253,6 +257,89 @@ def _check_feedforward_completeness(
     return errors
 
 
+_BOUNDING_OPS = {"lt", "le", "gt", "ge"}
+
+
+def _int_field_names(machine: QMachineDef) -> set[str]:
+    out: set[str] = set()
+    for f in machine.context:
+        if isinstance(f.type, QTypeScalar) and f.type.kind == "int":
+            out.add(f.name)
+    return out
+
+
+def _compare_uses_int_bound(
+    expr: QGuardCompare, int_fields: set[str]
+) -> bool:
+    if expr.op not in _BOUNDING_OPS:
+        return False
+    left = expr.left
+    if left is None or not left.path:
+        return False
+    # Path forms we accept: ["ctx", "field"] or ["field"]. Either way the
+    # trailing segment is the field name.
+    field = left.path[-1]
+    return field in int_fields
+
+
+def _guard_has_int_bound(expr, int_fields: set[str]) -> bool:
+    if expr is None:
+        return False
+    if isinstance(expr, QGuardCompare):
+        return _compare_uses_int_bound(expr, int_fields)
+    if isinstance(expr, QGuardNot):
+        return _guard_has_int_bound(expr.expr, int_fields)
+    if isinstance(expr, (QGuardAnd, QGuardOr)):
+        return (
+            _guard_has_int_bound(expr.left, int_fields)
+            or _guard_has_int_bound(expr.right, int_fields)
+        )
+    return False
+
+
+def check_iterative_termination(
+    machine: QMachineDef,
+) -> list[QVerificationError]:
+    """Warn when an iterative machine has no guard that could plausibly
+    terminate its context-update loop.
+
+    Conservative v1 heuristic: a machine is considered bounded if any
+    declared guard (or transition-inline guard) contains a `<`, `<=`, `>`,
+    or `>=` comparison whose LHS resolves to an int context field.
+    """
+    if not any(a.context_update is not None for a in machine.actions):
+        return []
+
+    int_fields = _int_field_names(machine)
+    if not int_fields:
+        return [_unbounded_warning(machine)]
+
+    for gdef in machine.guards:
+        if _guard_has_int_bound(gdef.expression, int_fields):
+            return []
+
+    return [_unbounded_warning(machine)]
+
+
+def _unbounded_warning(machine: QMachineDef) -> QVerificationError:
+    return QVerificationError(
+        code="UNBOUNDED_CONTEXT_LOOP",
+        message=(
+            f"Machine '{machine.name}' has context-update actions but no "
+            "bounding guard on an `int` context field (e.g., "
+            "`ctx.iteration < max_iter`). The iterative runtime will rely "
+            "on its iteration ceiling to terminate."
+        ),
+        severity="warning",
+        location={"machine": machine.name},
+        suggestion=(
+            "Add a guard comparing an `int` context field against a literal "
+            "or another bound (`<`, `<=`, `>`, `>=`) on at least one path "
+            "to a [final] state."
+        ),
+    )
+
+
 def check_classical_context(machine: QMachineDef) -> QVerificationResult:
     errors: list[QVerificationError] = []
 
@@ -264,6 +351,7 @@ def check_classical_context(machine: QMachineDef) -> QVerificationResult:
             errors.extend(_check_mutation_typing(mut, machine, action.name))
 
     errors.extend(_check_feedforward_completeness(machine))
+    errors.extend(check_iterative_termination(machine))
 
     return QVerificationResult(
         valid=not any(e.severity == "error" for e in errors),

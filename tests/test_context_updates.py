@@ -349,7 +349,7 @@ class TestContextUpdateCompiler:
         machine = _machine(source)
         qiskit_script = compile_to_qiskit(machine, QSimulationOptions(skip_qutip=True))
         assert f"# context_update: {effect}" in qiskit_script
-        assert "context-update actions are annotations only" in qiskit_script
+        assert "executed by the iterative runtime" in qiskit_script
 
     def test_qiskit_no_banner_when_no_context_update(self):
         source = """\
@@ -393,3 +393,182 @@ class TestContextUpdateCompiler:
         # should NOT leak into the mermaid output.
         assert "gradient_step" in mermaid
         assert "theta[0]" not in mermaid
+
+
+# ============================================================
+# UNBOUNDED_CONTEXT_LOOP termination warning
+# ============================================================
+
+_BOUNDED_LEARNING_MACHINE = """\
+# machine BoundedLearner
+
+## context
+| Field     | Type        | Default      |
+|-----------|-------------|--------------|
+| qubits    | list<qubit> | [q0]         |
+| bits      | list<bit>   | [b0]         |
+| iteration | int         | 0            |
+| max_iter  | int         | 3            |
+
+## events
+- measure_e
+- tick_e
+- finalize
+
+## state |s0> [initial]
+## state |s1>
+## state |s2>
+## state |done> [final]
+
+## guards
+| Name     | Expression                |
+|----------|---------------------------|
+| continue | ctx.iteration < max_iter  |
+| done     | ctx.iteration >= max_iter |
+
+## transitions
+| Source | Event      | Guard    | Target  | Action          |
+|--------|------------|----------|---------|-----------------|
+| |s0>   | measure_e  |          | |s1>    | measure_ancilla |
+| |s1>   | tick_e     | continue | |s0>    | tick            |
+| |s1>   | finalize   | done     | |done>  |                 |
+
+## actions
+| Name            | Signature                | Effect                     |
+|-----------------|--------------------------|----------------------------|
+| measure_ancilla | (qs, bits) -> (qs, bits) | measure(qs[0]) -> bits[0]  |
+| tick            | (ctx) -> ctx             | iteration += 1             |
+"""
+
+
+_UNBOUNDED_FLOAT_ONLY_MACHINE = """\
+# machine FloatOnlyLoop
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0]         |
+| bits   | list<bit>   | [b0]         |
+| theta  | list<float> | [0.0, 0.0]   |
+| eta    | float       | 0.1          |
+
+## events
+- measure_e
+- step_e
+- finalize
+
+## state |s0> [initial]
+## state |s1>
+## state |done> [final]
+
+## guards
+| Name | Expression     |
+|------|----------------|
+| hot  | theta[0] < eta |
+
+## transitions
+| Source | Event     | Guard | Target  | Action          |
+|--------|-----------|-------|---------|-----------------|
+| |s0>   | measure_e |       | |s1>    | measure_ancilla |
+| |s1>   | step_e    | hot   | |s0>    | drift           |
+| |s1>   | finalize  |       | |done>  |                 |
+
+## actions
+| Name            | Signature                | Effect                     |
+|-----------------|--------------------------|----------------------------|
+| measure_ancilla | (qs, bits) -> (qs, bits) | measure(qs[0]) -> bits[0]  |
+| drift           | (ctx) -> ctx             | theta[0] += eta            |
+"""
+
+
+_NO_GUARDS_AT_ALL_MACHINE = """\
+# machine UnguardedLoop
+
+## context
+| Field     | Type        | Default  |
+|-----------|-------------|----------|
+| qubits    | list<qubit> | [q0]     |
+| bits      | list<bit>   | [b0]     |
+| iteration | int         | 0        |
+
+## events
+- measure_e
+- tick_e
+- finalize
+
+## state |s0> [initial]
+## state |s1>
+## state |done> [final]
+
+## transitions
+| Source | Event     | Guard | Target  | Action          |
+|--------|-----------|-------|---------|-----------------|
+| |s0>   | measure_e |       | |s1>    | measure_ancilla |
+| |s1>   | tick_e    |       | |s0>    | tick            |
+| |s1>   | finalize  |       | |done>  |                 |
+
+## actions
+| Name            | Signature                | Effect                     |
+|-----------------|--------------------------|----------------------------|
+| measure_ancilla | (qs, bits) -> (qs, bits) | measure(qs[0]) -> bits[0]  |
+| tick            | (ctx) -> ctx             | iteration += 1             |
+"""
+
+
+class TestIterativeTerminationWarning:
+    def test_bounded_int_guard_suppresses_warning(self):
+        machine = _machine(_BOUNDED_LEARNING_MACHINE)
+        result = check_classical_context(machine)
+        codes = [e.code for e in result.errors]
+        assert "UNBOUNDED_CONTEXT_LOOP" not in codes
+
+    def test_float_only_guard_still_warns(self):
+        machine = _machine(_UNBOUNDED_FLOAT_ONLY_MACHINE)
+        result = check_classical_context(machine)
+        warnings = [e for e in result.errors if e.code == "UNBOUNDED_CONTEXT_LOOP"]
+        assert len(warnings) == 1
+        assert warnings[0].severity == "warning"
+
+    def test_no_guards_emits_warning(self):
+        machine = _machine(_NO_GUARDS_AT_ALL_MACHINE)
+        result = check_classical_context(machine)
+        warnings = [e for e in result.errors if e.code == "UNBOUNDED_CONTEXT_LOOP"]
+        assert len(warnings) == 1
+
+    def test_machine_without_context_updates_is_silent(self):
+        source = """\
+# machine Plain
+
+## context
+| Field  | Type        | Default |
+|--------|-------------|---------|
+| qubits | list<qubit> | [q0]    |
+
+## events
+- go
+
+## state |0> [initial]
+## state |1> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |0>    | go    |       | |1>    | apply_h |
+
+## actions
+| Name    | Signature  | Effect  |
+|---------|------------|---------|
+| apply_h | (qs) -> qs | H(qs[0]) |
+"""
+        machine = _machine(source)
+        result = check_classical_context(machine)
+        codes = [e.code for e in result.errors]
+        assert "UNBOUNDED_CONTEXT_LOOP" not in codes
+
+    def test_skip_flag_suppresses_warning(self):
+        machine = _machine(_NO_GUARDS_AT_ALL_MACHINE)
+        result = verify(
+            machine, VerifyOptions(skip_classical_context=True, skip_dynamic=True)
+        )
+        codes = [e.code for e in result.errors]
+        assert "UNBOUNDED_CONTEXT_LOOP" not in codes
