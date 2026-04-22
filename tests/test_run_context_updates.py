@@ -25,9 +25,11 @@ from q_orca.ast import (
     ValueRef,
     VariableRef,
 )
+from q_orca.parser.markdown_parser import parse_q_orca_markdown
 from q_orca.runtime.context_ops import apply
 from q_orca.runtime.guards import evaluate_guard
-from q_orca.runtime.types import QIterativeRuntimeError
+from q_orca.runtime.iterative import simulate_iterative
+from q_orca.runtime.types import QIterativeRuntimeError, QIterativeSimulationOptions
 
 
 # ============================================================
@@ -282,11 +284,6 @@ class TestContextMutationInterpreter:
 # ============================================================
 # Section 4: iterative walker
 # ============================================================
-
-
-from q_orca.parser.markdown_parser import parse_q_orca_markdown
-from q_orca.runtime.iterative import simulate_iterative
-from q_orca.runtime.types import QIterativeSimulationOptions
 
 
 def _parse_machine(source: str):

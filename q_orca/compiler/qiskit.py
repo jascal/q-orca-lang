@@ -685,52 +685,74 @@ def _apply_gate_to_circuit(qc, gate) -> None:
     """Apply a QuantumGate to an in-process QuantumCircuit."""
     kind = gate.kind
     if kind == "H":
-        qc.h(gate.targets[0]); return
+        qc.h(gate.targets[0])
+        return
     if kind == "X":
-        qc.x(gate.targets[0]); return
+        qc.x(gate.targets[0])
+        return
     if kind == "Y":
-        qc.y(gate.targets[0]); return
+        qc.y(gate.targets[0])
+        return
     if kind == "Z":
-        qc.z(gate.targets[0]); return
+        qc.z(gate.targets[0])
+        return
     if kind == "T":
-        qc.t(gate.targets[0]); return
+        qc.t(gate.targets[0])
+        return
     if kind == "S":
-        qc.s(gate.targets[0]); return
+        qc.s(gate.targets[0])
+        return
     if kind == "I":
-        qc.id(gate.targets[0]); return
+        qc.id(gate.targets[0])
+        return
     if kind == "CNOT":
         ctrl = gate.controls[0] if gate.controls else 0
-        qc.cx(ctrl, gate.targets[0]); return
+        qc.cx(ctrl, gate.targets[0])
+        return
     if kind == "CZ":
         ctrl = gate.controls[0] if gate.controls else 0
-        qc.cz(ctrl, gate.targets[0]); return
+        qc.cz(ctrl, gate.targets[0])
+        return
     if kind == "SWAP":
-        qc.swap(gate.targets[0], gate.targets[1]); return
+        qc.swap(gate.targets[0], gate.targets[1])
+        return
     if kind in ("Rx", "Ry", "Rz"):
         theta = float(gate.parameter or 0.0)
-        getattr(qc, kind.lower())(theta, gate.targets[0]); return
+        getattr(qc, kind.lower())(theta, gate.targets[0])
+        return
     if kind in ("CRx", "CRy", "CRz"):
         ctrl = gate.controls[0] if gate.controls else 0
         theta = float(gate.parameter or 0.0)
-        getattr(qc, f"c{kind[1:].lower()}")(theta, ctrl, gate.targets[0]); return
+        getattr(qc, f"c{kind[1:].lower()}")(theta, ctrl, gate.targets[0])
+        return
     if kind in ("RXX", "RYY", "RZZ"):
         theta = float(gate.parameter or 0.0)
-        getattr(qc, kind.lower())(theta, gate.targets[0], gate.targets[1]); return
+        getattr(qc, kind.lower())(theta, gate.targets[0], gate.targets[1])
+        return
     if kind == "CCNOT":
         ctrls = gate.controls or []
-        qc.ccx(ctrls[0], ctrls[1], gate.targets[0]); return
+        qc.ccx(ctrls[0], ctrls[1], gate.targets[0])
+        return
     if kind == "CCZ":
         ctrls = gate.controls or []
         t = gate.targets[0]
-        qc.h(t); qc.ccx(ctrls[0], ctrls[1], t); qc.h(t); return
+        qc.h(t)
+        qc.ccx(ctrls[0], ctrls[1], t)
+        qc.h(t)
+        return
     if kind == "MCX":
-        qc.mcx(list(gate.controls or []), gate.targets[0]); return
+        qc.mcx(list(gate.controls or []), gate.targets[0])
+        return
     if kind == "MCZ":
         t = gate.targets[0]
-        qc.h(t); qc.mcx(list(gate.controls or []), t); qc.h(t); return
+        qc.h(t)
+        qc.mcx(list(gate.controls or []), t)
+        qc.h(t)
+        return
     if kind == "CSWAP":
         ctrl = gate.controls[0] if gate.controls else 0
-        qc.cswap(ctrl, gate.targets[0], gate.targets[1]); return
+        qc.cswap(ctrl, gate.targets[0], gate.targets[1])
+        return
     raise ValueError(f"iterative runtime does not yet support gate kind {kind!r}")
 
 

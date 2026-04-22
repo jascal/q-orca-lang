@@ -158,9 +158,9 @@ def main() -> None:
     print(f"  Decoded index : {best_index}")
     print(f"  LARQL edge    : {e} --[{r}]--> {t}")
     if best_index == MARKED_INDEX:
-        print(f"  Result        : RECOVERED the marked feature in 1 oracle call.")
+        print("  Result        : RECOVERED the marked feature in 1 oracle call.")
     else:
-        print(f"  Result        : MISS (expected on noisy hardware; clean sim should hit).")
+        print("  Result        : MISS (expected on noisy hardware; clean sim should hit).")
 
     print("\n  --- Scaling ---")
     print("    Classical KNN at N=16  :  16 inner products.")

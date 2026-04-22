@@ -4,9 +4,6 @@ Covers the parser, verifier, and compiler facets of the
 `add-classical-context-updates` change.
 """
 
-import pytest
-
-from q_orca.ast import QEffectContextUpdate
 from q_orca.compiler.qasm import compile_to_qasm
 from q_orca.compiler.qiskit import QSimulationOptions, compile_to_qiskit
 from q_orca.parser.markdown_parser import parse_q_orca_markdown
@@ -252,7 +249,7 @@ class TestContextUpdateVerifier:
         assert "UNDECLARED_CONTEXT_FIELD" in codes
 
     def test_wrong_type_scalar_mutation(self):
-        source = f"""\
+        source = """\
 # machine WrongType
 
 ## context
@@ -291,7 +288,7 @@ class TestContextUpdateVerifier:
         assert "CONTEXT_INDEX_OUT_OF_RANGE" in codes
 
     def test_bit_read_before_write_no_measurement_anywhere(self):
-        source = f"""\
+        source = """\
 # machine Unread
 
 ## context
