@@ -705,3 +705,135 @@ class TestCSWAPGateEmission:
         source = _multi_controlled_source("CSWAP(qs[0], qs[1], qs[2])")
         out = compile_to_qiskit(_machine(source), QSimulationOptions(analytic=True, skip_qutip=True))
         assert "qc.cswap(0, 1, 2)" in out
+
+
+def _polysemy_source(action_cells: list[str], n_qubits: int = 3) -> str:
+    """Build a linear-chain machine with one parametric action `query_concept`
+    and one parametric action `rotate` invoked at each transition.
+
+    ``action_cells`` is a list of Action-cell strings placed on successive
+    transitions, allowing each test to vary the argument expressions.
+    """
+    qubits = ", ".join(f"q{i}" for i in range(n_qubits))
+    events = "\n".join(f"- e{i}" for i in range(len(action_cells)))
+    states = ["## state |s0> [initial]"] + [
+        f"## state |s{i}>" for i in range(1, len(action_cells))
+    ] + [f"## state |s{len(action_cells)}> [final]"]
+    transitions = "\n".join(
+        f"| |s{i}> | e{i} |  | |s{i + 1}> | {cell} |"
+        for i, cell in enumerate(action_cells)
+    )
+    return f"""# machine Polysemy
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [{qubits}]   |
+
+## events
+{events}
+
+{chr(10).join(states)}
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+{transitions}
+
+## actions
+| Name          | Signature                | Effect           |
+|---------------|--------------------------|------------------|
+| query_concept | (qs, c: int) -> qs       | Hadamard(qs[c])  |
+| rotate        | (qs, theta: angle) -> qs | Rx(qs[0], theta) |
+"""
+
+
+class TestParametricActionExpansion:
+    """Per-call-site expansion (Section 5). A parametric action SHALL emit
+    one independent gate sequence per invoking transition, with bound
+    argument values substituted into the template at compile time."""
+
+    def test_qasm_twelve_call_sites_emit_independent_gate_sequences(self):
+        # Expand to 3 qubits × 4 concepts each, 12 total call sites. Both
+        # arities (12) and range (0..11 mod 3) match the polysemantic-12
+        # demo's shape.
+        action_cells = [f"query_concept({i % 3})" for i in range(12)]
+        source = _polysemy_source(action_cells, n_qubits=3)
+        out = compile_to_qasm(_machine(source))
+        # Each of qubits 0, 1, 2 gets 4 Hadamards → 4 `h q[0]`, etc.
+        assert out.count("h q[0];") == 4
+        assert out.count("h q[1];") == 4
+        assert out.count("h q[2];") == 4
+
+    def test_qiskit_angle_parameter_substituted_into_rotation(self):
+        source = _polysemy_source(["rotate(pi/4)"], n_qubits=1)
+        out = compile_to_qiskit(_machine(source), QSimulationOptions(analytic=True, skip_qutip=True))
+        # pi/4 ≈ 0.7853981633974483 — the exact repr expand_action_call emits
+        assert "qc.rx(0.7853981633974483, 0)" in out
+
+    def test_mermaid_label_uses_source_form_call_text(self):
+        source = _polysemy_source(["query_concept(2)"], n_qubits=3)
+        out = compile_to_mermaid(_machine(source))
+        # The bare action name MUST NOT leak through when the transition
+        # carries a call form — the source text is what the user wrote.
+        assert "/ query_concept(2)" in out
+
+    def test_mermaid_label_falls_back_to_bare_action_name(self):
+        # Non-parametric actions keep their bare-name display.
+        source = """# machine Bare
+## context
+| Field  | Type        | Default |
+|--------|-------------|---------|
+| qubits | list<qubit> | [q0]    |
+
+## events
+- go
+
+## state |s0> [initial]
+## state |s1> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | go    |       | |s1>   | apply_h |
+
+## actions
+| Name    | Signature  | Effect          |
+|---------|------------|-----------------|
+| apply_h | (qs) -> qs | Hadamard(qs[0]) |
+"""
+        out = compile_to_mermaid(_machine(source))
+        assert "/ apply_h" in out
+
+    def test_qasm_mixed_parametric_and_bare_actions_coexist(self):
+        source = """# machine Mixed
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0, q1, q2] |
+
+## events
+- e0
+- e1
+
+## state |s0> [initial]
+## state |s1>
+## state |s2> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | e0    |       | |s1>   | apply_h |
+| |s1>   | e1    |       | |s2>   | query_concept(2) |
+
+## actions
+| Name          | Signature          | Effect          |
+|---------------|--------------------|-----------------|
+| apply_h       | (qs) -> qs         | Hadamard(qs[0]) |
+| query_concept | (qs, c: int) -> qs | Hadamard(qs[c]) |
+"""
+        out = compile_to_qasm(_machine(source))
+        # Bare action emits its fixed gate once; parametric action emits
+        # its expanded gate once — no cross-contamination.
+        assert "h q[0];" in out
+        assert "h q[2];" in out

@@ -502,6 +502,163 @@ class TestQuantumVerification:
         assert "QUBIT_INDEX_OUT_OF_RANGE" in codes
 
 
+class TestParametricActionVerification:
+    """Per-call-site expansion (Section 6). Errors SHALL point at the
+    transition and bound value, not the action template, and each call
+    site SHALL be verified independently."""
+
+    def test_range_error_reported_at_call_site(self):
+        source = """\
+# machine Poly
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0, q1, q2] |
+
+## events
+- e0
+- e1
+- e2
+
+## state |s0> [initial]
+## state |s1>
+## state |s2>
+## state |s3> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | e0    |       | |s1>   | query_concept(0) |
+| |s1>   | e1    |       | |s2>   | query_concept(9) |
+| |s2>   | e2    |       | |s3>   | query_concept(1) |
+
+## actions
+| Name          | Signature          | Effect          |
+|---------------|--------------------|-----------------|
+| query_concept | (qs, c: int) -> qs | Hadamard(qs[c]) |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        result = verify_quantum(_machine(source))
+        range_errors = [e for e in result.errors if e.code == "QUBIT_INDEX_OUT_OF_RANGE"]
+        assert len(range_errors) == 1
+        # The message names the transition source/target and the bound value.
+        assert "query_concept(9)" in range_errors[0].message
+        assert "|s1>" in range_errors[0].message and "|s2>" in range_errors[0].message
+
+    def test_control_target_overlap_reported_at_call_site(self):
+        source = """\
+# machine Overlap
+
+## context
+| Field  | Type        | Default              |
+|--------|-------------|----------------------|
+| qubits | list<qubit> | [q0, q1, q2, q3, q4] |
+
+## events
+- go
+
+## state |s0> [initial]
+## state |s1> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | go    |       | |s1>   | oracle(2) |
+
+## actions
+| Name   | Signature          | Effect                               |
+|--------|--------------------|--------------------------------------|
+| oracle | (qs, t: int) -> qs | MCX(qs[0], qs[1], qs[2], qs[t])      |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        # oracle(2) expands to MCX(qs[0], qs[1], qs[2], qs[2]) — control=2
+        # overlaps the target.
+        result = verify_quantum(_machine(source))
+        overlap = [e for e in result.errors if e.code == "CONTROL_TARGET_OVERLAP"]
+        assert len(overlap) == 1
+        assert "oracle(2)" in overlap[0].message
+
+    def test_bound_range_clean_across_call_sites(self):
+        source = """\
+# machine Clean
+
+## context
+| Field  | Type        | Default              |
+|--------|-------------|----------------------|
+| qubits | list<qubit> | [q0, q1, q2, q3, q4, q5] |
+
+## events
+- e0
+- e1
+- e2
+
+## state |s0> [initial]
+## state |s1>
+## state |s2>
+## state |s3> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | e0    |       | |s1>   | oracle(3) |
+| |s1>   | e1    |       | |s2>   | oracle(4) |
+| |s2>   | e2    |       | |s3>   | oracle(5) |
+
+## actions
+| Name   | Signature          | Effect                               |
+|--------|--------------------|--------------------------------------|
+| oracle | (qs, t: int) -> qs | MCZ(qs[0], qs[1], qs[2], qs[t])      |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        result = verify_quantum(_machine(source))
+        errors = [e for e in result.errors if e.severity == "error"]
+        assert errors == []
+
+    def test_template_unbound_identifier_reported_at_parse_time(self):
+        # Unbound subscripts are a parse-time error; the verifier runs on
+        # the resulting AST and MUST NOT raise additional expansion-time
+        # errors against a template whose bindings never closed.
+        source = """\
+# machine Bad
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0, q1, q2] |
+
+## events
+- go
+
+## state |s0> [initial]
+## state |s1> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | go    |       | |s1>   | broken(0) |
+
+## actions
+| Name   | Signature          | Effect          |
+|--------|--------------------|-----------------|
+| broken | (qs, c: int) -> qs | Hadamard(qs[d]) |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        from q_orca.parser.markdown_parser import parse_q_orca_markdown
+        parsed = parse_q_orca_markdown(source)
+        assert any("unbound identifier" in e and "'d'" in e for e in parsed.errors), (
+            parsed.errors
+        )
+
+
 class TestSuperpositionLeaks:
     def test_bell_no_leaks(self, bell_source):
         machine = _machine(bell_source)

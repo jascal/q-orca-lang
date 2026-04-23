@@ -901,6 +901,74 @@ class TestParametricActionForwardReference:
         assert t.bound_arguments[0].value == 2
 
 
+class TestParametricTemplateBinding:
+    """Template-level identifier resolution (Section 4). Subscripts and
+    angle slots inside a parametric action's effect SHALL resolve against
+    the signature's typed parameters; unbound names SHALL fire structured
+    ``unbound identifier`` errors."""
+
+    def _parse_action(self, sig: str, effect: str):
+        source = (
+            "# machine S\n\n"
+            "## state |s0> [initial]\n\n"
+            "## actions\n"
+            "| Name | Signature | Effect |\n"
+            "|------|-----------|--------|\n"
+            f"| act  | {sig}     | {effect} |\n"
+        )
+        return parse_q_orca_markdown(source)
+
+    def test_identifier_subscript_bound_to_int_parameter_parses_clean(self):
+        result = self._parse_action("(qs, c: int) -> qs", "Hadamard(qs[c])")
+        assert not any("unbound identifier" in e for e in result.errors), result.errors
+
+    def test_identifier_subscript_unbound_is_error(self):
+        result = self._parse_action("(qs, d: int) -> qs", "Hadamard(qs[c])")
+        assert any(
+            "unbound identifier" in e and "'c'" in e and "subscript" in e
+            for e in result.errors
+        ), result.errors
+
+    def test_zero_parameter_action_with_identifier_subscript_unaffected(self):
+        # Non-parametric actions keep their historical behavior: no
+        # unbound-identifier error, but the gate-effect parser returns
+        # None and the looks-like-gate warning fires.
+        result = self._parse_action("(qs) -> qs", "Hadamard(qs[c])")
+        assert not any("unbound identifier" in e for e in result.errors), result.errors
+
+    def test_angle_identifier_bound_to_angle_parameter_parses_clean(self):
+        result = self._parse_action("(qs, theta: angle) -> qs", "Rx(qs[0], theta)")
+        assert not any("unbound identifier" in e for e in result.errors), result.errors
+
+    def test_angle_identifier_unbound_is_error(self):
+        # `phi` is not declared even though `theta` is.
+        result = self._parse_action("(qs, theta: angle) -> qs", "Rx(qs[0], phi)")
+        assert any(
+            "unbound identifier" in e and "'phi'" in e and "angle slot" in e
+            for e in result.errors
+        ), result.errors
+
+    def test_mixed_int_subscript_and_angle_slot(self):
+        result = self._parse_action(
+            "(qs, c: int, theta: angle) -> qs", "Rx(qs[c], theta)"
+        )
+        assert not any("unbound identifier" in e for e in result.errors), result.errors
+
+    def test_literal_subscript_in_parametric_action_still_valid(self):
+        # Parametric actions MAY mix literal and identifier subscripts
+        # freely; literals are never misread as unbound identifiers.
+        result = self._parse_action("(qs, c: int) -> qs", "CNOT(qs[0], qs[c])")
+        assert not any("unbound identifier" in e for e in result.errors), result.errors
+
+    def test_arithmetic_in_subscript_is_rejected(self):
+        # Design decision 5 — subscripts accept literals or bare identifiers
+        # only; `qs[c+1]` SHALL fail structurally.
+        result = self._parse_action("(qs, c: int) -> qs", "Hadamard(qs[c+1])")
+        assert any(
+            "invalid subscript" in e for e in result.errors
+        ), result.errors
+
+
 class TestParametricActionIdentifierSubscriptWarning:
     """The `looks like a gate but not known` warning must not fire for a
     parametric action that legitimately uses an identifier subscript in

@@ -4,6 +4,7 @@ import re
 
 from q_orca.ast import QMachineDef, QuantumGate, QTypeScalar, QTypeList, QTypeQubit
 from q_orca.compiler.qiskit import _build_angle_context, _parse_effect_string, _infer_bit_count
+from q_orca.compiler.parametric import expand_action_call
 
 
 def compile_to_qasm(machine: QMachineDef) -> str:
@@ -104,8 +105,13 @@ def _extract_gate_sequence(machine: QMachineDef) -> list:
             if t.action:
                 action = action_map.get(t.action)
                 if action:
+                    effect = (
+                        expand_action_call(action, t.bound_arguments)
+                        if t.bound_arguments is not None
+                        else action.effect
+                    )
                     # Parse the full effect string (handles CX, multi-gate, etc.)
-                    gates = _parse_effect_string(action.effect, angle_context=angle_context) if action.effect else []
+                    gates = _parse_effect_string(effect, angle_context=angle_context) if effect else []
                     # Fall back to the single gate stored on the action if parsing gave nothing
                     if not gates and action.gate:
                         gates = [action.gate]

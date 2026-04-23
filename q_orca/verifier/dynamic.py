@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from q_orca.angle import evaluate_angle
 from q_orca.ast import QMachineDef
+from q_orca.compiler.parametric import expand_action_call
 from q_orca.verifier.types import QVerificationError, QVerificationResult
 
 # QuTiP imports with graceful fallback
@@ -91,7 +92,12 @@ def _build_gate_sequence(machine: QMachineDef, max_gates: int = 50) -> tuple[Opt
             if t.action:
                 action = action_map.get(t.action)
                 if action and action.effect:
-                    gates = _parse_effect_to_gate_dicts(action.effect, angle_context=angle_context)
+                    effect = (
+                        expand_action_call(action, t.bound_arguments)
+                        if t.bound_arguments is not None
+                        else action.effect
+                    )
+                    gates = _parse_effect_to_gate_dicts(effect, angle_context=angle_context)
                     gate_sequence.append(gates)
 
             is_measure = "measure" in t.event.lower() or "collapse" in t.event.lower()

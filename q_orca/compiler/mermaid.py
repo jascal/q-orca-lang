@@ -43,7 +43,10 @@ def compile_to_mermaid(machine: QMachineDef) -> str:
         if t.guard:
             label += f" [{'!' if t.guard.negated else ''}{t.guard.name}]"
         if t.action:
-            label += f" / {t.action}"
+            # Parametric call sites carry the source-form Action cell text
+            # (`query_concept(3)`) on `action_label`; bare-name refs use
+            # `action` directly.
+            label += f" / {t.action_label or t.action}"
         lines.append(f"  {sanitize(t.source)} --> {sanitize(t.target)} : {label}")
 
     # Verification rules note

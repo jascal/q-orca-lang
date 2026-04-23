@@ -6,6 +6,7 @@ from typing import Mapping
 
 from q_orca.angle import evaluate_angle
 from q_orca.ast import QMachineDef, QuantumGate, QTypeQubit, QTypeScalar, QTypeList, NoiseModel
+from q_orca.compiler.parametric import expand_action_call
 
 
 def _build_angle_context(machine: QMachineDef) -> dict[str, float]:
@@ -492,8 +493,15 @@ def _extract_gate_sequence(machine: QMachineDef) -> list:
             if t.action:
                 action = action_map.get(t.action)
                 if action:
-                    # Use effect string to get all gates (not just the first)
-                    gates = _parse_effect_string(action.effect, angle_context=angle_context) if action.effect else []
+                    # Parametric call sites expand the template with their
+                    # bound literals, then parse the substituted effect string
+                    # through the standard gate-effect parser.
+                    effect = (
+                        expand_action_call(action, t.bound_arguments)
+                        if t.bound_arguments is not None
+                        else action.effect
+                    )
+                    gates = _parse_effect_string(effect, angle_context=angle_context) if effect else []
                     # Also fall back to action.gate if effect parsing gave nothing
                     if not gates and action.gate:
                         gates = [action.gate]

@@ -651,6 +651,8 @@ def _parse_actions_table(
 
         params, return_type = _parse_signature(sig_str, errors=errors, action_name=name)
         context_update = _parse_context_update_from_effect(effect_str, errors, action_name=name)
+        if params and effect_str:
+            _validate_parametric_template(effect_str, params, errors, action_name=name)
         gate = _parse_gate_from_effect(effect_str, errors, action_name=name, angle_context=angle_context)
         measurement = _parse_measurement_from_effect(effect_str)
         mid_circuit_measure = _parse_mid_circuit_measure_from_effect(effect_str)
@@ -1013,6 +1015,84 @@ def _looks_like_gate_call(effect_str: str) -> bool:
     conditionals) are already handled by their respective parsers.
     """
     return bool(re.match(r"^\s*[A-Za-z][A-Za-z0-9]*\s*\(\s*\w+\[", effect_str.strip()))
+
+
+# Rotation-gate shapes that accept a symbolic angle in the last argument
+# slot. Used by the parametric-template validator to route angle checks.
+_ROTATION_GATE_ANGLE_RE = re.compile(
+    r"(?P<name>CRx|CRy|CRz|RXX|RYY|RZZ|Rx|Ry|Rz)"
+    r"\(\s*\w+\[[^\]]+\]\s*"
+    r"(?:,\s*\w+\[[^\]]+\]\s*)?"
+    r",\s*(?P<angle>[^)]+)\)",
+    re.IGNORECASE,
+)
+
+
+def _validate_parametric_template(
+    effect_str: str,
+    parameters: list[ActionParameter],
+    errors: list[str] | None,
+    action_name: str,
+) -> None:
+    """Check identifier bindings in a parametric action's effect template.
+
+    For each `qs[<token>]` subscript, a non-integer token must name an `int`
+    parameter. For each rotation-gate angle slot, a non-literal angle must
+    name an `angle` parameter (or parse as one of the symbolic forms the
+    evaluator already accepts). Unbound names emit structured
+    ``unbound identifier`` errors. Called only for actions whose signature
+    declared at least one typed parameter; zero-parameter actions continue
+    to flow through the existing gate-effect parser unchanged.
+    """
+    if not parameters or not effect_str or errors is None:
+        return
+
+    int_param_names = {p.name for p in parameters if p.type == "int"}
+    angle_param_names = {p.name for p in parameters if p.type == "angle"}
+
+    # Subscripts — `qs[c]` or `qs[0]` or `qs[0 1 2]` / `qs[c, d]`
+    for m in re.finditer(r"\w+\[([^\]]+)\]", effect_str):
+        inner = m.group(1).strip()
+        for sub in re.split(r"[\s,]+", inner):
+            sub = sub.strip()
+            if not sub or re.fullmatch(r"-?\d+", sub):
+                continue
+            if re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", sub):
+                if sub not in int_param_names:
+                    declared = ", ".join(sorted(int_param_names)) or "(none)"
+                    errors.append(
+                        f"action {action_name!r}: unbound identifier {sub!r} in "
+                        f"qubit-list subscript (declared int parameters: "
+                        f"{declared})."
+                    )
+            else:
+                errors.append(
+                    f"action {action_name!r}: invalid subscript {sub!r} "
+                    f"(bare integer literal or parameter name required; "
+                    f"arithmetic expressions are not supported)."
+                )
+
+    # Rotation-gate angle slots — accept literal angle expressions or a bare
+    # angle parameter. The evaluator resolves context-field angles; seed it
+    # with the signature's angle parameters so identifier-form angles bound
+    # to the template's own parameters parse without error.
+    template_angle_ctx = {name: 0.0 for name in angle_param_names}
+    for m in _ROTATION_GATE_ANGLE_RE.finditer(effect_str):
+        angle_str = m.group("angle").strip()
+        try:
+            _evaluate_angle(angle_str, template_angle_ctx)
+        except ValueError:
+            if re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", angle_str):
+                declared = ", ".join(sorted(angle_param_names)) or "(none)"
+                errors.append(
+                    f"action {action_name!r}: unbound identifier {angle_str!r} "
+                    f"in angle slot (declared angle parameters: {declared})."
+                )
+            else:
+                errors.append(
+                    f"action {action_name!r}: unrecognized angle expression "
+                    f"{angle_str!r} in parametric template."
+                )
 
 
 def _parse_gate_from_effect(
