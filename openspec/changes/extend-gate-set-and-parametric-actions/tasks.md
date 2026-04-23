@@ -89,68 +89,68 @@
 
 ## 4. Parametric actions — effect-string subscripts
 
-- [ ] 4.1 Extend the shared effect parser (post
+- [x] 4.1 Extend the shared effect parser (post
       `consolidate-gate-parser`) to accept either a literal int or
       a bare identifier inside `qs[...]` subscripts. Identifier
       subscripts SHALL be valid only when a `signature_context` is
       provided that lists the parameter names in scope.
-- [ ] 4.2 Same change for angle slots: identifier-form angles inside
+- [x] 4.2 Same change for angle slots: identifier-form angles inside
       a parametric action's effect SHALL resolve against the
       signature's `angle`-typed parameters when an
       `signature_context` is provided.
-- [ ] 4.3 Add an `unbound_identifier` structured error path; the
+- [x] 4.3 Add an `unbound_identifier` structured error path; the
       action-definition parser uses it when a subscript or angle
       identifier is not in the signature.
 
 ## 5. Parametric actions — compiler expansion
 
-- [ ] 5.1 Add `q_orca/compiler/parametric.py::expand_action_call(action,
+- [x] 5.1 Add `q_orca/compiler/parametric.py::expand_action_call(action,
       bound_arguments) -> str` that returns the literal effect string
       with all parameter slots substituted. Out-of-range subscripts
       and unparseable angle substitutions SHALL raise structured
       errors carrying the bound-argument values.
-- [ ] 5.2 Update `q_orca/compiler/qiskit.py::_extract_gate_sequence`
+- [x] 5.2 Update `q_orca/compiler/qiskit.py::_extract_gate_sequence`
       (and the parallel paths in QASM and Mermaid) to detect a
       transition with `bound_arguments is not None` and route through
       `expand_action_call` before parsing the gate sequence.
-- [ ] 5.3 Mermaid label generation SHALL use
+- [x] 5.3 Mermaid label generation SHALL use
       `t.action_label` when present, falling back to `t.action` for
       bare-name transitions.
-- [ ] 5.4 Confirm Qiskit emission for an N-call-site machine
+- [x] 5.4 Confirm Qiskit emission for an N-call-site machine
       produces N independent gate sequences in the script (BFS visit
       order preserved) and that the basis transpile pass still runs
       correctly.
 
 ## 6. Parametric actions — verifier
 
-- [ ] 6.1 Update `q_orca/verifier/quantum.py` and
+- [x] 6.1 Update `q_orca/verifier/quantum.py` and
       `q_orca/verifier/dynamic.py` to enumerate transitions (not
       action definitions) when collecting gate sequences for
       checking. For each transition with bound arguments, expand and
       verify the resulting sequence; for bare-name transitions, fall
       through to the existing path.
-- [ ] 6.2 Add a template-only check pass that runs once per
+- [x] 6.2 Add a template-only check pass that runs once per
       parametric action: signature shape, effect-string parseability,
       identifier-binding closure. Errors raised here SHALL point at
       the action's source location.
-- [ ] 6.3 Per-call-site errors (range, overlap) SHALL report the
+- [x] 6.3 Per-call-site errors (range, overlap) SHALL report the
       transition's source location and the bound argument values, not
       the action's location.
-- [ ] 6.4 Confirm `ORPHAN_ACTION` warning still fires for
+- [x] 6.4 Confirm `ORPHAN_ACTION` warning still fires for
       parametric actions that no transition invokes, and that no
       expansion-time check runs against the orphaned template.
 
 ## 7. Tests
 
-- [ ] 7.1 `tests/test_parser.py`: zero-parameter signature still
+- [x] 7.1 `tests/test_parser.py`: zero-parameter signature still
       parses identically; new typed-parameter cases (int-only,
       angle-only, mixed); duplicate-name and unknown-type error
       cases; call-form arity and type checks.
-- [ ] 7.2 `tests/test_compiler.py`: per-call-site expansion produces
+- [x] 7.2 `tests/test_compiler.py`: per-call-site expansion produces
       N distinct gate-sequence entries; angle-typed parameter
       expands through the rotation-gate emitter; Mermaid label uses
       the source-form call text.
-- [ ] 7.3 `tests/test_verifier.py`: per-call-site range error
+- [x] 7.3 `tests/test_verifier.py`: per-call-site range error
       (12-call-site machine with one bad bound value produces one
       error pointing at that transition); template-only unbound-
       identifier error; orphan parametric action.
