@@ -1,21 +1,25 @@
 """Concept Gram matrix analysis for product-state polysemantic machines.
 
 Optional analysis utility for machines that follow the *structured
-polysemantic* preparation convention:
+polysemantic* concept-encoding convention:
 
-1. A single parametric preparation action with signature
-   ``(qs, a: angle, b: angle, c: angle) -> qs``.
-2. A product-state effect of the form
-   ``Ry(qs[0], a); Ry(qs[1], b); Ry(qs[2], c)``.
+1. A single parametric concept action (preparation *or* its inverse)
+   with signature ``(qs, a: angle, b: angle, c: angle) -> qs``.
+2. A product-state effect, either a preparation of the form
+   ``Ry(qs[0], a); Ry(qs[1], b); Ry(qs[2], c)`` or its inverse
+   ``Ry(qs[2], -c); Ry(qs[1], -b); Ry(qs[0], -a)`` (reversed gate
+   order, negated angle signs). Either form enumerates the same
+   concept vectors ``|c_i> = Ry(q0, a_i) Ry(q1, b_i) Ry(q2, c_i)
+   |000>``; the helper's default ``concept_action_label="query_concept"``
+   targets the inverse (query) form used by the canonical example.
 3. ``N ≥ 1`` call sites to that action in the transitions table,
    each with a literal angle triple.
 
 Given such a machine, ``compute_concept_gram`` returns the ``N × N``
-inner-product matrix of the product-state "concept" vectors the call
-sites prepare. The helper is **not** on the main compile / verify /
-simulate path; it exists for demo code and for tests that want to
-assert the block-structured Gram signature of a clustered
-polysemantic example.
+inner-product matrix of the concept vectors the call sites enumerate.
+The helper is **not** on the main compile / verify / simulate path;
+it exists for demo code and for tests that want to assert the
+block-structured Gram signature of a clustered polysemantic example.
 """
 
 from __future__ import annotations
@@ -32,7 +36,7 @@ class ConceptGramConfigurationError(ValueError):
     """Raised when a machine doesn't meet the concept-gram convention."""
 
 
-def _find_prepare_action(
+def _find_concept_action(
     machine: QMachineDef, label: str
 ) -> QActionSignature:
     for a in machine.actions:
@@ -100,7 +104,7 @@ def compute_concept_gram(
     # the mcp-check job).
     import numpy as np
 
-    action = _find_prepare_action(machine, concept_action_label)
+    action = _find_concept_action(machine, concept_action_label)
     _check_signature(machine, action)
 
     call_sites = [
