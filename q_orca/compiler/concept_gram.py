@@ -20,9 +20,12 @@ polysemantic example.
 
 from __future__ import annotations
 
-import numpy as np
+from typing import TYPE_CHECKING
 
 from q_orca.ast import QActionSignature, QMachineDef
+
+if TYPE_CHECKING:
+    import numpy as np
 
 
 class ConceptGramConfigurationError(ValueError):
@@ -90,6 +93,13 @@ def compute_concept_gram(
         If the named action is missing, has the wrong signature, or
         has no call sites in the transitions table.
     """
+    # Lazy numpy import: this module is re-exported from the top-level
+    # `q_orca` package, and numpy isn't part of the base install (it comes
+    # in via the optional `quantum` extras). Importing numpy at module
+    # load would break `python -m q_orca.cli` on minimal installs (e.g.,
+    # the mcp-check job).
+    import numpy as np
+
     action = _find_prepare_action(machine, concept_action_label)
     _check_signature(machine, action)
 
