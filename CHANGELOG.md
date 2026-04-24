@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Parametric actions** — action signatures now accept typed positional parameters (`int` for `qs[...]` subscripts and `angle` for rotation-gate angles) after the leading qubit-list parameter. Call sites in the transitions table supply literal arguments; the compiler substitutes them into a fresh copy of the effect string per site. One `query_concept | (qs, c: int) -> qs | Hadamard(qs[c])` row replaces N copy-pasted actions. Parameters are compile-time constants — out-of-range subscripts and unbound identifiers raise structured parse-time errors that name the offending transition. Zero-parameter signatures (`(qs) -> qs`, `(ctx) -> ctx`) parse unchanged, so every existing example is additive-compatible.
+- **New example `examples/larql-polysemantic-12.q.orca.md`** — 12-qubit concept register, 12 non-orthogonal concept vectors (pairwise overlap 1/2), one parametric `query_concept(c: int)` action stamping 12 call sites from one template. Documents the analytic polysemy / cross-talk table in the leading paragraph.
+- **New demo `demos/larql_polysemantic_12/demo.py`** — runs 12 independent single-query Qiskit simulations at 1024 shots each and recovers the analytic polysemy scores (≈ 75% on in-feature concepts, ≈ 33.3% cross-talk floor on out-of-feature) within Monte-Carlo tolerance.
+
+### Changed
+
+- Backwards-compatible: no behavior change for existing machines. Both halves of `extend-gate-set-and-parametric-actions` (multi-controlled gates, parametric actions) are additive.
+
+---
+
 ## 0.5.0 (2026-04-21)
 
 ### Added
