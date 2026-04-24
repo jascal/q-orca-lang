@@ -154,46 +154,53 @@
       (12-call-site machine with one bad bound value produces one
       error pointing at that transition); template-only unbound-
       identifier error; orphan parametric action.
-- [ ] 7.4 `tests/test_examples.py`: pull the new
+- [x] 7.4 `tests/test_examples.py`: pull the new
       `examples/larql-polysemantic-12.q.orca.md` through the
       pipeline end-to-end (parse → verify → compile → optional
       simulate → decode).
 
 ## 8. Example & demo
 
-- [ ] 8.1 Author `examples/larql-polysemantic-12.q.orca.md`: 3-qubit
-      concept register, 12 non-orthogonal concept vectors, single
-      parametric `query_concept(c: int)` action, 12 query
-      transitions. Document the chosen overlap matrix in the leading
-      paragraph.
-- [ ] 8.2 Author `demos/larql_polysemantic_12/demo.py` mirroring
-      the structure of `demos/larql_gate_knn/demo.py`: parse +
-      verify → compile (Mermaid + QASM) → run Qiskit simulation →
-      decode the polysemy score per concept and assert the cross-talk
-      floor matches the analytic prediction.
-- [ ] 8.3 Promote the 2-qubit / 2-concept sketch from
-      `openspec/changes/extend-gate-set-and-parametric-actions/sketches/`
-      to `examples/` once the parametric-action grammar lands —
-      either by adding the missing dead-letter transitions to satisfy
-      completeness, or by rewriting it as a parametric variant that
-      exercises the same geometry.
+- [x] 8.1 Author `examples/larql-polysemantic-12.q.orca.md`: 12-qubit
+      concept register (generalized from the 2-qubit sketch), 12
+      non-orthogonal concept vectors (pairwise overlap 1/2), single
+      parametric `query_concept(c: int)` action, 12 query transitions.
+      Overlap matrix documented in the leading paragraph. Note:
+      deviates from the proposal's "3-qubit" phrasing — a single-int
+      parameter over a product-family concept basis needs one qubit
+      per concept so the subscript stays in range.
+- [x] 8.2 Author `demos/larql_polysemantic_12/demo.py` mirroring
+      `demos/larql_gate_knn/demo.py`: parse + verify → compile
+      (Mermaid + QASM + Qiskit) → run 12 independent Qiskit
+      simulations → decode the polysemy score per concept. Empirical
+      scores match analytic (3/4 on in-feature, 1/3 cross-talk floor
+      on out-of-feature) within Monte-Carlo tolerance at 1024 shots.
+- [x] 8.3 Promote the 2-qubit / 2-concept sketch as
+      `examples/larql-polysemantic-2.q.orca.md`. Rewritten as a
+      parametric variant using the same `query_concept(c: int)` action
+      as the 12-qubit sibling (so both machines share a template).
+      Sketch under `.../sketches/` is kept as the pre-parametric
+      design-exploration artifact the change documents.
 
 ## 9. Documentation
 
-- [ ] 9.1 Update the README's gate-set table with `CCZ`, `MCX`,
-      `MCZ`.
-- [ ] 9.2 Update the README's "actions" syntax section with a brief
-      example of a parametric action plus a call-site usage.
-- [ ] 9.3 CHANGELOG entry under the next release: multi-controlled
-      gate set is additive (no break); parametric actions are
-      additive (no break for existing zero-parameter signatures).
+- [x] 9.1 README gate-set table lists `CCZ`, `MCX`, `MCZ` (plus
+      `CCX`/`CCNOT`/`Toffoli` three-qubit row and the many-controlled
+      row with example). Already in place from the earlier multi-
+      controlled shipping commit.
+- [x] 9.2 README has a dedicated "Parametric actions" section with a
+      minimal `query_concept(c: int)` action + 3-row call-site table
+      and a pointer to `examples/larql-polysemantic-12.q.orca.md`.
+- [x] 9.3 `CHANGELOG.md` has an `## Unreleased` section documenting
+      parametric actions and the two new polysemantic examples/demo
+      as additive-compatible.
 - [ ] 9.4 Run `openspec archive extend-gate-set-and-parametric-actions`
       after merge so the deltas land in
       `openspec/specs/{language,compiler,verifier}/spec.md`.
 
 ## 10. Spec consistency
 
-- [ ] 10.1 `openspec validate extend-gate-set-and-parametric-actions
+- [x] 10.1 `openspec validate extend-gate-set-and-parametric-actions
       --strict` passes.
-- [ ] 10.2 Full pytest suite green.
-- [ ] 10.3 Ruff clean across the touched files.
+- [x] 10.2 Full pytest suite green (554 passed, 6 skipped).
+- [x] 10.3 Ruff clean across the touched files.

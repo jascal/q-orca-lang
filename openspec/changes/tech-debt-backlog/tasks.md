@@ -104,6 +104,27 @@
   `test_bound_range_clean_across_call_sites`.
   (Source: Claude code review on PR #27, concern 5.)
 
+- [ ] 2.4 Add a declarative opt-out path for `SUPERPOSITION_LEAK`
+  on intentional single-target measure-to-final transitions.
+  Today the rule in `q_orca/verifier/superposition.py` fires a
+  warning when a superposition state has an unguarded measure
+  transition to a `[final]` state; under `q-orca verify --strict`
+  in CI (`.github/workflows/verify-examples.yml`), those warnings
+  become errors. The only ways to silence them today are (a) add
+  a `prob_collapse(...)` guard — the verifier checks for
+  *presence* only, not validity — or (b) split the final state
+  into per-outcome targets with complementary guards summing to 1
+  (bell-entangler pattern). PR #28 shipped option (a) on
+  `larql-polysemantic-2` / `-12` as a tactical fix. The proper
+  fix is a declarative opt-out — either a new verification-rule
+  name (e.g. `measurement_collapse_allowed`) or a marker on the
+  target state (e.g. `[final, collapse_sink]`) — that tells the
+  verifier "this is an intentional trace-out of the measurement
+  outcome" so machines don't have to fabricate guard strings.
+  Once landed, revisit both polysemantic examples and drop the
+  tactical guards in favor of the declarative marker.
+  (Source: PR #28 CI failure triage.)
+
 ## 3. Compiler
 
 - [ ] 3.1 Tighten `_SUBSCRIPT_RE` in

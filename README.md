@@ -522,6 +522,38 @@ See [`examples/active-teleportation.q.orca.md`](examples/active-teleportation.q.
 
 ---
 
+## Parametric actions
+
+An action signature can declare typed positional parameters after the leading
+qubit-list parameter. Supported parameter types: `int` (for `qs[...]`
+subscripts) and `angle` (for rotation-gate angle slots). Call sites in the
+transitions table supply literal arguments, and the compiler substitutes them
+into a fresh copy of the effect string at each site — so one template replaces
+N copy-pasted action rows.
+
+```markdown
+## actions
+| Name           | Signature          | Effect              |
+|----------------|--------------------|---------------------|
+| query_concept  | (qs, c: int) -> qs | Hadamard(qs[c])     |
+
+## transitions
+| Source          | Event     | Guard | Target       | Action              |
+|-----------------|-----------|-------|--------------|---------------------|
+| feature_loaded  | query_c0  |       | queried_c0   | query_concept(0)    |
+| feature_loaded  | query_c1  |       | queried_c1   | query_concept(1)    |
+| feature_loaded  | query_c2  |       | queried_c2   | query_concept(2)    |
+```
+
+Parameters are compile-time constants — there is no runtime parameter binding.
+Out-of-range subscripts and unbound identifiers produce structured parse-time
+errors pointing at the offending transition, not the template. Zero-parameter
+signatures like `(qs) -> qs` and `(ctx) -> ctx` continue to parse unchanged.
+
+See [`examples/larql-polysemantic-12.q.orca.md`](examples/larql-polysemantic-12.q.orca.md) for a 12-call-site end-to-end example (parametric concept projection over a non-orthogonal dictionary).
+
+---
+
 ### Verify output (5-stage pipeline)
 
 ```bash
@@ -819,6 +851,13 @@ api_key: ${ORCA_API_KEY}
 # MiniMax
 provider: minimax
 model: MiniMax-M2.7
+api_key: ${ORCA_API_KEY}
+```
+
+```yaml
+# OpenAI
+provider: openai
+model: gpt-5.4
 api_key: ${ORCA_API_KEY}
 ```
 
