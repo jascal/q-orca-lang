@@ -552,6 +552,33 @@ signatures like `(qs) -> qs` and `(ctx) -> ctx` continue to parse unchanged.
 
 See [`examples/larql-polysemantic-12.q.orca.md`](examples/larql-polysemantic-12.q.orca.md) for a 12-call-site end-to-end example (parametric concept projection over a non-orthogonal dictionary).
 
+#### Structured overlap polysemy
+
+The 12-call-site example above uses a *uniform*-overlap dictionary — every
+pair of concepts has identical cross-talk 1/2 — so the polysemy table has
+exactly two flat tiers (3/4 in-feature, 1/3 out-of-feature) with no
+intra-cluster signal. [`examples/larql-polysemantic-clusters.q.orca.md`](examples/larql-polysemantic-clusters.q.orca.md)
+ships a richer dictionary: 12 concepts grouped into 3 clusters of 4
+(`capitals`, `fruits`, `vehicles`) on a compact 3-qubit register, prepared
+as product states `Ry(q0, α) Ry(q1, β) Ry(q2, γ) |000>` via a multi-angle
+parametric `prepare_concept(a, b, c)` action. Intra-cluster overlap is
+uniform at 0.72 and inter-cluster overlap is < 0.10 — a **block**-structured
+Gram matrix, matching the empirical polysemy signature sparse-autoencoder
+studies of real transformer FFNs report (Elhage et al., `2209.10652`).
+
+The optional `q_orca.compiler.concept_gram.compute_concept_gram(machine)`
+helper returns the 12×12 Gram matrix for any machine following this
+convention, so tests and demos can assert the block structure directly.
+See [`demos/larql_polysemantic_clusters/demo.py`](demos/larql_polysemantic_clusters/demo.py)
+for an end-to-end run that prints an ASCII heatmap of the Gram blocks and
+recovers the three-tier polysemy column `1.0 / 0.72 / ≲ 0.09` empirically
+from 12 Qiskit circuits.
+
+Use `larql-polysemantic-12` as the minimum-mechanism demo (single `int`
+parameter, one action template); use `larql-polysemantic-clusters` when
+you want the clustered-phenomenon signature on top of the same parametric
+mechanism.
+
 ---
 
 ### Verify output (5-stage pipeline)
