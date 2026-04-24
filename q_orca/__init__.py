@@ -5,6 +5,10 @@ from q_orca.verifier import verify, VerifyOptions
 from q_orca.compiler.mermaid import compile_to_mermaid
 from q_orca.compiler.qasm import compile_to_qasm
 from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
+from q_orca.compiler.concept_gram import (
+    compute_concept_gram,
+    ConceptGramConfigurationError,
+)
 from q_orca.skills import (
     parse_skill,
     verify_skill,
@@ -28,6 +32,9 @@ __all__ = [
     "compile_to_qasm",
     "compile_to_qiskit",
     "QSimulationOptions",
+    # Concept-gram analysis (optional, for polysemantic examples)
+    "compute_concept_gram",
+    "ConceptGramConfigurationError",
     # Skills
     "parse_skill",
     "verify_skill",

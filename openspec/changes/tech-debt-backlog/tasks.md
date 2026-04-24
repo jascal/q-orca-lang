@@ -163,6 +163,60 @@
   module. No separate backlog item needed — tracked there.
   (Source: Claude code review on PR #27, concern 1.)
 
+- [ ] 3.6 Validate effect structure in
+  `q_orca/compiler/concept_gram.py::_check_signature`. Today
+  only the *parameter shape* is checked (3 angles); a caller
+  could pass an action with signature
+  `(qs, a: angle, b: angle, c: angle) -> qs` but effect like
+  `CNOT(qs[0], qs[1]); Rz(qs[2], c)` and get a silently-wrong
+  Gram matrix. A cheap effect-string regex check
+  (`Ry\(qs\[0\], ...\)` etc., matching either the preparation
+  or inverse-preparation form) would harden the "wrong shape"
+  error scenario. Not urgent for an opt-in analysis helper but
+  worth doing before a second caller lands.
+  (Source: Claude code review on PR #31, suggestion 3.)
+
+- [ ] 3.7 Inline the unused intermediate `shape` variable in
+  `_check_signature` (`concept_gram.py:50`) — it's only used in
+  the error f-string, so computing it eagerly bloats the happy
+  path. Micro-nit, ~1-line change.
+  (Source: Claude code review on PR #31, suggestion 4.)
+
+- [ ] 3.8 Migrate `tests/test_compiler.py::TestComputeConceptGram`
+  error-path tests from the `try/except/else: raise
+  AssertionError(...)` pattern to the codebase-idiomatic
+  `with pytest.raises(ConceptGramConfigurationError) as
+  exc_info: ...` + `str(exc_info.value)` pattern used elsewhere
+  in `test_compiler.py`. Functional behavior is correct today;
+  style-only.
+  (Source: Claude code review on PR #31, suggestion 5.)
+
+- [ ] 3.9 Vectorize the Gram double-loop in `compute_concept_gram`.
+  The current Python-level `O(N²)` nested loop (`concept_gram.py
+  :123-126`) is fine at N=12, but collapses to one vectorized
+  call with
+  `np.prod(np.cos((angles[:, None, :] - angles[None, :, :]) /
+  2.0), axis=-1)`. Worth doing if `compute_concept_gram` ever
+  targets dictionaries past ~100 concepts; no action needed at
+  current scale.
+  (Source: Claude code review on PR #31, suggestion 6. Related
+  to the N ≈ 1K statevector-path wall discussed in
+  `docs/research/polysemantic-encoding-beyond-product-states.md`.)
+
+- [ ] 3.10 Reframe the hardcoded 3-qubit assumption in
+  `compute_concept_gram`. The signature check demands exactly
+  three angle parameters, matching the canonical example, but
+  the module docstring phrases this as an example rather than a
+  constraint. Either (a) generalize the helper to accept any
+  `n`-angle signature where `n` matches the concept register
+  size, or (b) tighten the docstring to state the 3-angle
+  constraint explicitly and point at
+  `add-mps-concept-encoding` (which ships the general `n`-angle
+  helper variant under a different ansatz). Option (b) is the
+  minimum fix; option (a) is a real generalization that
+  probably warrants its own small OpenSpec change if pursued.
+  (Source: Claude code review on PR #31, suggestion 7.)
+
 ## 4. How to use this file
 
 - [ ] 4.1 **Meta**: when an item is fixed, leave the task checked

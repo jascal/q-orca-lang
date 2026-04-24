@@ -653,10 +653,23 @@ def _parse_actions_table(
         context_update = _parse_context_update_from_effect(effect_str, errors, action_name=name)
         if params and effect_str:
             _validate_parametric_template(effect_str, params, errors, action_name=name)
-        gate = _parse_gate_from_effect(effect_str, errors, action_name=name, angle_context=angle_context)
+        # Merge parametric angle-typed parameter names into the angle context so
+        # gate-effect parsing of a parametric template (e.g. `Ry(qs[0], a)` with
+        # `a: angle`) does not re-emit "unrecognized angle" errors that
+        # _validate_parametric_template already surfaced as structured
+        # unbound-identifier diagnostics. Per-call-site expansion substitutes
+        # real values at compile time; the template's angle_context entry is a
+        # 0.0 placeholder for template-level gate parsing only.
+        effect_angle_context = angle_context
+        if params:
+            effect_angle_context = dict(angle_context)
+            for p in params:
+                if p.type == "angle":
+                    effect_angle_context.setdefault(p.name, 0.0)
+        gate = _parse_gate_from_effect(effect_str, errors, action_name=name, angle_context=effect_angle_context)
         measurement = _parse_measurement_from_effect(effect_str)
         mid_circuit_measure = _parse_mid_circuit_measure_from_effect(effect_str)
-        conditional_gate = _parse_conditional_gate_from_effect(effect_str, errors, action_name=name, angle_context=angle_context)
+        conditional_gate = _parse_conditional_gate_from_effect(effect_str, errors, action_name=name, angle_context=effect_angle_context)
 
         has_other_effect = (
             gate is not None

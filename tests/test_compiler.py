@@ -837,3 +837,155 @@ class TestParametricActionExpansion:
         # its expanded gate once — no cross-contamination.
         assert "h q[0];" in out
         assert "h q[2];" in out
+
+
+class TestComputeConceptGram:
+    """Covers the `compute_concept_gram` analysis helper (Section 2 of
+    add-polysemantic-clusters)."""
+
+    def _make_machine(
+        self,
+        sig: str,
+        effect: str,
+        calls: list[str],
+        action_name: str = "query_concept",
+    ):
+        """Build a minimal machine with N call sites to a parametric action.
+
+        ``calls`` is a list of argument-literal strings (e.g. "0.1, 0.2, 0.3").
+        """
+        transitions = []
+        states = ["## state idle [initial]"]
+        for i, args in enumerate(calls):
+            state_name = f"q{i}"
+            states.append(f"## state {state_name}")
+            transitions.append(
+                f"| idle | ev{i} | | {state_name} | {action_name}({args}) |"
+            )
+        states.append("## state done [final]")
+        events = "\n".join(f"- ev{i}" for i in range(len(calls))) or "- noop"
+        trans_body = "\n".join(transitions) or (
+            "| idle | noop | | done |  |"
+        )
+        source = (
+            "# machine M\n\n"
+            "## context\n"
+            "| Field  | Type        | Default      |\n"
+            "|--------|-------------|--------------|\n"
+            "| qubits | list<qubit> | [q0, q1, q2] |\n\n"
+            "## events\n"
+            f"{events}\n\n"
+            + "\n\n".join(states) + "\n\n"
+            "## transitions\n"
+            "| Source | Event | Guard | Target | Action |\n"
+            "|--------|-------|-------|--------|--------|\n"
+            f"{trans_body}\n\n"
+            "## actions\n"
+            "| Name | Signature | Effect |\n"
+            "|------|-----------|--------|\n"
+            f"| {action_name} | {sig} | {effect} |\n"
+        )
+        result = parse_q_orca_markdown(source)
+        assert result.errors == [], result.errors
+        return result.file.machines[0]
+
+    def test_happy_path_on_clusters_example(self):
+        """Gram matrix of the canonical example matches the documented
+        block structure."""
+        import numpy as np
+        from pathlib import Path
+
+        from q_orca import compute_concept_gram
+
+        examples_dir = Path(__file__).parent.parent / "examples"
+        source = (examples_dir / "larql-polysemantic-clusters.q.orca.md").read_text()
+        parsed = parse_q_orca_markdown(source)
+        machine = parsed.file.machines[0]
+
+        gram = compute_concept_gram(machine)
+        assert gram.shape == (12, 12)
+        assert gram.dtype == np.complex128
+
+        np.testing.assert_allclose(np.diag(np.abs(gram)), np.ones(12), atol=1e-9)
+
+        gsq = np.abs(gram) ** 2
+        # Intra-cluster uniformity at 0.72 (cos(0)² · cos(0.4)² · cos(0.4)² ≈ 0.7197)
+        for ci in range(3):
+            block = gsq[ci * 4:(ci + 1) * 4, ci * 4:(ci + 1) * 4]
+            off_diag = block[~np.eye(4, dtype=bool)]
+            np.testing.assert_allclose(off_diag, 0.7197, atol=1e-3)
+        # All inter-cluster < 0.10
+        for i in range(3):
+            for j in range(i + 1, 3):
+                block = gsq[i * 4:(i + 1) * 4, j * 4:(j + 1) * 4]
+                assert block.max() < 0.10
+
+    def test_wrong_signature_int_parameter_raises(self):
+        """An action with an int parameter (not three angles) raises."""
+        from q_orca import ConceptGramConfigurationError, compute_concept_gram
+
+        machine = self._make_machine(
+            "(qs, c: int) -> qs",
+            "Hadamard(qs[c])",
+            ["0"],
+            action_name="query_concept",
+        )
+        try:
+            compute_concept_gram(machine)
+        except ConceptGramConfigurationError as e:
+            assert "query_concept" in str(e)
+            assert "three angle" in str(e)
+        else:
+            raise AssertionError("expected ConceptGramConfigurationError")
+
+    def test_missing_action_raises(self):
+        """Passing a label that doesn't name a parametric action raises."""
+        from q_orca import ConceptGramConfigurationError, compute_concept_gram
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[0], a); Ry(qs[1], b); Ry(qs[2], c)",
+            ["0.1, 0.2, 0.3"],
+            action_name="query_concept",
+        )
+        try:
+            compute_concept_gram(machine, concept_action_label="does_not_exist")
+        except ConceptGramConfigurationError as e:
+            assert "does_not_exist" in str(e)
+            assert "query_concept" in str(e)  # listed as hint
+        else:
+            raise AssertionError("expected ConceptGramConfigurationError")
+
+    def test_no_call_sites_raises(self):
+        """Action exists with correct shape but has zero call sites."""
+        from q_orca import ConceptGramConfigurationError, compute_concept_gram
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[0], a); Ry(qs[1], b); Ry(qs[2], c)",
+            [],
+            action_name="query_concept",
+        )
+        try:
+            compute_concept_gram(machine)
+        except ConceptGramConfigurationError as e:
+            assert "query_concept" in str(e)
+            assert "no call sites" in str(e)
+        else:
+            raise AssertionError("expected ConceptGramConfigurationError")
+
+    def test_analytic_identity_matrix_on_zero_angles(self):
+        """Multiple call sites all at angles (0, 0, 0) must produce all-ones gram."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[0], a); Ry(qs[1], b); Ry(qs[2], c)",
+            ["0, 0, 0", "0, 0, 0", "0, 0, 0"],
+            action_name="query_concept",
+        )
+        gram = compute_concept_gram(machine)
+        assert gram.shape == (3, 3)
+        np.testing.assert_allclose(np.abs(gram), np.ones((3, 3)), atol=1e-9)
