@@ -10,28 +10,44 @@
   that the regex anchors on segment starts (`^` or after `;`)
   so nested `==` inside gate args don't spuriously trigger.
 
-- [ ] 1.2 Replace the fragile `"requires at least" in e` string
+- [x] 1.2 Replace the fragile `"requires at least" in e` string
   match in the `_looks_like_gate_call` guard with a structural
   signal (either a shared `ARITY_ERROR_MARKER` constant or an
   explicit sentinel returned by `_parse_gate_from_effect`). The
   current test pins the wording; a future rephrase silently
   re-enables the double-fire regression.
   (Source: Claude code review on PR #17, concern 1.)
+  Added module-level `_ARITY_ERROR_MARKER = "requires at least"`
+  constant in `q_orca/parser/markdown_parser.py`. Both producers
+  (MCX/MCZ and the new CSWAP branch from 1.3) and the
+  looks-like-gate consumer reference the constant, so a future
+  rephrase only requires updating the marker in one place.
 
-- [ ] 1.3 Make CSWAP arity errors symmetric with MCX/MCZ.
+- [x] 1.3 Make CSWAP arity errors symmetric with MCX/MCZ.
   `MCX(qs[0], qs[1])` raises a structured "needs ≥3 args" error,
   but `CSWAP(qs[0], qs[1])` falls through to the generic "looks
   like a gate call" warning. Add a CSWAP-specific arity branch
   next to the MCX/MCZ one (~6 lines).
   (Source: Claude code review on PR #17, concern 2.)
+  Added a CSWAP wrong-arity branch in `_parse_gate_from_effect`
+  mirroring the MCX/MCZ shape, plus a `TestCSWAPArityValidation`
+  class in `tests/test_parser.py` covering the arity error and
+  the no-double-fire invariant.
 
-- [ ] 1.4 Build the known-gate list in the unknown-gate warning
+- [x] 1.4 Build the known-gate list in the unknown-gate warning
   message from `KNOWN_UNITARY_GATES` at module load, instead of
   the hardcoded inline string in
   `q_orca/parser/markdown_parser.py`. The inline list is a second
   source of truth that drifts as gates are added (extend-gate-set
   work will add more).
   (Source: Claude code review on PR #17, concern 4.)
+  Added `_format_known_gate_list()` that imports
+  `KNOWN_UNITARY_GATES` from `q_orca.verifier.quantum`, sorts the
+  set, and emits parser-side aliases (Hadamard for H, CCX for
+  CCNOT). Result cached at module load as `_KNOWN_GATE_LIST` and
+  interpolated into the typo warning. New regression test
+  `test_warning_lists_known_gates_from_canonical_set` pins that
+  recently-added gates (CCZ, MCX, MCZ, …) appear automatically.
 
 - [ ] 1.5 Flag "extra non-`qs` slot without `: type`" in
   `_parse_signature`. Today `(qs, c) -> qs` silently returns a
@@ -50,25 +66,38 @@
   that section 4–7 have shipped.
   (Source: Claude code review on PR #26, suggestion 2.)
 
-- [ ] 1.7 Replace naive `args_str.split(",")` in
+- [x] 1.7 Replace naive `args_str.split(",")` in
   `_resolve_transition_actions` with a paren-aware
   `_split_top_level_commas` helper. Today `_evaluate_angle` only
   accepts single-arg expressions so there's no live bug, but
   `mix(atan2(a, b), 0)` will be mis-split into three args the
   moment a multi-arg angle expression lands.
   (Source: Claude code review on PR #26, suggestion 3.)
+  Added `_split_top_level_commas` helper that tracks paren and
+  bracket depth, and switched `_resolve_transition_actions` to
+  use it. Unit-tested in `TestSplitTopLevelCommas`
+  (`tests/test_parser.py`) with cases covering nested calls,
+  nested subscripts, deeply-nested calls, empty input, and
+  whitespace stripping.
 
-- [ ] 1.8 Drop `re.DOTALL` from the call-form regex in
+- [x] 1.8 Drop `re.DOTALL` from the call-form regex in
   `_resolve_transition_actions` (or document why it's needed).
   Markdown table cells shouldn't contain newlines, so the flag
   buys nothing and permits weird inputs.
   (Source: Claude code review on PR #26, suggestion 4.)
+  Removed `re.DOTALL` from `_CALL_FORM_RE`. Cell text is
+  single-line by the time the structural parser delivers it, so
+  the flag was a no-op that incidentally permitted weirdly-shaped
+  inputs.
 
-- [ ] 1.9 Allow underscores in the `_looks_like_gate_call` regex
+- [x] 1.9 Allow underscores in the `_looks_like_gate_call` regex
   (`[A-Za-z_][A-Za-z0-9_]*` instead of `[A-Za-z][A-Za-z0-9]*`),
   so typos like `U_3(qs[0], ...)` for `U3` are still flagged.
   Unlikely in practice but essentially free.
   (Source: Claude code review on PR #17, concern 3.)
+  Widened the leading identifier in `_looks_like_gate_call` and
+  added `test_underscore_typo_in_gate_name_triggers_warning` to
+  pin the behavior.
 
 ## 2. Verifier / backend adapters
 
@@ -176,11 +205,13 @@
   worth doing before a second caller lands.
   (Source: Claude code review on PR #31, suggestion 3.)
 
-- [ ] 3.7 Inline the unused intermediate `shape` variable in
+- [x] 3.7 Inline the unused intermediate `shape` variable in
   `_check_signature` (`concept_gram.py:50`) — it's only used in
   the error f-string, so computing it eagerly bloats the happy
   path. Micro-nit, ~1-line change.
   (Source: Claude code review on PR #31, suggestion 4.)
+  Moved the `shape` list-comp inside the `if` branch so it's
+  only built when the signature actually fails the check.
 
 - [ ] 3.8 Migrate `tests/test_compiler.py::TestComputeConceptGram`
   error-path tests from the `try/except/else: raise

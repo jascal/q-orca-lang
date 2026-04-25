@@ -51,8 +51,8 @@ def _find_concept_action(
 
 def _check_signature(machine: QMachineDef, action: QActionSignature) -> None:
     params = action.parameters
-    shape = [(p.name, p.type) for p in params]
     if len(params) != 3 or any(p.type != "angle" for p in params):
+        shape = [(p.name, p.type) for p in params]
         raise ConceptGramConfigurationError(
             f"machine {machine.name!r}: action {action.name!r} has "
             f"signature parameters {shape}; concept-gram requires "
