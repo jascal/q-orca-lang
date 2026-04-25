@@ -17,6 +17,31 @@ from q_orca.ast import (
     QContextMutation, QEffectContextUpdate,
     ActionParameter, BoundArg,
 )
+from q_orca.verifier.quantum import KNOWN_UNITARY_GATES
+
+
+# Marker substring shared by every variable-arity gate-call arity error
+# (MCX/MCZ/CSWAP). The "looks-like-gate" warning suppresses itself when an
+# error containing this marker is already present, so a future rephrase of
+# the arity messages must keep this substring (or update the marker here).
+_ARITY_ERROR_MARKER = "requires at least"
+
+
+def _format_known_gate_list() -> str:
+    """Build the human-readable known-gate string for the typo warning.
+
+    Sourced from `KNOWN_UNITARY_GATES` so the warning stays in sync as the
+    gate set grows. Common parser-side aliases (Hadamard for H, CCX for
+    CCNOT) are appended explicitly because they're accepted at parse time
+    but aren't canonical kinds.
+    """
+    aliases = {"H": "H/Hadamard", "CCNOT": "CCNOT/CCX"}
+    return ", ".join(
+        aliases.get(name, name) for name in sorted(KNOWN_UNITARY_GATES)
+    )
+
+
+_KNOWN_GATE_LIST = _format_known_gate_list()
 
 
 # ============================================================
@@ -494,8 +519,36 @@ def _parse_transitions_table(table: MdTable) -> list[QTransition]:
 
 
 _CALL_FORM_RE = re.compile(
-    r"^([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*$", re.DOTALL
+    r"^([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*$"
 )
+
+
+def _split_top_level_commas(s: str) -> list[str]:
+    """Split a comma-separated argument list, ignoring commas inside parens.
+
+    `_evaluate_angle` only accepts single-arg expressions today, but a
+    multi-arg angle expression like `mix(atan2(a, b), 0)` would be
+    mis-split by a naive `s.split(",")`. This helper tracks parenthesis
+    depth so commas inside nested calls don't count as argument
+    separators. Square brackets are tracked too for `qs[i, j]`-style
+    subscripts.
+    """
+    args: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(s):
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            if depth > 0:
+                depth -= 1
+        elif ch == "," and depth == 0:
+            args.append(s[start:i].strip())
+            start = i + 1
+    tail = s[start:].strip()
+    if args or tail:
+        args.append(tail)
+    return args
 
 
 def _resolve_transition_actions(
@@ -548,7 +601,7 @@ def _resolve_transition_actions(
                     )
                 continue
             raw_args: list[str] = (
-                [a.strip() for a in args_str.split(",")] if args_str else []
+                _split_top_level_commas(args_str) if args_str else []
             )
             if len(raw_args) != len(sig.parameters):
                 if errors is not None:
@@ -718,13 +771,12 @@ def _parse_actions_table(
             and _looks_like_gate_call(effect_str)
             # Don't double-fire if _parse_gate_from_effect already surfaced a
             # specific error for this effect (e.g. MCX with wrong arity).
-            and not any("requires at least" in e for e in errors)
+            and not any(_ARITY_ERROR_MARKER in e for e in errors)
         ):
             errors.append(
                 f"action {name!r}: effect {effect_str!r} looks like a gate call "
                 "but does not match any known gate. Check the gate name for typos "
-                "(known gates: H, X, Y, Z, T, S, CNOT, CZ, SWAP, CSWAP, CCNOT/CCX, "
-                "CCZ, MCX, MCZ, Rx, Ry, Rz, CRx, CRy, CRz, RXX, RYY, RZZ)."
+                f"(known gates: {_KNOWN_GATE_LIST})."
             )
 
         actions.append(QActionSignature(
@@ -1026,8 +1078,11 @@ def _looks_like_gate_call(effect_str: str) -> bool:
     otherwise be silently dropped. A literal `Name(qs[...]...)` shape is
     sufficient to warn; non-gate effects (bare text, measurements,
     conditionals) are already handled by their respective parsers.
+
+    Underscores are accepted in the leading identifier so typos like
+    `U_3(qs[0], ...)` (for `U3`) still trigger the warning.
     """
-    return bool(re.match(r"^\s*[A-Za-z][A-Za-z0-9]*\s*\(\s*\w+\[", effect_str.strip()))
+    return bool(re.match(r"^\s*[A-Za-z_][A-Za-z0-9_]*\s*\(\s*\w+\[", effect_str.strip()))
 
 
 # Rotation-gate shapes that accept a symbolic angle in the last argument
@@ -1168,7 +1223,7 @@ def _parse_gate_from_effect(
             prefix = f"action {action_name!r}: " if action_name else ""
             alt = "CCX" if kind == "MCX" else "CCZ"
             errors.append(
-                f"{prefix}{kind} requires at least 3 qubit arguments "
+                f"{prefix}{kind} {_ARITY_ERROR_MARKER} 3 qubit arguments "
                 f"(≥2 controls + 1 target), got {n_args}. Use {alt} for the 2-control case."
             )
         return None
@@ -1182,6 +1237,25 @@ def _parse_gate_from_effect(
     if m:
         ctrl, t1, t2 = int(m.group(1)), int(m.group(2)), int(m.group(3))
         return QuantumGate(kind="CSWAP", targets=[t1, t2], controls=[ctrl])
+
+    # CSWAP with wrong arity — promote to a structured parser error, mirroring
+    # the MCX/MCZ branch above. The happy-path regex requires exactly 3 args;
+    # if we see the keyword but don't match the full shape, the user almost
+    # certainly typed the wrong arity.
+    m_bad_cswap = re.match(
+        r"^CSWAP\(\s*((?:\w+\[\d+\](?:\s*,\s*)?)*)\s*\)\s*$",
+        effect_str,
+        re.IGNORECASE,
+    )
+    if m_bad_cswap:
+        n_args = len(re.findall(r"\w+\[\d+\]", m_bad_cswap.group(1)))
+        if errors is not None:
+            prefix = f"action {action_name!r}: " if action_name else ""
+            errors.append(
+                f"{prefix}CSWAP {_ARITY_ERROR_MARKER} 3 qubit arguments "
+                f"(1 control + 2 swap targets), got {n_args}."
+            )
+        return None
 
     # Two-qubit parameterized gates: CRx/CRy/CRz/RXX/RYY/RZZ(qs[i], qs[j], angle)
     m = re.search(r"(CRx|CRy|CRz|RXX|RYY|RZZ)\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)

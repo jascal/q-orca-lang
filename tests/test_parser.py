@@ -9,6 +9,7 @@ from q_orca.parser.markdown_parser import (
     parse_q_orca_markdown,
     parse_markdown_structure,
     ket_to_identifier,
+    _split_top_level_commas,
     MdHeading,
     MdTable,
     MdBulletList,
@@ -673,6 +674,63 @@ class TestUnrecognizedGateEffectWarning:
         result = self._parse("")
         assert not any("does not match any known gate" in e for e in result.errors)
 
+    def test_underscore_typo_in_gate_name_triggers_warning(self):
+        # `U_3(...)` (underscore typo for `U3`) should still surface as a
+        # typo warning rather than passing through as an unflagged effect.
+        # The `_looks_like_gate_call` regex must accept `_` in the leading
+        # identifier for this to fire.
+        result = self._parse("U_3(qs[0], qs[1])")
+        assert any("does not match any known gate" in e for e in result.errors), result.errors
+
+    def test_warning_lists_known_gates_from_canonical_set(self):
+        # The known-gate list in the warning is built from
+        # `KNOWN_UNITARY_GATES` at module load, so the recently-added
+        # `CCZ`, `MCX`, and `MCZ` (and `H`, `CNOT`, etc.) all appear.
+        result = self._parse("Flip(qs[0], qs[1])")
+        warning = next(
+            (e for e in result.errors if "does not match any known gate" in e),
+            None,
+        )
+        assert warning is not None, result.errors
+        for name in ("H", "CNOT", "CCZ", "MCX", "MCZ", "RXX"):
+            assert name in warning, (name, warning)
+
+
+class TestCSWAPArityValidation:
+    """Regression: `CSWAP(qs[0], qs[1])` with only two args used to fall
+    through to the generic looks-like-gate warning, while the same arity
+    bug for `MCX`/`MCZ` got a structured error. Task 1.3 in the
+    tech-debt-backlog change adds a CSWAP-specific arity branch so all
+    multi-controlled gates surface arity errors symmetrically.
+    """
+
+    def _parse(self, effect: str):
+        source = _GATE_EFFECT_MACHINE.format(effect=effect)
+        return parse_q_orca_markdown(source)
+
+    def test_cswap_with_two_args_produces_arity_error(self):
+        result = self._parse("CSWAP(qs[0], qs[1])")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is None
+        assert any("CSWAP" in e and "at least 3" in e for e in result.errors), result.errors
+        # Error names the action so the user can locate it.
+        assert any("apply" in e for e in result.errors)
+
+    def test_cswap_with_three_args_still_parses(self):
+        result = self._parse("CSWAP(qs[0], qs[1], qs[2])")
+        action = result.file.machines[0].actions[0]
+        assert action.gate is not None
+        assert action.gate.kind == "CSWAP"
+        assert action.gate.controls == [0]
+        assert action.gate.targets == [1, 2]
+
+    def test_cswap_arity_error_does_not_double_fire_unknown_gate_warning(self):
+        result = self._parse("CSWAP(qs[0], qs[1])")
+        assert any("CSWAP" in e and "at least 3" in e for e in result.errors)
+        assert not any("does not match any known gate" in e for e in result.errors), (
+            f"unrecognized-gate warning double-fired alongside CSWAP arity error: {result.errors}"
+        )
+
 
 _PARAMETRIC_MACHINE = """\
 # machine Parametric
@@ -1003,3 +1061,36 @@ class TestParametricActionIdentifierSubscriptWarning:
         assert not any(
             "does not match any known gate" in e for e in result.errors
         ), result.errors
+
+
+class TestSplitTopLevelCommas:
+    """Unit tests for the paren-aware comma splitter used to chop call-site
+    argument strings. The naive `s.split(",")` it replaced would
+    mis-split nested-call arguments like `mix(atan2(a, b), 0)`.
+    """
+
+    def test_no_commas_returns_single_arg(self):
+        assert _split_top_level_commas("foo") == ["foo"]
+
+    def test_top_level_split(self):
+        assert _split_top_level_commas("a, b, c") == ["a", "b", "c"]
+
+    def test_nested_parens_keep_args_together(self):
+        # `atan2(a, b)` is one argument, not two.
+        assert _split_top_level_commas("atan2(a, b), 0") == ["atan2(a, b)", "0"]
+
+    def test_nested_brackets_keep_args_together(self):
+        # `qs[i, j]` is one argument.
+        assert _split_top_level_commas("qs[i, j], theta") == ["qs[i, j]", "theta"]
+
+    def test_deeply_nested_calls(self):
+        assert _split_top_level_commas("f(g(a, b), h(c, d)), e") == [
+            "f(g(a, b), h(c, d))",
+            "e",
+        ]
+
+    def test_empty_string_returns_empty_list(self):
+        assert _split_top_level_commas("") == []
+
+    def test_whitespace_is_stripped_per_arg(self):
+        assert _split_top_level_commas("  a  ,  b  ") == ["a", "b"]
