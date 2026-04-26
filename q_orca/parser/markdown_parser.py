@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from q_orca.angle import evaluate_angle as _evaluate_angle
+from q_orca.effect_parser import parse_effect_string as _shared_parse_effect_string
 
 from q_orca.ast import (
     QMachineDef, QOrcaFile, QParseResult, ContextField, EventDef, QStateDef,
@@ -1169,154 +1170,31 @@ def _parse_gate_from_effect(
     action_name: str = "",
     angle_context: dict[str, float] | None = None,
 ) -> Optional[QuantumGate]:
+    """Extract the *primary* gate of an action's effect for the AST.
+
+    The AST stores one ``QuantumGate`` per action; the compiler re-parses
+    the full effect string to get the complete gate sequence at compile
+    time. For multi-gate effects (``H(qs[0]); CNOT(qs[0], qs[1])``),
+    we surface the first parsable gate as the primary annotation.
+    """
     if not effect_str:
         return None
-
-    # Hadamard(qs[N])
-    m = re.search(r"Hadamard\(\s*\w+\[(\d+(?:\s+\d+\s+\d+)?)\]\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        indices = [int(x) for x in m.group(1).split()]
-        return QuantumGate(kind="H", targets=indices)
-
-    # CNOT(qs[control], qs[target])
-    m = re.search(r"CNOT\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        return QuantumGate(kind="CNOT", targets=[int(m.group(2))], controls=[int(m.group(1))])
-
-    # CCX / CCNOT / Toffoli / CCZ — two controls + one target (last argument)
-    m = re.search(
-        r"(CCX|CCNOT|Toffoli|CCZ)\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*\)",
+    gates = _shared_parse_effect_string(
         effect_str,
-        re.IGNORECASE,
+        angle_context=angle_context,
+        errors=errors,
+        action_name=action_name,
     )
-    if m:
-        name = m.group(1).upper()
-        c0, c1, tgt = int(m.group(2)), int(m.group(3)), int(m.group(4))
-        kind = "CCZ" if name == "CCZ" else "CCNOT"
-        return QuantumGate(kind=kind, targets=[tgt], controls=[c0, c1])
-
-    # MCX / MCZ — variable arity (≥3 args), last argument is the target.
-    m = re.search(
-        r"(MCX|MCZ)\(\s*((?:\w+\[\d+\]\s*,\s*){2,}\w+\[\d+\])\s*\)",
-        effect_str,
-        re.IGNORECASE,
-    )
-    if m:
-        kind = m.group(1).upper()
-        indices = [int(x) for x in re.findall(r"\d+", m.group(2))]
-        return QuantumGate(kind=kind, targets=[indices[-1]], controls=indices[:-1])
-
-    # MCX/MCZ with too few args — promote to a structured parser error.
-    # The happy-path regex above requires ≥3 qubit args; if we see the
-    # keyword but don't match, the user almost certainly typed the wrong
-    # arity (e.g. `MCX(qs[0], qs[1])`) rather than a completely unrelated
-    # effect that happens to contain "MCX(".
-    m_bad_mc = re.match(
-        r"^(MCX|MCZ)\(\s*((?:\w+\[\d+\](?:\s*,\s*)?)*)\s*\)\s*$",
-        effect_str,
-        re.IGNORECASE,
-    )
-    if m_bad_mc:
-        kind = m_bad_mc.group(1).upper()
-        n_args = len(re.findall(r"\w+\[\d+\]", m_bad_mc.group(2)))
-        if errors is not None:
-            prefix = f"action {action_name!r}: " if action_name else ""
-            alt = "CCX" if kind == "MCX" else "CCZ"
-            errors.append(
-                f"{prefix}{kind} {_ARITY_ERROR_MARKER} 3 qubit arguments "
-                f"(≥2 controls + 1 target), got {n_args}. Use {alt} for the 2-control case."
-            )
+    if not gates:
         return None
-
-    # CSWAP / Fredkin — 1 control + 2 swap targets.
-    m = re.search(
-        r"CSWAP\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*\)",
-        effect_str,
-        re.IGNORECASE,
+    parsed = gates[0]
+    return QuantumGate(
+        kind=parsed.name,
+        targets=list(parsed.targets),
+        controls=list(parsed.controls) if parsed.controls else None,
+        parameter=parsed.parameter,
+        custom_name=parsed.custom_name,
     )
-    if m:
-        ctrl, t1, t2 = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        return QuantumGate(kind="CSWAP", targets=[t1, t2], controls=[ctrl])
-
-    # CSWAP with wrong arity — promote to a structured parser error, mirroring
-    # the MCX/MCZ branch above. The happy-path regex requires exactly 3 args;
-    # if we see the keyword but don't match the full shape, the user almost
-    # certainly typed the wrong arity.
-    m_bad_cswap = re.match(
-        r"^CSWAP\(\s*((?:\w+\[\d+\](?:\s*,\s*)?)*)\s*\)\s*$",
-        effect_str,
-        re.IGNORECASE,
-    )
-    if m_bad_cswap:
-        n_args = len(re.findall(r"\w+\[\d+\]", m_bad_cswap.group(1)))
-        if errors is not None:
-            prefix = f"action {action_name!r}: " if action_name else ""
-            errors.append(
-                f"{prefix}CSWAP {_ARITY_ERROR_MARKER} 3 qubit arguments "
-                f"(1 control + 2 swap targets), got {n_args}."
-            )
-        return None
-
-    # Two-qubit parameterized gates: CRx/CRy/CRz/RXX/RYY/RZZ(qs[i], qs[j], angle)
-    m = re.search(r"(CRx|CRy|CRz|RXX|RYY|RZZ)\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        raw_kind = m.group(1).upper()
-        # Normalize to canonical forms: CRx/CRy/CRz (capital C+R, lowercase axis)
-        canonical_map = {"CRX": "CRx", "CRY": "CRy", "CRZ": "CRz", "RXX": "RXX", "RYY": "RYY", "RZZ": "RZZ"}
-        kind = canonical_map.get(raw_kind, raw_kind)
-        ctrl_or_i = int(m.group(2))
-        tgt_or_j = int(m.group(3))
-        angle_str = m.group(4).strip()
-        try:
-            theta = _evaluate_angle(angle_str, angle_context)
-        except ValueError as exc:
-            if errors is not None:
-                prefix = f"action {action_name!r}: " if action_name else ""
-                errors.append(f"{prefix}two-qubit gate {kind} has unrecognized angle {angle_str!r}. {exc}")
-            return None
-        # Controlled forms use controls=[ctrl], targets=[tgt]; symmetric forms use targets=[i,j]
-        if kind in ("CRx", "CRy", "CRz"):
-            return QuantumGate(kind=kind, targets=[tgt_or_j], controls=[ctrl_or_i], parameter=theta)
-        else:
-            return QuantumGate(kind=kind, targets=[ctrl_or_i, tgt_or_j], parameter=theta)
-
-    # Rotation gates canonical form: Rx(qs[N], <angle>), Ry(qs[N], <angle>), Rz(qs[N], <angle>)
-    m = re.search(r"R([XYZ])\(\s*\w+\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        axis = m.group(1).upper()  # 'X', 'Y', or 'Z'
-        # Canonical GateKind is 'Rx'/'Ry'/'Rz' (capital R, lowercase axis)
-        axis = axis.lower()
-        idx = int(m.group(2))
-        angle_str = m.group(3).strip()
-        try:
-            theta = _evaluate_angle(angle_str, angle_context)
-        except ValueError as exc:
-            if errors is not None:
-                prefix = f"action {action_name!r}: " if action_name else ""
-                errors.append(f"{prefix}rotation gate R{axis} has unrecognized angle {angle_str!r}. {exc}")
-            return None
-        return QuantumGate(kind=f"R{axis}", targets=[idx], parameter=theta)
-
-    # Detect angle-first rotation syntax (wrong order) and produce an error
-    m_wrong = re.search(r"R([XYZ])\(\s*([^,)]+)\s*,\s*\w+\[\d+\]\s*\)", effect_str, re.IGNORECASE)
-    if m_wrong:
-        axis = m_wrong.group(1).upper()
-        if errors is not None:
-            prefix = f"action {action_name!r}: " if action_name else ""
-            errors.append(
-                f"{prefix}rotation gate R{axis} uses angle-first argument order. "
-                "The canonical form is qubit-first: R{axis}(qs[N], <angle>)."
-            )
-        return None
-
-    # Generic gate: X(qs[N]), Z(qs[N]), etc.
-    m = re.search(r"^([A-Z][a-z]*)\(\s*\w+\[(\d+)\]\s*\)", effect_str)
-    if m:
-        gate_kinds = {"X": "X", "Y": "Y", "Z": "Z", "H": "H", "T": "T", "S": "S"}
-        kind = gate_kinds.get(m.group(1), "custom")
-        return QuantumGate(kind=kind, targets=[int(m.group(2))], custom_name=kind if kind == "custom" else None)
-
-    return None
 
 
 def _parse_measurement_from_effect(effect_str: str) -> Optional[Measurement]:
