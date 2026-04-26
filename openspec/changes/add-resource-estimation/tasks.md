@@ -40,12 +40,12 @@
 
 ## 4. Compiler — `estimate_resources`
 
-- [ ] 4.1 Create `q_orca/compiler/resources.py` with
+- [x] 4.1 Create `q_orca/compiler/resources.py` with
       `estimate_resources(machine) -> dict[str, int | str]`.
-- [ ] 4.2 Build the Qiskit circuit by reusing the existing
+- [x] 4.2 Build the Qiskit circuit by reusing the existing
       circuit-construction helpers in `q_orca/compiler/qiskit.py`.
       Do not duplicate gate emission.
-- [ ] 4.3 Compute each metric:
+- [x] 4.3 Compute each metric:
       - `gate_count` — sum gate effects from the un-transpiled
         circuit.
       - `depth` — `transpile(qc, optimization_level=1).depth()`.
@@ -54,46 +54,46 @@
       - `t_count` — `transpile(qc, basis_gates=['h','s','cx','t','tdg'],
         optimization_level=1).count_ops()`, summing `t` + `tdg`.
       - `logical_qubits` — `len(machine.context['qubits'])`.
-- [ ] 4.4 Memoize the result by `id(machine)` so repeated calls
+- [x] 4.4 Memoize the result by `id(machine)` so repeated calls
       within one verify-or-compile invocation are free.
-- [ ] 4.5 Return `"unknown"` for any metric whose computation
+- [x] 4.5 Return `"unknown"` for any metric whose computation
       fails because of a runtime-bound `[loop N]`. Today no shipped
       feature triggers this; the branch exists for forward
       compatibility.
 
 ## 5. Compiler — `compile_with_resources`
 
-- [ ] 5.1 Add `compile_with_resources(machine, options) -> tuple[str,
+- [x] 5.1 Add `compile_with_resources(machine, options) -> tuple[str,
       dict]` to `q_orca/compiler/qiskit.py` (or a new top-level entry
       in `q_orca/__init__.py`). Returns the Qiskit script and the
       resource dict in one call.
-- [ ] 5.2 Format the resource report as a one-screen summary table:
+- [x] 5.2 Format the resource report as a one-screen summary table:
       `metric : value [≤ bound] [✓|✗]`. Bound and pass/fail are
       omitted when the machine has no invariant for that metric.
-- [ ] 5.3 Export `estimate_resources` and `compile_with_resources`
+- [x] 5.3 Export `estimate_resources` and `compile_with_resources`
       from `q_orca/__init__.py`.
 
 ## 6. Verifier — `check_resource_invariants`
 
-- [ ] 6.1 Add `check_resource_invariants(machine) -> list[VerifyError]`
+- [x] 6.1 Add `check_resource_invariants(machine) -> list[VerifyError]`
       to `q_orca/verifier/dynamic.py`. For each
       `Invariant(kind="resource")`, evaluate the metric via
       `estimate_resources(machine)` and apply the comparison.
-- [ ] 6.2 On violation, emit a `VerifyError` with code
+- [x] 6.2 On violation, emit a `VerifyError` with code
       `RESOURCE_BOUND_EXCEEDED`, message naming the metric, the
       measured value, the operator, and the bound.
-- [ ] 6.3 On indeterminate measurement (`"unknown"` returned), emit
+- [x] 6.3 On indeterminate measurement (`"unknown"` returned), emit
       a `VerifyError` with severity `warning` and code
       `RESOURCE_BOUND_INDETERMINATE`.
-- [ ] 6.4 Activate the rule under the name `resource_bounds` in
+- [x] 6.4 Activate the rule under the name `resource_bounds` in
       `## verification rules`. Default state: enabled when any
       resource invariant is present, else skipped (zero cost).
-- [ ] 6.5 Wire the rule into the verifier's main dispatch alongside
+- [x] 6.5 Wire the rule into the verifier's main dispatch alongside
       `check_unitarity`, `check_completeness`, etc.
 
 ## 7. Tests
 
-- [ ] 7.1 `tests/test_resource_estimation.py` (new file):
+- [x] 7.1 `tests/test_resource_estimation.py` (new file):
       - `test_bell_pair_resources`: `bell-entangler.q.orca.md`
         produces `gate_count=2, depth=2, cx_count=1, t_count=0,
         logical_qubits=2`.
@@ -110,7 +110,7 @@
       - `test_no_resources_section_uses_default_metrics`:
         `compile_with_resources` on a machine without `##
         resources` returns all five metrics.
-- [ ] 7.2 `tests/test_verifier.py`:
+- [x] 7.2 `tests/test_verifier.py`:
       - `test_resource_bound_exceeded`: a machine with
         `cx_count <= 0` and a CNOT in its action emits
         `RESOURCE_BOUND_EXCEEDED`.
@@ -119,7 +119,7 @@
       - `test_resource_invariants_skipped_when_absent`: a machine
         with no resource invariants does not invoke
         `estimate_resources` (assert via patching).
-- [ ] 7.3 `tests/test_parser.py::TestResourcesSection`:
+- [x] 7.3 `tests/test_parser.py::TestResourcesSection`:
       - 2-column form parses.
       - 3-column form with `Notes` parses identically.
       - Unknown metric name produces structured error.

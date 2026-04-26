@@ -974,3 +974,59 @@ class TestMultiControlledUnitarity:
         result = verify_quantum(machine)
         codes = [e.code for e in result.errors if e.severity == "error"]
         assert "CONTROL_TARGET_OVERLAP" in codes
+
+
+class TestResourceInvariantVerification:
+    """`check_resource_invariants` evaluates `Invariant(kind="resource")`
+    against `estimate_resources(machine)` and emits
+    `RESOURCE_BOUND_EXCEEDED` on violation. Machines without resource
+    invariants do not invoke the estimator at all.
+    """
+
+    BELL = """\
+# machine BellLike
+
+## context
+| Field | Type | Default |
+|-------|------|---------|
+| qubits | list<qubit> | [q0, q1] |
+
+## state |00> [initial]
+
+## state |bell> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+| |00> | go | | |bell> | entangle |
+
+## actions
+| Name | Signature | Effect |
+| entangle | (qs) -> qs | H(qs[0]); CNOT(qs[0], qs[1]) |
+
+## verification rules
+- unitarity
+"""
+
+    def test_resource_bound_exceeded(self):
+        # bell-pair has cx_count=1; bound cx_count <= 0 must fail.
+        src = self.BELL + "\n## invariants\n- cx_count <= 0\n"
+        machine = _machine(src)
+        result = verify(machine, VerifyOptions(skip_dynamic=True))
+        codes = [e.code for e in result.errors]
+        assert "RESOURCE_BOUND_EXCEEDED" in codes
+
+    def test_resource_bound_satisfied(self):
+        src = self.BELL + "\n## invariants\n- cx_count <= 5\n"
+        machine = _machine(src)
+        result = verify(machine, VerifyOptions(skip_dynamic=True))
+        codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "RESOURCE_BOUND_EXCEEDED" not in codes
+
+    def test_resource_invariants_skipped_when_absent(self):
+        # No resource invariants — `estimate_resources` must not be called.
+        from unittest.mock import patch
+
+        machine = _machine(self.BELL)
+        with patch("q_orca.verifier.resources.estimate_resources") as spy:
+            verify(machine, VerifyOptions(skip_dynamic=True))
+            assert spy.call_count == 0

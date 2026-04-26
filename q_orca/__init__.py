@@ -5,6 +5,11 @@ from q_orca.verifier import verify, VerifyOptions
 from q_orca.compiler.mermaid import compile_to_mermaid
 from q_orca.compiler.qasm import compile_to_qasm
 from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
+from q_orca.compiler.resources import (
+    estimate_resources,
+    compile_with_resources,
+    format_resource_report,
+)
 from q_orca.compiler.concept_gram import (
     compute_concept_gram,
     ConceptGramConfigurationError,
@@ -32,6 +37,9 @@ __all__ = [
     "compile_to_qasm",
     "compile_to_qiskit",
     "QSimulationOptions",
+    "estimate_resources",
+    "compile_with_resources",
+    "format_resource_report",
     # Concept-gram analysis (optional, for polysemantic examples)
     "compute_concept_gram",
     "ConceptGramConfigurationError",
