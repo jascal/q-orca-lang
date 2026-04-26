@@ -158,6 +158,6 @@
       green.
 - [x] 10.2 Full pytest suite green.
 - [x] 10.3 Ruff clean across the touched files.
-- [ ] 10.4 Run `openspec archive add-resource-estimation` after
+- [x] 10.4 Run `openspec archive add-resource-estimation` after
       merge so the deltas land in
       `openspec/specs/{language,compiler,verifier}/spec.md`.
