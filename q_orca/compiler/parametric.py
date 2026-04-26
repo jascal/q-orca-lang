@@ -1,12 +1,14 @@
 """Q-Orca parametric action expansion — call-site substitution into templates."""
 
 import re
-from typing import Iterable
 
 from q_orca.ast import BoundArg, QActionSignature
 
 
-_SUBSCRIPT_RE = re.compile(r"(\w+)\[([^\]]+)\]")
+# Only `qs[...]` subscripts get int-parameter substitution. Classical
+# subscripts like `bits[0]` carry their own indexing semantics and are
+# left untouched.
+_SUBSCRIPT_RE = re.compile(r"(qs)\[([^\]]+)\]")
 _IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
 
@@ -14,15 +16,16 @@ def _format_angle_literal(value: float) -> str:
     """Render an angle value as a decimal literal the angle evaluator accepts.
 
     Uses ``repr`` so round-trip precision is preserved (e.g. ``pi/4`` →
-    ``0.7853981633974483``) while avoiding scientific notation for the
-    magnitudes rotation gates typically take.
+    ``0.7853981633974483``). ``repr(float)`` switches to scientific notation
+    for magnitudes below ~1e-4 and above ~1e16; for the angle range
+    rotation gates take in practice (≈ ±2π) this stays in decimal form.
     """
     return repr(float(value))
 
 
 def expand_action_call(
     action: QActionSignature,
-    bound_arguments: Iterable[BoundArg] | None,
+    bound_arguments: list[BoundArg] | None,
 ) -> str:
     """Return the action's effect string with parameter slots substituted.
 
@@ -41,13 +44,12 @@ def expand_action_call(
     if not effect:
         return ""
 
-    bound_list = list(bound_arguments) if bound_arguments is not None else []
-    if not action.parameters or not bound_list:
+    if not action.parameters or not bound_arguments:
         return effect
 
     int_subs: dict[str, str] = {}
     angle_subs: dict[str, str] = {}
-    for param, bound in zip(action.parameters, bound_list):
+    for param, bound in zip(action.parameters, bound_arguments):
         if param.type == "int":
             int_subs[param.name] = str(int(bound.value))
         elif param.type == "angle":

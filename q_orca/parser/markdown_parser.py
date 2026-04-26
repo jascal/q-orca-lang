@@ -1088,6 +1088,11 @@ def _looks_like_gate_call(effect_str: str) -> bool:
 
 # Rotation-gate shapes that accept a symbolic angle in the last argument
 # slot. Used by the parametric-template validator to route angle checks.
+# The shape is fixed at 1–2 qubit slots before the angle (one for Rx/Ry/Rz,
+# two for CRx/CRy/CRz/RXX/RYY/RZZ). A future hypothetical multi-controlled
+# rotation (e.g. `MCRx(qs[0], qs[1], qs[2], theta)`) would not match here and
+# must either extend this regex or land with its own template-time validation
+# path; missing the match silently skips the angle-binding check.
 _ROTATION_GATE_ANGLE_RE = re.compile(
     r"(?P<name>CRx|CRy|CRz|RXX|RYY|RZZ|Rx|Ry|Rz)"
     r"\(\s*\w+\[[^\]]+\]\s*"

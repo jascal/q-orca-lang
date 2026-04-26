@@ -156,33 +156,52 @@
 
 ## 3. Compiler
 
-- [ ] 3.1 Tighten `_SUBSCRIPT_RE` in
+- [x] 3.1 Tighten `_SUBSCRIPT_RE` in
   `q_orca/compiler/parametric.py` to `qs\[` (so int-param
   substitution only happens inside `qs[...]` subscripts), or
   update the docstring so the broader behavior is explicit.
   Today the regex matches any `word[...]` subscript, which is
   wider than the "inside `qs[...]` slots" claim in the docstring.
   (Source: Claude code review on PR #27, concern 2.)
+  Narrowed `_SUBSCRIPT_RE` from `(\w+)\[([^\]]+)\]` to
+  `(qs)\[([^\]]+)\]`. Added a regression test
+  `TestExpandActionCallSubscriptScope::test_classical_bits_subscript_is_not_substituted`
+  that pins the new boundary: a `bits[c]` subscript stays literal
+  while the sibling `qs[c]` gets the int substitution.
 
-- [ ] 3.2 Add a comment on `_ROTATION_GATE_ANGLE_RE` noting that
+- [x] 3.2 Add a comment on `_ROTATION_GATE_ANGLE_RE` noting that
   it only accepts 1–2 qubit slots before the angle, so future
   multi-controlled rotations (e.g. hypothetical
   `MCRx(qs[0], qs[1], qs[2], theta)`) must either extend the
   regex or land with an explicit template-time validation path.
   (Source: Claude code review on PR #27, concern 3.)
+  Added the rationale block above the regex in
+  `q_orca/parser/markdown_parser.py`, noting the 1–2 qubit-slot
+  shape and that a hypothetical `MCRx`-style multi-controlled
+  rotation would silently skip the angle-binding check until the
+  regex is extended.
 
-- [ ] 3.3 Fix the `_format_angle_literal` docstring — `repr(float)`
+- [x] 3.3 Fix the `_format_angle_literal` docstring — `repr(float)`
   does use scientific notation below ~1e-4 (`repr(1e-10)` →
   `'1e-10'`), so the "avoiding scientific notation" claim is
   slightly misleading even if fine for the angle magnitudes
   rotation gates see in practice.
   (Source: Claude code review on PR #27, nit 1.)
+  Reworded the docstring to acknowledge that `repr(float)` does
+  switch to scientific notation outside ~1e-4..1e16 and to clarify
+  that decimal form holds because rotation-gate angles sit inside
+  that band in practice.
 
-- [ ] 3.4 Drop the redundant `list(bound_arguments)` copy in
+- [x] 3.4 Drop the redundant `list(bound_arguments)` copy in
   `expand_action_call` when the caller already passes a list.
   Either narrow the type hint to `list[BoundArg]`, or only
   materialize when necessary. Minor.
   (Source: Claude code review on PR #27, nit 2.)
+  Narrowed the type hint from `Iterable[BoundArg] | None` to
+  `list[BoundArg] | None` (matching all live call sites, which all
+  pass `t.bound_arguments: Optional[list[BoundArg]]`) and removed
+  the eager `list(...)` copy. The function now iterates the input
+  directly via `zip`.
 
 - [ ] 3.5 Reference: the verifier→compiler coupling introduced in
   PR #27 (importing `_parse_effect_string` from
@@ -213,7 +232,7 @@
   Moved the `shape` list-comp inside the `if` branch so it's
   only built when the signature actually fails the check.
 
-- [ ] 3.8 Migrate `tests/test_compiler.py::TestComputeConceptGram`
+- [x] 3.8 Migrate `tests/test_compiler.py::TestComputeConceptGram`
   error-path tests from the `try/except/else: raise
   AssertionError(...)` pattern to the codebase-idiomatic
   `with pytest.raises(ConceptGramConfigurationError) as
@@ -221,6 +240,11 @@
   in `test_compiler.py`. Functional behavior is correct today;
   style-only.
   (Source: Claude code review on PR #31, suggestion 5.)
+  Migrated all three error-path tests
+  (`test_wrong_signature_int_parameter_raises`,
+  `test_missing_action_raises`, `test_no_call_sites_raises`) to the
+  `pytest.raises(...) as exc_info` + `str(exc_info.value)` pattern
+  matching the rest of the file.
 
 - [ ] 3.9 Vectorize the Gram double-loop in `compute_concept_gram`.
   The current Python-level `O(N²)` nested loop (`concept_gram.py
@@ -234,7 +258,7 @@
   to the N ≈ 1K statevector-path wall discussed in
   `docs/research/polysemantic-encoding-beyond-product-states.md`.)
 
-- [ ] 3.10 Reframe the hardcoded 3-qubit assumption in
+- [x] 3.10 Reframe the hardcoded 3-qubit assumption in
   `compute_concept_gram`. The signature check demands exactly
   three angle parameters, matching the canonical example, but
   the module docstring phrases this as an example rather than a
@@ -247,6 +271,12 @@
   minimum fix; option (a) is a real generalization that
   probably warrants its own small OpenSpec change if pursued.
   (Source: Claude code review on PR #31, suggestion 7.)
+  Took option (b): the module docstring now leads with the
+  fixed 3-qubit / 3-angle shape as a constraint, points at
+  `add-mps-concept-encoding` for the general `n`-angle variant,
+  and the signature bullet calls out "exactly three angle
+  parameters, no more, no less" so the requirement reads as
+  intentional rather than illustrative.
 
 ## 4. How to use this file
 
