@@ -13,9 +13,13 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from q_orca.angle import evaluate_angle
 from q_orca.ast import QMachineDef
 from q_orca.compiler.parametric import expand_action_call
+from q_orca.effect_parser import (
+    ParsedGate,
+    parse_effect_string,
+    parse_single_gate,
+)
 from q_orca.verifier.types import QVerificationError, QVerificationResult
 
 # QuTiP imports with graceful fallback
@@ -128,20 +132,30 @@ def _build_angle_context(machine: QMachineDef) -> dict[str, float]:
     return out
 
 
+def _parsed_gate_to_dict(gate: ParsedGate) -> Dict[str, Any]:
+    """Translate a ParsedGate into the verifier's gate-dict shape.
+
+    The evolver (`_get_qutip_operator`) reads ``name`` via ``.upper()``,
+    so we uppercase here to keep behavior identical to the legacy
+    parser's output.
+    """
+    params: Dict[str, float] = {}
+    if gate.parameter is not None:
+        params["theta"] = gate.parameter
+    return {
+        "name": gate.name.upper(),
+        "targets": list(gate.targets),
+        "controls": list(gate.controls),
+        "params": params,
+    }
+
+
 def _parse_effect_to_gate_dicts(
     effect_str: str,
     angle_context: Optional[Dict[str, float]] = None,
 ) -> list[Dict[str, Any]]:
-    """Parse an effect string into gate dictionaries."""
-    gates = []
-    for part in effect_str.split(";"):
-        part = part.strip()
-        if not part:
-            continue
-        gate = _parse_single_gate_to_dict(part, angle_context=angle_context)
-        if gate:
-            gates.append(gate)
-    return gates
+    """Parse an effect string into the verifier's gate-dict list."""
+    return [_parsed_gate_to_dict(g) for g in parse_effect_string(effect_str, angle_context=angle_context)]
 
 
 def _parse_single_gate_to_dict(
@@ -149,81 +163,10 @@ def _parse_single_gate_to_dict(
     angle_context: Optional[Dict[str, float]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Parse a single gate effect string into a gate dict."""
-    # TODO: Effect-string gate parsing is duplicated across three sites
-    # (q_orca/parser/markdown_parser.py, q_orca/compiler/qiskit.py::_parse_single_gate,
-    # and this function). Consolidate into a single shared parser to prevent
-    # drift — this class of bug already bit us twice on PR #11 (RZZ silently
-    # dropped; CRx/CRy/CRz demoted to bare rotations via regex ordering).
-    effect_str = effect_str.strip()
-
-    # Hadamard(qs[N])
-    m = re.search(r"Hadamard\(\s*(\w+)\[(\d+)\]\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        return {"name": "H", "targets": [int(m.group(2))], "controls": [], "params": {}}
-
-    # CNOT(qs[a], qs[b])
-    m = re.search(r"CNOT\(\s*(\w+)\[(\d+)\]\s*,\s*(\w+)\[(\d+)\]\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        return {"name": "CNOT", "targets": [int(m.group(4))], "controls": [int(m.group(2))], "params": {}}
-
-    # CZ(qs[a], qs[b])
-    m = re.search(r"CZ\(\s*(\w+)\[(\d+)\]\s*,\s*(\w+)\[(\d+)\]\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        return {"name": "CZ", "targets": [int(m.group(4))], "controls": [int(m.group(2))], "params": {}}
-
-    # SWAP(qs[a], qs[b])
-    m = re.search(r"SWAP\(\s*(\w+)\[(\d+)\]\s*,\s*(\w+)\[(\d+)\]\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        return {"name": "SWAP", "targets": [int(m.group(2)), int(m.group(4))], "controls": [], "params": {}}
-
-    # X(qs[N]), Y(qs[N]), Z(qs[N]), S(qs[N]), T(qs[N])
-    m = re.search(r"^([XYZS])\((\w+)\[(\d+)\]\s*\)", effect_str)
-    if m:
-        return {"name": m.group(1), "targets": [int(m.group(3))], "controls": [], "params": {}}
-
-    # Two-qubit parameterized gates: RXX/RYY/RZZ(qs[i], qs[j], <angle>) and
-    # CRx/CRy/CRz(qs[ctrl], qs[tgt], <angle>). Must run BEFORE the single-qubit
-    # Rx/Ry/Rz branch — otherwise `CRx(qs[0], qs[1], beta)` matches the embedded
-    # substring `Rx(qs[0], qs[1], beta)` and gets silently demoted to a bare Rx
-    # with no control qubit. Mirrors q_orca.compiler.qiskit._parse_single_gate.
-    m = re.search(
-        r"(CRx|CRy|CRz|RXX|RYY|RZZ)\(\s*(\w+)\[(\d+)\]\s*,\s*(\w+)\[(\d+)\]\s*,\s*([^)]+)\s*\)",
-        effect_str,
-        re.IGNORECASE,
-    )
-    if m:
-        kind = m.group(1).upper()
-        i = int(m.group(3))
-        j = int(m.group(5))
-        angle_str = m.group(6).strip()
-        try:
-            theta = evaluate_angle(angle_str, angle_context)
-        except ValueError:
-            theta = 0.0
-        if kind in ("CRX", "CRY", "CRZ"):
-            return {"name": kind, "targets": [j], "controls": [i], "params": {"theta": theta}}
-        return {"name": kind, "targets": [i, j], "controls": [], "params": {"theta": theta}}
-
-    # Rx(qs[N], <angle>), Ry(qs[N], <angle>), Rz(qs[N], <angle>) — canonical qubit-first.
-    # Anchored with ^ to avoid matching as a substring of CRx/CRy/CRz.
-    m = re.search(r"^(Rx|Ry|Rz)\((\w+)\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        kind = m.group(1).lower()
-        angle_str = m.group(4).strip()
-        try:
-            theta = evaluate_angle(angle_str, angle_context)
-        except ValueError:
-            theta = 0.0
-        return {"name": kind.upper(), "targets": [int(m.group(3))], "controls": [], "params": {"theta": theta}}
-
-    # Generic single-qubit: GateName(qs[N])
-    m = re.search(r"^([A-Za-z]+)\((\w+)\[(\d+)\]\s*\)", effect_str)
-    if m:
-        kind = m.group(1).upper()
-        idx = int(m.group(3))
-        return {"name": kind, "targets": [idx], "controls": [], "params": {}}
-
-    return None
+    parsed = parse_single_gate(effect_str, angle_context=angle_context)
+    if parsed is None:
+        return None
+    return _parsed_gate_to_dict(parsed)
 
 
 def _expand_1qubit_gate(op: Qobj, n_qubits: int, target: int) -> Qobj:

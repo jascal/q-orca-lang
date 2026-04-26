@@ -2,6 +2,8 @@
 
 import unicodedata
 
+import pytest
+
 from q_orca.parser.markdown_parser import parse_q_orca_markdown
 from q_orca.verifier import verify, VerifyOptions
 from q_orca.verifier.structural import check_structural, analyze_machine
@@ -9,6 +11,7 @@ from q_orca.verifier.completeness import check_completeness, has_quantum_prepara
 from q_orca.verifier.determinism import check_determinism
 from q_orca.verifier.quantum import verify_quantum
 from q_orca.verifier.superposition import check_superposition_leaks
+from tests.fixtures.effect_strings import EFFECT_STRING_CASES
 
 
 def _machine(source: str):
@@ -860,6 +863,27 @@ class TestContextAngleDynamicVerifier:
             assert gate["controls"] == [ctrl], f"{effect_str}: controls={gate['controls']}"
             assert gate["targets"] == [tgt], f"{effect_str}: targets={gate['targets']}"
             assert gate["params"]["theta"] == theta, f"{effect_str}: theta={gate['params']['theta']}"
+
+    @pytest.mark.parametrize(
+        "effect_str,angle_context,expected,notes",
+        EFFECT_STRING_CASES,
+        ids=[c[3] for c in EFFECT_STRING_CASES],
+    )
+    def test_shared_fixture_dict_shape(self, effect_str, angle_context, expected, notes):
+        """Every gate kind in the shared fixture parses through the verifier
+        adapter to the expected dict shape: name uppercased, targets/controls
+        as lists, params={'theta': ...} when parameterized else {}."""
+        from q_orca.verifier.dynamic import _parse_single_gate_to_dict
+
+        gate = _parse_single_gate_to_dict(effect_str, angle_context=angle_context)
+        assert gate is not None, f"{effect_str!r} returned None ({notes})"
+        assert gate["name"] == expected.name.upper()
+        assert gate["targets"] == list(expected.targets)
+        assert gate["controls"] == list(expected.controls)
+        if expected.parameter is None:
+            assert gate["params"] == {}
+        else:
+            assert gate["params"]["theta"] == pytest.approx(expected.parameter)
 
 
 def _multi_controlled_machine(effect: str, qubits: str = "[q0, q1, q2, q3]") -> str:
