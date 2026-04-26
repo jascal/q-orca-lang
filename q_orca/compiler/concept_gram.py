@@ -1,10 +1,15 @@
 """Concept Gram matrix analysis for product-state polysemantic machines.
 
 Optional analysis utility for machines that follow the *structured
-polysemantic* concept-encoding convention:
+polysemantic* concept-encoding convention. The helper is fixed at the
+3-qubit / 3-angle product-state shape used by the canonical example
+(``examples/larql-polysemantic-clusters.q.orca.md``); a generalized
+``n``-angle variant lives under ``add-mps-concept-encoding`` and is
+not exposed here.
 
 1. A single parametric concept action (preparation *or* its inverse)
-   with signature ``(qs, a: angle, b: angle, c: angle) -> qs``.
+   with signature ``(qs, a: angle, b: angle, c: angle) -> qs`` —
+   exactly three angle parameters, no more, no less.
 2. A product-state effect, either a preparation of the form
    ``Ry(qs[0], a); Ry(qs[1], b); Ry(qs[2], c)`` or its inverse
    ``Ry(qs[2], -c); Ry(qs[1], -b); Ry(qs[0], -a)`` (reversed gate

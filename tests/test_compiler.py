@@ -842,6 +842,33 @@ class TestParametricActionExpansion:
         assert "h q[2];" in out
 
 
+class TestExpandActionCallSubscriptScope:
+    """`_SUBSCRIPT_RE` is intentionally narrowed to `qs[...]` so non-qubit
+    subscripts (e.g. classical `bits[c]`) are never rewritten by parametric
+    expansion, even when the int-parameter name happens to appear inside
+    them. Pins task 3.1.
+    """
+
+    def test_classical_bits_subscript_is_not_substituted(self):
+        from q_orca.ast import (
+            ActionParameter,
+            BoundArg,
+            QActionSignature,
+        )
+        from q_orca.compiler.parametric import expand_action_call
+
+        action = QActionSignature(
+            name="correct",
+            parameters=[ActionParameter(name="c", type="int")],
+            effect="if bits[c] == 1: X(qs[c])",
+        )
+        out = expand_action_call(action, [BoundArg(name="c", value=0)])
+        # qs[c] gets the int substitution; bits[c] is left alone.
+        assert "X(qs[0])" in out
+        assert "bits[c]" in out
+        assert "bits[0]" not in out
+
+
 class TestComputeConceptGram:
     """Covers the `compute_concept_gram` analysis helper (Section 2 of
     add-polysemantic-clusters)."""
@@ -933,13 +960,11 @@ class TestComputeConceptGram:
             ["0"],
             action_name="query_concept",
         )
-        try:
+        with pytest.raises(ConceptGramConfigurationError) as exc_info:
             compute_concept_gram(machine)
-        except ConceptGramConfigurationError as e:
-            assert "query_concept" in str(e)
-            assert "three angle" in str(e)
-        else:
-            raise AssertionError("expected ConceptGramConfigurationError")
+        message = str(exc_info.value)
+        assert "query_concept" in message
+        assert "three angle" in message
 
     def test_missing_action_raises(self):
         """Passing a label that doesn't name a parametric action raises."""
@@ -951,13 +976,11 @@ class TestComputeConceptGram:
             ["0.1, 0.2, 0.3"],
             action_name="query_concept",
         )
-        try:
+        with pytest.raises(ConceptGramConfigurationError) as exc_info:
             compute_concept_gram(machine, concept_action_label="does_not_exist")
-        except ConceptGramConfigurationError as e:
-            assert "does_not_exist" in str(e)
-            assert "query_concept" in str(e)  # listed as hint
-        else:
-            raise AssertionError("expected ConceptGramConfigurationError")
+        message = str(exc_info.value)
+        assert "does_not_exist" in message
+        assert "query_concept" in message  # listed as hint
 
     def test_no_call_sites_raises(self):
         """Action exists with correct shape but has zero call sites."""
@@ -969,13 +992,11 @@ class TestComputeConceptGram:
             [],
             action_name="query_concept",
         )
-        try:
+        with pytest.raises(ConceptGramConfigurationError) as exc_info:
             compute_concept_gram(machine)
-        except ConceptGramConfigurationError as e:
-            assert "query_concept" in str(e)
-            assert "no call sites" in str(e)
-        else:
-            raise AssertionError("expected ConceptGramConfigurationError")
+        message = str(exc_info.value)
+        assert "query_concept" in message
+        assert "no call sites" in message
 
     def test_analytic_identity_matrix_on_zero_angles(self):
         """Multiple call sites all at angles (0, 0, 0) must produce all-ones gram."""
