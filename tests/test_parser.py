@@ -15,6 +15,7 @@ from q_orca.parser.markdown_parser import (
     MdBulletList,
     MdBlockquote,
 )
+from tests.fixtures.effect_strings import EFFECT_STRING_CASES
 
 
 class TestMarkdownStructure:
@@ -1094,3 +1095,35 @@ class TestSplitTopLevelCommas:
 
     def test_whitespace_is_stripped_per_arg(self):
         assert _split_top_level_commas("  a  ,  b  ") == ["a", "b"]
+
+
+class TestSharedFixtureParserAdapter:
+    """The markdown parser's effect-string adapter must agree with the
+    shared parser fixture on AST gate shape for every supported gate kind.
+    """
+
+    @pytest.mark.parametrize(
+        "effect_str,angle_context,expected,notes",
+        EFFECT_STRING_CASES,
+        ids=[c[3] for c in EFFECT_STRING_CASES],
+    )
+    def test_quantum_gate_shape(self, effect_str, angle_context, expected, notes):
+        from q_orca.parser.markdown_parser import _parse_gate_from_effect
+
+        gate = _parse_gate_from_effect(
+            effect_str,
+            angle_context=angle_context,
+        )
+        assert gate is not None, f"{effect_str!r} returned None ({notes})"
+        assert gate.kind == expected.name
+        assert gate.targets == list(expected.targets)
+        if expected.controls:
+            assert gate.controls == list(expected.controls)
+        else:
+            assert not gate.controls
+        if expected.parameter is None:
+            assert gate.parameter is None
+        else:
+            assert gate.parameter == pytest.approx(expected.parameter)
+        if expected.custom_name is not None:
+            assert gate.custom_name == expected.custom_name

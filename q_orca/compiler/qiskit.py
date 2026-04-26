@@ -4,9 +4,13 @@ import re
 from dataclasses import dataclass
 from typing import Mapping
 
-from q_orca.angle import evaluate_angle
 from q_orca.ast import QMachineDef, QuantumGate, QTypeQubit, QTypeScalar, QTypeList, NoiseModel
 from q_orca.compiler.parametric import expand_action_call
+from q_orca.effect_parser import (
+    ParsedGate,
+    parse_effect_string as _shared_parse_effect_string,
+    parse_single_gate as _shared_parse_single_gate,
+)
 
 
 def _build_angle_context(machine: QMachineDef) -> dict[str, float]:
@@ -30,23 +34,26 @@ def _build_angle_context(machine: QMachineDef) -> dict[str, float]:
     return out
 
 
+def _parsed_gate_to_quantum_gate(gate: ParsedGate) -> QuantumGate:
+    """Translate a ParsedGate into the AST QuantumGate the compiler expects."""
+    return QuantumGate(
+        kind=gate.name,
+        targets=list(gate.targets),
+        controls=list(gate.controls) if gate.controls else None,
+        parameter=gate.parameter,
+        custom_name=gate.custom_name,
+    )
+
+
 def _parse_effect_string(
     effect_str: str,
     angle_context: Mapping[str, float] | None = None,
 ) -> list[QuantumGate]:
     """Parse an effect string with semicolon-separated gates into a list of QuantumGate."""
-    if not effect_str:
-        return []
-    gates = []
-    # Split on semicolons to handle multi-gate effects like "H(qs[0]); H(qs[1])"
-    for part in effect_str.split(";"):
-        part = part.strip()
-        if not part:
-            continue
-        gate = _parse_single_gate(part, angle_context=angle_context)
-        if gate:
-            gates.append(gate)
-    return gates
+    return [
+        _parsed_gate_to_quantum_gate(g)
+        for g in _shared_parse_effect_string(effect_str, angle_context=angle_context)
+    ]
 
 
 def _parse_single_gate(
@@ -54,118 +61,10 @@ def _parse_single_gate(
     angle_context: Mapping[str, float] | None = None,
 ) -> QuantumGate | None:
     """Parse a single gate from an effect string."""
-    effect_str = effect_str.strip()
-
-    # Hadamard(qs[N]) or Hadamard(qs[N] M K)
-    m = re.search(r"Hadamard\(\s*(\w+\[(?:\d+(?:\s+\d+)*)?\])\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        indices_str = m.group(1)
-        indices = [int(x) for x in re.findall(r"\d+", indices_str)]
-        return QuantumGate(kind="H", targets=indices)
-
-    # CCX / CCNOT / Toffoli / CCZ — two controls + one target (last argument)
-    m = re.search(
-        r"(CCX|CCNOT|Toffoli|CCZ)\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*\)",
-        effect_str,
-        re.IGNORECASE,
-    )
-    if m:
-        name = m.group(1).upper()
-        c0, c1, tgt = int(m.group(2)), int(m.group(3)), int(m.group(4))
-        kind = "CCZ" if name == "CCZ" else "CCNOT"
-        return QuantumGate(kind=kind, targets=[tgt], controls=[c0, c1])
-
-    # MCX / MCZ — variable arity, last argument is the target.
-    # Requires ≥3 args total (≥2 controls); for 2-control cases use CCX/CCZ.
-    m = re.search(
-        r"(MCX|MCZ)\(\s*((?:\w+\[\d+\]\s*,\s*){2,}\w+\[\d+\])\s*\)",
-        effect_str,
-        re.IGNORECASE,
-    )
-    if m:
-        kind = m.group(1).upper()
-        indices = [int(x) for x in re.findall(r"\d+", m.group(2))]
-        return QuantumGate(kind=kind, targets=[indices[-1]], controls=indices[:-1])
-
-    # CSWAP / Fredkin — 1 control + 2 swap targets.
-    m = re.search(
-        r"CSWAP\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*\)",
-        effect_str,
-        re.IGNORECASE,
-    )
-    if m:
-        ctrl, t1, t2 = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        return QuantumGate(kind="CSWAP", targets=[t1, t2], controls=[ctrl])
-
-    # CNOT(qs[control], qs[target]) — also accepts CX alias
-    m = re.search(r"(?:CNOT|CX)\(\s*(\w+\[(\d+)\])\s*,\s*(\w+\[(\d+)\])\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        ctrl = int(m.group(2))
-        tgt = int(m.group(4))
-        return QuantumGate(kind="CNOT", targets=[tgt], controls=[ctrl])
-
-    # CZ(qs[control], qs[target])
-    m = re.search(r"CZ\(\s*(\w+\[(\d+)\])\s*,\s*(\w+\[(\d+)\])\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        ctrl = int(m.group(2))
-        tgt = int(m.group(4))
-        return QuantumGate(kind="CZ", targets=[tgt], controls=[ctrl])
-
-    # SWAP(qs[a], qs[b])
-    m = re.search(r"SWAP\(\s*(\w+\[(\d+)\])\s*,\s*(\w+\[(\d+)\])\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        idx1 = int(m.group(2))
-        idx2 = int(m.group(4))
-        return QuantumGate(kind="SWAP", targets=[idx1, idx2])
-
-    # Two-qubit parameterized gates: CRx/CRy/CRz/RXX/RYY/RZZ(qs[i], qs[j], angle)
-    m = re.search(r"(CRx|CRy|CRz|RXX|RYY|RZZ)\(\s*\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        raw_kind = m.group(1).upper()
-        canonical_map = {"CRX": "CRx", "CRY": "CRy", "CRZ": "CRz", "RXX": "RXX", "RYY": "RYY", "RZZ": "RZZ"}
-        kind = canonical_map.get(raw_kind, raw_kind)
-        i = int(m.group(2))
-        j = int(m.group(3))
-        angle_str = m.group(4).strip()
-        try:
-            theta = evaluate_angle(angle_str, angle_context)
-        except ValueError:
-            return None
-        if kind in ("CRx", "CRy", "CRz"):
-            return QuantumGate(kind=kind, targets=[j], controls=[i], parameter=theta)
-        else:
-            return QuantumGate(kind=kind, targets=[i, j], parameter=theta)
-
-    # Rx/Ry/Rz(qs[N], <angle>) — canonical qubit-first, angle-second
-    m = re.search(r"R([XYZ])\(\s*\w+\[(\d+)\]\s*,\s*([^)]+)\s*\)", effect_str, re.IGNORECASE)
-    if m:
-        axis = m.group(1).lower()  # canonical GateKind: 'Rx'/'Ry'/'Rz'
-        idx = int(m.group(2))
-        angle_str = m.group(3).strip()
-        try:
-            theta = evaluate_angle(angle_str, angle_context)
-        except ValueError:
-            theta = 0.0  # symbolic parameter — caller should validate upstream
-        return QuantumGate(kind=f"R{axis}", targets=[idx], parameter=theta)
-
-    # X(qs[N]), Y(qs[N]), Z(qs[N]), T(qs[N]), S(qs[N])
-    m = re.search(r"^([XYZS])\(\s*(\w+\[(\d+)\])\s*\)", effect_str)
-    if m:
-        kind = m.group(1)
-        idx = int(m.group(3))
-        return QuantumGate(kind=kind, targets=[idx])
-
-    # Generic single-qubit gate: GateName(qs[N])
-    m = re.search(r"^([A-Z][a-zA-Z]*)\(\s*(\w+\[(\d+)\])\s*\)", effect_str)
-    if m:
-        kind = m.group(1).upper()
-        idx = int(m.group(3))
-        kind_map = {"H": "H", "X": "X", "Y": "Y", "Z": "Z", "T": "T", "S": "S", "I": "I"}
-        if kind in kind_map:
-            return QuantumGate(kind=kind_map[kind], targets=[idx])
-        return QuantumGate(kind="custom", targets=[idx], custom_name=kind)
-
-    return None
+    parsed = _shared_parse_single_gate(effect_str, angle_context=angle_context)
+    if parsed is None:
+        return None
+    return _parsed_gate_to_quantum_gate(parsed)
 
 
 DEFAULT_SHOTS = 1024
