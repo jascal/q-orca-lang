@@ -9,6 +9,7 @@ from q_orca.verifier.completeness import check_completeness
 from q_orca.verifier.determinism import check_determinism
 from q_orca.verifier.classical_context import check_classical_context
 from q_orca.verifier.quantum import verify_quantum
+from q_orca.verifier.resources import check_resource_invariants
 from q_orca.verifier.superposition import check_superposition_leaks
 from q_orca.verifier.types import QVerificationResult, QVerificationError
 
@@ -20,6 +21,7 @@ class VerifyOptions:
     skip_qutip: bool = False
     skip_dynamic: bool = False
     skip_classical_context: bool = False
+    skip_resource_bounds: bool = False
     backend: str = "qutip"
 
 
@@ -58,6 +60,10 @@ def verify(machine: QMachineDef, options: Optional[VerifyOptions] = None) -> QVe
     if not opts.skip_dynamic:
         dynamic_errors, _ = _run_dynamic_backend(machine, opts.backend)
         all_errors.extend(dynamic_errors)
+
+    # Stage 4c: Resource-bound invariants (opt-in, gated by presence)
+    if not opts.skip_resource_bounds:
+        all_errors.extend(check_resource_invariants(machine))
 
     # Stage 5: Superposition leak check
     superposition = check_superposition_leaks(machine)

@@ -279,10 +279,11 @@ class VerificationRule:
 
 @dataclass
 class Invariant:
-    kind: str          # 'entanglement' | 'schmidt_rank'
-    qubits: list[int]  # e.g. [0, 1]
+    kind: str          # 'entanglement' | 'schmidt_rank' | 'resource'
+    qubits: list[int]  # e.g. [0, 1]; empty for kind='resource'
     op: str = "eq"     # 'eq' | 'ge' | 'gt' | 'le' | 'lt'
     value: Optional[float] = None  # e.g. 2 for schmidt_rank >= 2
+    metric: Optional[str] = None  # 'gate_count' | 'depth' | 'cx_count' | 't_count' | 'logical_qubits' (kind='resource' only)
 
 
 @dataclass
@@ -311,6 +312,7 @@ class QMachineDef:
     effects: list[QEffectDef] = field(default_factory=list)
     verification_rules: list[VerificationRule] = field(default_factory=list)
     invariants: list[Invariant] = field(default_factory=list)
+    resource_metrics: list[str] = field(default_factory=list)
 
 
 @dataclass
