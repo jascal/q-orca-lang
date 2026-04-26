@@ -2,10 +2,10 @@
 
 ## 1. AST extensions
 
-- [ ] 1.1 Add `QMachine.resource_metrics: list[str] = field(default_factory=list)`
+- [x] 1.1 Add `QMachine.resource_metrics: list[str] = field(default_factory=list)`
       to `q_orca/ast.py`. Empty list means "use the default metric
       set" downstream.
-- [ ] 1.2 Extend the `Invariant` dataclass with a new `kind` value
+- [x] 1.2 Extend the `Invariant` dataclass with a new `kind` value
       `"resource"` and a `metric: str | None = None` field. Existing
       `entanglement` and `schmidt_rank` invariants continue to set
       `metric=None`.
