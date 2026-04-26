@@ -37,7 +37,9 @@ evaluated float for every rotation-gate action.
 - **THEN** it matches the two-qubit parameterized branch (because all
   patterns are anchored with `^` and two-qubit parameterized gates
   precede single-qubit rotation in the pattern table) and produces
-  `ParsedGate(name="CRX", targets=(1,), controls=(0,), parameter=<beta>)`
+  `ParsedGate(name="CRx", targets=(1,), controls=(0,), parameter=<beta>)`.
+  The dynamic-verifier adapter uppercases `name` to `"CRX"` for the
+  gate-dict shape; the AST adapter preserves source case.
 
 #### Scenario: Two-qubit parameterized gates are never silently dropped
 
