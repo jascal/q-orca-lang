@@ -1188,6 +1188,12 @@ def _parse_gate_from_effect(
     if not gates:
         return None
     parsed = gates[0]
+    # Measurement effects (`measure(qs[i])`, `M(qs[i])`) are stored on
+    # `action.measurement`, not `action.gate`. The shared parser exposes
+    # them as a custom-gate fallback; the adapter drops that here so the
+    # static unitarity check doesn't see them as unverified custom gates.
+    if parsed.name == "custom" and (parsed.custom_name or "").upper() in {"MEASURE", "M"}:
+        return None
     return QuantumGate(
         kind=parsed.name,
         targets=list(parsed.targets),
