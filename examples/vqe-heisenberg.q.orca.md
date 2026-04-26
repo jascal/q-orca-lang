@@ -94,3 +94,18 @@
 - unitarity: all gates preserve norm
 - completeness: all branches converge or continue iterating
 - no-cloning: no copy operations
+- resource_bounds: ansatz cost budget for early-NISQ hardware
+
+## resources
+| Metric         | Basis      |
+|----------------|------------|
+| gate_count     | logical    |
+| depth          | logical    |
+| cx_count       | u3+cx      |
+| logical_qubits | -          |
+
+## invariants
+- gate_count <= 3
+- depth <= 1
+- cx_count <= 1
+- logical_qubits == 2

@@ -97,7 +97,26 @@ def test_unknown_metric_in_resources_section():
 
 
 def test_no_resources_section_uses_default_metrics():
-    m = _load("bell-entangler.q.orca.md")
+    src = """\
+# machine NoResources
+
+## context
+| Field | Type | Default |
+| qubits | list<qubit> | [q0, q1] |
+
+## state |0> [initial]
+
+## state |1> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+| |0> | go | | |1> | a |
+
+## actions
+| Name | Signature | Effect |
+| a | (qs) -> qs | H(qs[0]) |
+"""
+    m = parse_q_orca_markdown(src).file.machines[0]
     assert m.resource_metrics == []
     _, resources = compile_with_resources(m)
     assert set(resources.keys()) == {

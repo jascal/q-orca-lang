@@ -58,3 +58,14 @@
 - entanglement: final state must have Schmidt rank >1 before measure
 - completeness: all possible collapses covered (no missing branches)
 - no-cloning: no copy ops allowed
+- resource_bounds: pinned gate budget for the prep circuit
+
+## resources
+| Metric     | Basis   |
+|------------|---------|
+| gate_count | logical |
+| cx_count   | logical |
+
+## invariants
+- gate_count <= 2
+- cx_count == 1

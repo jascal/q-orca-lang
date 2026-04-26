@@ -36,6 +36,7 @@ def main():
     v.add_argument("--skip-completeness", action="store_true", help="Skip stage 2: event completeness checks")
     v.add_argument("--skip-quantum", action="store_true", help="Skip stage 4: quantum-specific checks (unitarity, entanglement)")
     v.add_argument("--skip-dynamic", action="store_true", help="Skip stage 4b: QuTiP circuit simulation (Schmidt rank, entropy)")
+    v.add_argument("--skip-resource-bounds", action="store_true", help="Skip stage 4c: resource invariant checks (gate_count, depth, cx_count, t_count, logical_qubits)")
     v.add_argument("--strict", action="store_true", help="Treat warnings as errors (exit 1 on any warning)")
     v.add_argument("--backend", default=None, metavar="BACKEND",
                    help="Verification backend: qutip (default), cuquantum, cudaq")
@@ -132,6 +133,7 @@ def _cmd_verify(parsed, args):
             skip_completeness=args.skip_completeness,
             skip_quantum=args.skip_quantum,
             skip_dynamic=args.skip_dynamic,
+            skip_resource_bounds=args.skip_resource_bounds,
             backend=backend,
         )
         result = verify(machine, opts)

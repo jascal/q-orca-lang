@@ -127,19 +127,19 @@
 
 ## 8. Examples
 
-- [ ] 8.1 Update `examples/qaoa-maxcut.q.orca.md` to include a
+- [x] 8.1 Update `examples/qaoa-maxcut.q.orca.md` to include a
       `## resources` section listing all five metrics, plus a
       `## invariants` block with pinned bounds. Run the example
       through the verifier; the bounds SHALL pass at the values the
       example currently produces.
-- [ ] 8.2 Update `examples/vqe-heisenberg.q.orca.md` similarly.
-- [ ] 8.3 Update `examples/bell-entangler.q.orca.md` to demonstrate
+- [x] 8.2 Update `examples/vqe-heisenberg.q.orca.md` similarly.
+- [x] 8.3 Update `examples/bell-entangler.q.orca.md` to demonstrate
       a minimal resource section: `gate_count <= 2; cx_count == 1`.
       Smallest possible illustration.
 
 ## 9. Documentation
 
-- [ ] 9.1 New file `docs/language/resources.md` covering:
+- [x] 9.1 New file `docs/language/resources.md` covering:
       - Surface syntax of `## resources` (with example).
       - Metric definitions (un-optimized vs post-transpile).
       - Resource invariants in `## invariants`.
@@ -147,17 +147,17 @@
         `RESOURCE_BOUND_INDETERMINATE`,
         `unknown_resource_metric`).
       - The default-metric-set fallback rule.
-- [ ] 9.2 Update README's verifier rule list with `resource_bounds`.
-- [ ] 9.3 CHANGELOG entry under the next release noting the
+- [x] 9.2 Update README's verifier rule list with `resource_bounds`.
+- [x] 9.3 CHANGELOG entry under the next release noting the
       additive `## resources` section, the five new invariant
       identifiers, and the two new compiler entry points.
 
 ## 10. Spec consistency
 
-- [ ] 10.1 `openspec validate add-resource-estimation --strict` is
+- [x] 10.1 `openspec validate add-resource-estimation --strict` is
       green.
-- [ ] 10.2 Full pytest suite green.
-- [ ] 10.3 Ruff clean across the touched files.
+- [x] 10.2 Full pytest suite green.
+- [x] 10.3 Ruff clean across the touched files.
 - [ ] 10.4 Run `openspec archive add-resource-estimation` after
       merge so the deltas land in
       `openspec/specs/{language,compiler,verifier}/spec.md`.

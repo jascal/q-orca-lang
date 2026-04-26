@@ -46,3 +46,18 @@
 
 ## verification rules
 - unitarity: all gates preserve norm
+- resource_bounds: NISQ-fit budget for the per-layer prep circuit
+
+## resources
+| Metric         | Basis      |
+|----------------|------------|
+| gate_count     | logical    |
+| depth          | logical    |
+| cx_count       | u3+cx      |
+| logical_qubits | -          |
+
+## invariants
+- gate_count <= 9
+- depth <= 5
+- cx_count <= 6
+- logical_qubits == 3

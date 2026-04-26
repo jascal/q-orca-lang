@@ -143,6 +143,7 @@ Every machine passes through 5 stages in order. A failure in stage 1 stops the p
 | 3 — Determinism | `determinism.py` | Guards on competing transitions are mutually exclusive |
 | 4 — Quantum | `quantum.py` | Unitarity of gates, no-cloning violations, entanglement declarations, collapse probability sum = 1 |
 | 4b — Dynamic | `dynamic.py` | QuTiP circuit simulation: actual Schmidt rank and Von Neumann entropy for every declared entangled state |
+| 4c — Resource bounds | `resources.py` | `gate_count`, `depth`, `cx_count`, `t_count`, `logical_qubits` against budgets declared in `## invariants` (skipped when no resource invariants are present) |
 | 5 — Superposition | `superposition.py` | No superposition coherence leaks across unguarded transitions |
 
 Stage 4b is a soft dependency: if QuTiP is not installed it skips gracefully and CI still passes.
@@ -265,6 +266,7 @@ q-orca verify examples/bell-entangler.q.orca.md --skip-dynamic
 | `--skip-completeness` | Skip stage 2: event completeness checks |
 | `--skip-quantum` | Skip stage 4: unitarity, no-cloning, entanglement |
 | `--skip-dynamic` | Skip stage 4b: QuTiP circuit simulation |
+| `--skip-resource-bounds` | Skip stage 4c: resource invariant checks |
 | `--backend BACKEND` | Verification backend: `qutip` (default), `cuquantum`, `cudaq` |
 | `--gpu-count N` | Number of GPUs to use (cuquantum backend) |
 | `--tensor-network` | Use tensor-network contraction (cuquantum backend) |
@@ -618,6 +620,7 @@ The 5 verification stages are:
 | 2 Completeness | `completeness.py` | Every (state, event) pair has a transition |
 | 3 Determinism | `determinism.py` | Guards are mutually exclusive |
 | 4 Quantum | `quantum.py` + `dynamic.py` | Unitarity, no-cloning, entanglement (QuTiP), collapse completeness |
+| 4c Resource bounds | `resources.py` | Static gate/depth/CX/T/qubit budgets vs `## invariants` |
 | 5 Superposition | `superposition.py` | No superposition coherence leaks |
 
 ---
