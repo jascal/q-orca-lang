@@ -1,9 +1,12 @@
 """Tests for Q-Orca compilers (Mermaid, QASM, Qiskit)."""
 
+import pytest
+
 from q_orca.parser.markdown_parser import parse_q_orca_markdown
 from q_orca.compiler.mermaid import compile_to_mermaid
 from q_orca.compiler.qasm import compile_to_qasm
 from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
+from tests.fixtures.effect_strings import EFFECT_STRING_CASES
 
 
 def _machine(source: str):
@@ -989,3 +992,32 @@ class TestComputeConceptGram:
         gram = compute_concept_gram(machine)
         assert gram.shape == (3, 3)
         np.testing.assert_allclose(np.abs(gram), np.ones((3, 3)), atol=1e-9)
+
+
+class TestSharedFixtureCompilerAdapter:
+    """The Qiskit compiler's effect-string adapter must agree with the
+    shared parser fixture on AST gate shape for every supported gate kind.
+    """
+
+    @pytest.mark.parametrize(
+        "effect_str,angle_context,expected,notes",
+        EFFECT_STRING_CASES,
+        ids=[c[3] for c in EFFECT_STRING_CASES],
+    )
+    def test_quantum_gate_shape(self, effect_str, angle_context, expected, notes):
+        from q_orca.compiler.qiskit import _parse_single_gate
+
+        gate = _parse_single_gate(effect_str, angle_context=angle_context)
+        assert gate is not None, f"{effect_str!r} returned None ({notes})"
+        assert gate.kind == expected.name
+        assert gate.targets == list(expected.targets)
+        if expected.controls:
+            assert gate.controls == list(expected.controls)
+        else:
+            assert not gate.controls
+        if expected.parameter is None:
+            assert gate.parameter is None
+        else:
+            assert gate.parameter == pytest.approx(expected.parameter)
+        if expected.custom_name is not None:
+            assert gate.custom_name == expected.custom_name
