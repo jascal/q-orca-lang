@@ -305,6 +305,7 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
     effects: list[QEffectDef] = []
     verification_rules: list[VerificationRule] = []
     invariants: list[Invariant] = []
+    resource_metrics: list[str] = []
 
     # Pre-scan for the context table so that angle expressions in actions
     # can reference numeric context fields regardless of section order.
@@ -382,7 +383,14 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
             if section_name_lower == "invariants":
                 i += 1
                 if i < len(elements) and isinstance(elements[i], MdBulletList):
-                    invariants = _parse_invariants(elements[i])
+                    invariants = _parse_invariants(elements[i], errors)
+                    i += 1
+                continue
+
+            if section_name_lower == "resources":
+                i += 1
+                if i < len(elements) and isinstance(elements[i], MdTable):
+                    resource_metrics = _parse_resources_table(elements[i], errors)
                     i += 1
                 continue
 
@@ -411,6 +419,7 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
         effects=effects,
         verification_rules=verification_rules,
         invariants=invariants,
+        resource_metrics=resource_metrics,
     )
 
 
@@ -838,7 +847,10 @@ def _parse_verification_rules(list_el: MdBulletList) -> list[VerificationRule]:
     return rules
 
 
-def _parse_invariants(list_el: MdBulletList) -> list[Invariant]:
+_RESOURCE_METRIC_NAMES = ("gate_count", "depth", "cx_count", "t_count", "logical_qubits")
+
+
+def _parse_invariants(list_el: MdBulletList, errors: list[str] | None = None) -> list[Invariant]:
     invariants: list[Invariant] = []
     for item in list_el.items:
         # entanglement(q0,q1) = True
@@ -856,7 +868,46 @@ def _parse_invariants(list_el: MdBulletList) -> list[Invariant]:
             op = _parse_comparison_op(m.group(3))
             value = float(m.group(4))
             invariants.append(Invariant(kind="schmidt_rank", qubits=[q1, q2], op=op, value=value))
+            continue
+        # resource invariants: gate_count|depth|cx_count|t_count|logical_qubits <op> <int>
+        m = re.match(
+            r"(gate_count|depth|cx_count|t_count|logical_qubits)\s*(>=|<=|==|=|<|>)\s*(\d+)\s*$",
+            item,
+        )
+        if m:
+            metric = m.group(1)
+            op = _parse_comparison_op(m.group(2))
+            value = float(m.group(3))
+            invariants.append(Invariant(kind="resource", qubits=[], op=op, value=value, metric=metric))
     return invariants
+
+
+def _parse_resources_table(table: MdTable, errors: list[str] | None = None) -> list[str]:
+    """Parse a `## resources` table into a list of metric names.
+
+    Accepts a 2- or 3-column table whose first column is `Metric`.
+    Unknown metric names append a structured `unknown_resource_metric`
+    error referencing the offending row.
+    """
+    metric_idx = _find_column_index(table.headers, "metric")
+    if metric_idx < 0:
+        return []
+    metrics: list[str] = []
+    for row in table.rows:
+        if metric_idx >= len(row):
+            continue
+        name = _strip_backticks(row[metric_idx]).strip()
+        if not name:
+            continue
+        if name not in _RESOURCE_METRIC_NAMES:
+            if errors is not None:
+                errors.append(
+                    f"unknown_resource_metric: '{name}' (expected one of "
+                    f"{', '.join(_RESOURCE_METRIC_NAMES)})"
+                )
+            continue
+        metrics.append(name)
+    return metrics
 
 
 # ============================================================

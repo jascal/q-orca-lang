@@ -12,29 +12,29 @@
 
 ## 2. Parser — `## resources` section
 
-- [ ] 2.1 Add `_parse_resources_table(table, errors) -> list[str]` in
+- [x] 2.1 Add `_parse_resources_table(table, errors) -> list[str]` in
       `q_orca/parser/markdown_parser.py`. Accept a 2- or 3-column
       table with header `Metric | Basis | Notes?`. Return the list of
       metric names from the first column.
-- [ ] 2.2 Validate each metric name against the recognized set
+- [x] 2.2 Validate each metric name against the recognized set
       (`gate_count`, `depth`, `cx_count`, `t_count`,
       `logical_qubits`). Unknown names SHALL append a structured
       `unknown_resource_metric` error referencing the row.
-- [ ] 2.3 Wire `_parse_machine_chunk` to detect `## resources` after
+- [x] 2.3 Wire `_parse_machine_chunk` to detect `## resources` after
       the existing `## actions` and `## invariants` parsing. Section
       is optional; absence leaves `resource_metrics=[]`.
 
 ## 3. Parser — resource invariants
 
-- [ ] 3.1 Extend the `## invariants` bullet-list grammar in
+- [x] 3.1 Extend the `## invariants` bullet-list grammar in
       `q_orca/parser/markdown_parser.py` to recognize five new
       identifiers (`gate_count`, `depth`, `cx_count`, `t_count`,
       `logical_qubits`) on the LHS of a comparison.
-- [ ] 3.2 Accept the comparison operators `<=`, `<`, `==`, `>=`, `>`
+- [x] 3.2 Accept the comparison operators `<=`, `<`, `==`, `>=`, `>`
       and an integer literal RHS. Produce
       `Invariant(kind="resource", metric=<name>, op=<op>,
       value=<int>)`.
-- [ ] 3.3 Add tests in `tests/test_parser.py::TestResourceInvariants`
+- [x] 3.3 Add tests in `tests/test_parser.py::TestResourceInvariants`
       covering each metric × operator combination plus an
       unknown-identifier error case.
 

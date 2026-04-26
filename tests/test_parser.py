@@ -1127,3 +1127,123 @@ class TestSharedFixtureParserAdapter:
             assert gate.parameter == pytest.approx(expected.parameter)
         if expected.custom_name is not None:
             assert gate.custom_name == expected.custom_name
+
+
+class TestResourcesSection:
+    """`## resources` is an optional table whose first column lists the
+    metric names a machine wants reported. Unknown names produce a
+    structured parser error; absence leaves `resource_metrics=[]`.
+    """
+
+    BASE = """\
+# machine Foo
+
+## state |0> [initial]
+
+## state |1> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+| |0> | go | | |1> | a |
+
+## actions
+| Name | Signature |
+| a | (qs) -> qs |
+"""
+
+    def test_two_column_form_parses(self):
+        src = self.BASE + """
+## resources
+| Metric | Basis |
+| gate_count | logical |
+| cx_count | logical |
+"""
+        result = parse_q_orca_markdown(src)
+        assert result.errors == []
+        m = result.file.machines[0]
+        assert m.resource_metrics == ["gate_count", "cx_count"]
+
+    def test_three_column_form_parses_identically(self):
+        src = self.BASE + """
+## resources
+| Metric | Basis | Notes |
+| gate_count | logical | total |
+| t_count | clifford+t | FT cost |
+"""
+        result = parse_q_orca_markdown(src)
+        assert result.errors == []
+        m = result.file.machines[0]
+        assert m.resource_metrics == ["gate_count", "t_count"]
+
+    def test_unknown_metric_produces_structured_error(self):
+        src = self.BASE + """
+## resources
+| Metric | Basis |
+| nonsense | logical |
+"""
+        result = parse_q_orca_markdown(src)
+        assert any("unknown_resource_metric" in e and "nonsense" in e for e in result.errors)
+        m = result.file.machines[0]
+        assert m.resource_metrics == []
+
+    def test_missing_section_leaves_default(self):
+        result = parse_q_orca_markdown(self.BASE)
+        assert result.errors == []
+        m = result.file.machines[0]
+        assert m.resource_metrics == []
+
+
+class TestResourceInvariants:
+    """`## invariants` accepts `<metric> <op> <int>` for the five
+    resource metric identifiers, producing
+    `Invariant(kind="resource", metric=..., op=..., value=...)`.
+    """
+
+    BASE = """\
+# machine Foo
+
+## state |0> [initial]
+
+## state |1> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+| |0> | go | | |1> | a |
+
+## actions
+| Name | Signature |
+| a | (qs) -> qs |
+"""
+
+    @pytest.mark.parametrize(
+        "metric,op_text,op_canonical,value",
+        [
+            ("gate_count", "<=", "le", 10),
+            ("depth", "<", "lt", 5),
+            ("cx_count", "==", "eq", 2),
+            ("t_count", ">=", "ge", 0),
+            ("logical_qubits", ">", "gt", 1),
+        ],
+    )
+    def test_resource_invariant_each_metric_and_op(
+        self, metric, op_text, op_canonical, value
+    ):
+        src = self.BASE + f"\n## invariants\n- {metric} {op_text} {value}\n"
+        result = parse_q_orca_markdown(src)
+        assert result.errors == []
+        invs = result.file.machines[0].invariants
+        assert len(invs) == 1
+        inv = invs[0]
+        assert inv.kind == "resource"
+        assert inv.metric == metric
+        assert inv.op == op_canonical
+        assert inv.value == value
+
+    def test_unknown_invariant_identifier_is_skipped(self):
+        # Unknown identifiers don't match any branch; the parser leaves
+        # them out of `invariants` rather than emitting an error today.
+        # This pins that current behavior; tightening to an error is a
+        # separate change.
+        src = self.BASE + "\n## invariants\n- nonexistent_metric <= 5\n"
+        result = parse_q_orca_markdown(src)
+        assert result.file.machines[0].invariants == []
