@@ -7,9 +7,7 @@ state machines. A Q-Orca source file is a normal Markdown document
 whose headings and tables are interpreted as an executable machine
 definition. This spec captures the syntax the parser at
 `q_orca/parser/markdown_parser.py` currently accepts.
-
 ## Requirements
-
 ### Requirement: Machine Heading
 
 A Q-Orca source file SHALL introduce a machine with a level-1 heading
@@ -189,32 +187,30 @@ syntaxes and map them to gate kinds:
 - `CNOT(qs[c], qs[t])` → `CNOT`
 - `X(qs[i])`, `Y(qs[i])`, `Z(qs[i])`, `T(qs[i])`, `S(qs[i])`
 - `Rx(qs[i], <angle>)`, `Ry(qs[i], <angle>)`, `Rz(qs[i], <angle>)` → `Rx`/`Ry`/`Rz`
-- `CRx(qs[c], qs[t], <angle>)`, `CRy(...)`, `CRz(...)` → `CRx`/`CRy`/`CRz`
-- `RXX(qs[i], qs[j], <angle>)`, `RYY(...)`, `RZZ(...)` → `RXX`/`RYY`/`RZZ`
+- `CCX(qs[c0], qs[c1], qs[t])` or `CCNOT(...)` or `Toffoli(...)` → `CCNOT`
+- `CCZ(qs[c0], qs[c1], qs[t])` → `CCZ`
+- `MCX(qs[c0], qs[c1], ..., qs[t])` (≥ 3 args, last is target) → `MCX`
+- `MCZ(qs[c0], qs[c1], ..., qs[t])` (≥ 3 args, last is target) → `MCZ`
 - `measure(qs[i, ...])` or `M(qs[i])` → `Measurement`
 
 The canonical rotation-gate argument order SHALL be qubit-first,
-angle-second. `<angle>` SHALL be parsed by the symbolic angle
-evaluator, which accepts: decimal literals, `pi`, `pi/<int>`,
-`<int>*pi`, `<int>*pi/<int>`, a leading minus sign on any of the
-above, AND context-field references resolved against the current
-machine's `## context` table. Supported context-reference forms are:
+angle-second. `<angle>` SHALL be parsed by the symbolic angle evaluator,
+which accepts: decimal literals, `pi`, `pi/<int>`, `<int>*pi`,
+`<int>*pi/<int>`, and a leading minus sign on any of the above. Any
+rotation-gate effect whose argument order or angle does not match SHALL
+produce a parser error rather than silently coercing to `0.0`.
 
-- bare identifier: `gamma`
-- leading minus: `-gamma`
-- integer scaling: `2*gamma`, `2gamma`, `gamma/2`
-- π scaling: `gamma*pi`, `pi*gamma`
+The qubit-list subscript inside any of the recognized gate forms SHALL
+accept either a literal non-negative integer (`qs[0]`, `qs[10]`) or a
+bound parameter identifier (`qs[c]`) drawn from the enclosing action's
+signature. Identifier subscripts whose name does not appear in the
+action's signature SHALL produce a parser error referencing the
+unbound name.
 
-A context reference SHALL resolve only against context fields of type
-`float` or `int` whose default value parses as a number. The literal
-forms (`pi`, `pi/4`, etc.) SHALL be tried first, so a literal is never
-shadowed by a same-named context field.
-
-Any rotation-gate effect whose argument order or angle does not match
-SHALL produce a parser error rather than silently coercing to `0.0`.
-The error message for an unrecognized identifier SHALL name both the
-identifier and (when known) whether the field exists but has a
-non-numeric default.
+For `MCX` and `MCZ` the parser SHALL require at least three arguments
+(at least two controls and one target). Two-control invocations of `X`
+and `Z` SHALL be written as `CCX` and `CCZ`, not `MCX(qs[c0], qs[c1])`,
+`MCZ(qs[c0], qs[c1])`, which fail to parse.
 
 #### Scenario: CNOT effect
 
@@ -222,81 +218,48 @@ non-numeric default.
 - **THEN** the parsed `QuantumGate` has `kind="CNOT"`, `targets=[1]`,
   `controls=[0]`
 
-#### Scenario: Rotation with decimal angle
+#### Scenario: CCNOT effect
 
-- **WHEN** an action's effect is `Rx(qs[0], 1.5708)`
-- **THEN** the parsed `QuantumGate` has `kind="Rx"`, `targets=[0]`,
-  and `parameter ≈ 1.5708`
+- **WHEN** an action's effect is `CCNOT(qs[0], qs[1], qs[2])`
+- **THEN** the parsed `QuantumGate` has `kind="CCNOT"`, `targets=[2]`,
+  `controls=[0, 1]`
 
-#### Scenario: Rotation with symbolic angle
+#### Scenario: CCZ effect
 
-- **WHEN** an action's effect is `Ry(qs[1], pi/4)`
-- **THEN** the parsed `QuantumGate` has `kind="Ry"`, `targets=[1]`,
-  and `parameter == math.pi / 4`
+- **WHEN** an action's effect is `CCZ(qs[0], qs[1], qs[2])`
+- **THEN** the parsed `QuantumGate` has `kind="CCZ"`, `targets=[2]`,
+  `controls=[0, 1]`
 
-#### Scenario: Rotation with compound symbolic angle
+#### Scenario: MCX with three controls
 
-- **WHEN** an action's effect is `Rz(qs[0], 3*pi/4)`
-- **THEN** the parsed `QuantumGate` has `kind="Rz"`, `targets=[0]`,
-  and `parameter == 3 * math.pi / 4`
+- **WHEN** an action's effect is `MCX(qs[0], qs[1], qs[2], qs[3])`
+- **THEN** the parsed `QuantumGate` has `kind="MCX"`, `targets=[3]`,
+  `controls=[0, 1, 2]`
 
-#### Scenario: Wrong argument order produces an error
+#### Scenario: MCZ with three controls
 
-- **WHEN** an action's effect is `Rx(1.5708, qs[0])` (angle-first)
-- **THEN** the parser emits a parse error and does not produce a
-  `QuantumGate` silently populated with `parameter=0.0`
+- **WHEN** an action's effect is `MCZ(qs[0], qs[1], qs[2], qs[3])`
+- **THEN** the parsed `QuantumGate` has `kind="MCZ"`, `targets=[3]`,
+  `controls=[0, 1, 2]`
 
-#### Scenario: Bare context-field identifier
+#### Scenario: MCX with too few arguments fails
 
-- **WHEN** the machine declares `| gamma | float | 0.5 |` in `## context`
-  and an action's effect is `Rx(qs[0], gamma)`
-- **THEN** the parsed `QuantumGate` has `kind="Rx"`, `targets=[0]`,
-  and `parameter == 0.5`
+- **WHEN** an action's effect is `MCX(qs[0], qs[1])` (only one control)
+- **THEN** the parser emits a parse error referencing the minimum-arity
+  requirement, and does not silently fall through to `CNOT`
 
-#### Scenario: Negated context-field identifier
+#### Scenario: Identifier subscript with bound parameter
 
-- **WHEN** the machine declares `| theta | float | 0.7 |` and an
-  action's effect is `Ry(qs[1], -theta)`
-- **THEN** the parsed `QuantumGate` has `parameter == -0.7`
+- **WHEN** an action `query | (qs, c: int) -> qs | Hadamard(qs[c])` is
+  parsed
+- **THEN** the parser accepts the effect string and records the
+  subscript as an identifier reference `c`, not a literal int
 
-#### Scenario: Integer scaling of a context field
+#### Scenario: Identifier subscript with unbound parameter
 
-- **WHEN** the machine declares `| beta | float | 0.25 |` and an
-  action's effect is `Rz(qs[0], 2*beta)`
-- **THEN** the parsed `QuantumGate` has `parameter == 0.5`
-
-#### Scenario: Division of a context field by an integer
-
-- **WHEN** the machine declares `| theta | float | 1.6 |` and an
-  action's effect is `Rx(qs[0], theta/2)`
-- **THEN** the parsed `QuantumGate` has `parameter == 0.8`
-
-#### Scenario: π scaling of a context field
-
-- **WHEN** the machine declares `| frac | float | 0.5 |` and an
-  action's effect is `Rz(qs[0], frac*pi)`
-- **THEN** the parsed `QuantumGate` has `parameter == math.pi / 2`
-
-#### Scenario: Two-qubit parameterized gate uses context reference
-
-- **WHEN** the machine declares `| gamma | float | 0.5 |` and an
-  action's effect is `RZZ(qs[0], qs[1], gamma)`
-- **THEN** the parsed `QuantumGate` has `kind="RZZ"`,
-  `targets=[0, 1]`, and `parameter == 0.5`
-
-#### Scenario: Unrecognized identifier produces a precise error
-
-- **WHEN** an action's effect is `Rx(qs[0], theta_custom)` and no
-  `theta_custom` field is declared in `## context`
-- **THEN** the parser emits a parse error referencing the missing
-  identifier and the accepted angle grammar
-
-#### Scenario: Identifier with non-numeric default produces an error
-
-- **WHEN** the machine declares `| qubits | list<qubit> | [q0, q1] |`
-  and an action's effect is `Rx(qs[0], qubits)`
-- **THEN** the parser emits a parse error explaining that `qubits` is
-  not a numeric context field
+- **WHEN** an action `query | (qs) -> qs | Hadamard(qs[c])` is parsed
+- **THEN** the parser emits a structured error naming `c` as an
+  unbound subscript identifier
 
 ### Requirement: Unicode Normalization
 
@@ -322,3 +285,183 @@ Markdown tables, bullet lists, and blockquotes SHALL be significant.
 - **WHEN** a Q-Orca file has a ```` ``` ```` fenced code block in the
   middle of the machine definition
 - **THEN** the fence contents are not parsed as machine content
+
+### Requirement: Structured Polysemantic Example Pattern
+
+The example library SHALL include at least one *structured-overlap*
+polysemantic machine that demonstrates block-structured concept
+geometry as distinct from uniform-overlap geometry. The canonical
+file is `examples/larql-polysemantic-clusters.q.orca.md`.
+
+A structured-polysemantic example SHALL satisfy these invariants:
+
+1. **Compact concept register.** The `## context` declares a
+   fixed-size `qubits: list<qubit>` with `n` qubits where `2^n ≥ N`
+   and `N` is the number of concepts. The canonical example uses
+   `n = 3, N = 12`.
+2. **Product-state concept encoding.** Each concept `c_i` is prepared
+   from `|0^n>` by a product-state unitary (one single-qubit rotation
+   per qubit) with hand-picked per-concept angles. The canonical
+   rotation family is `Ry`; future variants MAY substitute other
+   single-qubit rotations.
+3. **Single parametric preparation action.** Exactly one parametric
+   action with signature
+   `(qs, <n angle-typed params>) -> qs` and a matching product-state
+   effect. The N concepts are 1-to-1 with the N angle-typed call
+   sites to this action, not with N copy-pasted actions.
+4. **Single parametric query action.** Exactly one parametric action
+   with the same angle-typed signature as the prepare action and an
+   effect that is the inverse of the prepare effect (gate order
+   reversed, angle signs negated).
+5. **Documented clustered Gram matrix.** The example's leading
+   paragraph SHALL tabulate the analytic `|<c_i | c_j>|²` matrix
+   and SHALL call out at least two tiers (intra-cluster overlap and
+   cross-cluster overlap). Uniform-overlap examples like
+   `larql-polysemantic-12.q.orca.md` do NOT satisfy this invariant
+   and are categorized separately.
+6. **Documented polysemy column for a loaded cluster.** The example
+   SHALL identify a specific cluster `S ⊂ {0..N-1}` and tabulate the
+   analytic `P(|0^n> | query_i)` values when the feature state is
+   `|f> = normalize(Σ_{i ∈ S} |c_i>)`. The tabulated values SHALL
+   exhibit the same tier structure as the Gram matrix (an
+   in-cluster tier and an out-of-cluster tier).
+
+The existing `larql-polysemantic-2.q.orca.md` and
+`larql-polysemantic-12.q.orca.md` examples remain valid and
+unchanged; they demonstrate the parametric-action *mechanism* with
+uniform overlap. The new `larql-polysemantic-clusters.q.orca.md`
+demonstrates the *phenomenon* on top of the same mechanism.
+
+#### Scenario: Canonical example parses and verifies
+
+- **WHEN** `parse_q_orca_markdown(open(
+  "examples/larql-polysemantic-clusters.q.orca.md").read())` is
+  invoked
+- **THEN** `parsed.errors == []`
+- **AND** `verify(parsed.file.machines[0]).valid == True`
+
+#### Scenario: Canonical example compiles to expected register size
+
+- **GIVEN** the canonical example has `n = 3, N = 12`
+- **WHEN** `compile_to_qasm(machine)` and `compile_to_qiskit(machine)`
+  are invoked
+- **THEN** the QASM output contains `qubit[3] q;`
+- **AND** the Qiskit script contains `QuantumCircuit(3)`
+- **AND** the Qiskit script contains 12 separate sub-sequences
+  corresponding to the 12 query call sites, each of which emits one
+  `qc.ry(...)` per concept-register qubit after the prepare segment
+
+#### Scenario: Structured invariants are checkable via concept_gram
+
+- **GIVEN** the canonical example
+- **WHEN** `compute_concept_gram(machine)` is invoked
+- **THEN** the returned matrix's `|gram[i,j]|²` values exhibit the
+  block structure documented in the example's Gram-matrix table,
+  within a numerical tolerance of `1e-6` on each entry
+
+### Requirement: Action Signature Parameters
+
+The actions table's `Signature` cell SHALL accept zero or more typed
+positional parameters after the leading `qs` parameter. The grammar is
+`(qs, name1: type1, name2: type2, ...) -> qs`. Supported initial types
+SHALL be `int` (used in qubit-list subscripts) and `angle` (used in
+rotation-gate angle slots). Parameter names SHALL be unique within a
+signature. Whitespace around `:` and `,` SHALL not be significant.
+
+The existing zero-parameter form `(qs) -> qs` SHALL continue to parse
+unchanged. Actions whose signature parses as parameterized SHALL have a
+new `parameters: list[ActionParameter]` field populated on the AST,
+with `ActionParameter(name: str, type: Literal["int", "angle"])`.
+
+#### Scenario: Zero-parameter action remains valid
+
+- **WHEN** an action signature is `(qs) -> qs`
+- **THEN** the parsed `QActionSignature` has empty `parameters`
+
+#### Scenario: Single-int-parameter action
+
+- **WHEN** an action signature is `(qs, c: int) -> qs`
+- **THEN** the parsed `QActionSignature` has `parameters` of length 1
+  with `name="c"`, `type="int"`
+
+#### Scenario: Mixed int and angle parameters
+
+- **WHEN** an action signature is `(qs, c: int, theta: angle) -> qs`
+- **THEN** the parsed `QActionSignature` has `parameters` of length 2,
+  in declaration order
+
+#### Scenario: Duplicate parameter name
+
+- **WHEN** an action signature is `(qs, c: int, c: int) -> qs`
+- **THEN** the parser emits a structured error naming `c` as a
+  duplicate parameter
+
+#### Scenario: Unknown parameter type
+
+- **WHEN** an action signature is `(qs, c: float) -> qs`
+- **THEN** the parser emits a structured error naming `float` as an
+  unsupported parameter type
+
+### Requirement: Transition Action Call Form
+
+The transitions table's `Action` cell SHALL accept either the existing
+bare-name form (`apply_h`) or a new call form (`query_concept(0)`,
+`query_concept(11)`, `rotate_q0(pi/4)`). In the call form the action
+name SHALL refer to a declared action whose signature has matching
+arity. Each argument SHALL be a literal of the corresponding declared
+type: integer literals for `int`, angle expressions (per the symbolic
+angle grammar) for `angle`. Whitespace inside the parenthesized list
+SHALL not be significant.
+
+The parsed `QTransition.action` field SHALL gain a sibling
+`bound_arguments: list[BoundArg] | None` field. `bound_arguments` is
+`None` for the bare-name form, and a list of typed values in
+declaration order for the call form.
+
+Bare-name references to a parameterized action SHALL produce a
+structured error: a parametric action MUST be invoked with its
+arguments. Call-form references to a non-parameterized action SHALL
+also produce a structured error.
+
+#### Scenario: Bare-name reference to a non-parametric action
+
+- **WHEN** a transitions row's Action cell is `apply_h` and `apply_h`
+  has signature `(qs) -> qs`
+- **THEN** the parsed `QTransition.action` is `"apply_h"` and
+  `bound_arguments` is `None`
+
+#### Scenario: Call-form reference with a literal int argument
+
+- **WHEN** a transitions row's Action cell is `query_concept(3)` and
+  `query_concept` has signature `(qs, c: int) -> qs`
+- **THEN** `QTransition.action` is `"query_concept"` and
+  `bound_arguments` is `[BoundArg(name="c", value=3)]`
+
+#### Scenario: Call-form reference with an angle expression
+
+- **WHEN** a transitions row's Action cell is `rotate(pi/4)` and
+  `rotate` has signature `(qs, theta: angle) -> qs`
+- **THEN** `bound_arguments` is `[BoundArg(name="theta",
+  value=math.pi/4)]`
+
+#### Scenario: Bare-name reference to a parametric action fails
+
+- **WHEN** a transitions row's Action cell is `query_concept` and
+  `query_concept` has signature `(qs, c: int) -> qs`
+- **THEN** the parser emits a structured error indicating that
+  `query_concept` requires arguments
+
+#### Scenario: Call-form arity mismatch fails
+
+- **WHEN** a transitions row's Action cell is `query_concept(0, 1)`
+  and `query_concept` has signature `(qs, c: int) -> qs`
+- **THEN** the parser emits a structured error naming the expected and
+  actual argument counts
+
+#### Scenario: Call-form type mismatch fails
+
+- **WHEN** a transitions row's Action cell is `query_concept(pi/4)`
+  and `query_concept` has signature `(qs, c: int) -> qs`
+- **THEN** the parser emits a structured error indicating that an `int`
+  argument was expected
+
