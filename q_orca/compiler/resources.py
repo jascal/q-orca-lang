@@ -12,9 +12,12 @@
 
 Results are memoized per machine (`id(machine)` key) so the verifier and
 compiler entry points can call this freely without paying the Qiskit
-transpile cost twice.
+transpile cost twice. A `weakref.finalize` callback evicts each entry
+when its machine is garbage-collected, so the next allocation that
+reuses that memory address cannot get a stale cache hit.
 """
 
+import weakref
 from typing import Union
 
 from q_orca.ast import QMachineDef
@@ -50,7 +53,9 @@ def estimate_resources(machine: QMachineDef) -> dict[str, Union[int, str]]:
         "t_count": t_count,
         "logical_qubits": logical_qubits,
     }
-    _RESOURCE_CACHE[id(machine)] = result
+    machine_id = id(machine)
+    _RESOURCE_CACHE[machine_id] = result
+    weakref.finalize(machine, _RESOURCE_CACHE.pop, machine_id, None)
     return result
 
 
