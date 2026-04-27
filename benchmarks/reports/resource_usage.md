@@ -21,18 +21,24 @@ compute resources.
 > CPU baseline results will be added after running:
 > `python benchmarks/gpu_vs_cpu.py --backend cpu`
 
-| Algorithm       | Qubits | CPU time (s) | GPU time (s) | Speedup | CPU peak mem (MB) |
-|-----------------|--------|--------------|--------------|---------|-------------------|
-| QAOA MaxCut     | 6      | —            | —            | —       | —                 |
-| QAOA MaxCut     | 10     | —            | —            | —       | —                 |
-| QAOA MaxCut     | 14     | —            | —            | —       | —                 |
-| QAOA MaxCut     | 18     | —            | —            | —       | —                 |
-| QAOA MaxCut     | 20     | —            | —            | —       | —                 |
-| VQE Heisenberg  | 6      | —            | —            | —       | —                 |
-| VQE Heisenberg  | 10     | —            | —            | —       | —                 |
-| VQE Heisenberg  | 14     | —            | —            | —       | —                 |
-| VQE Heisenberg  | 18     | —            | —            | —       | —                 |
-| VQE Heisenberg  | 20     | —            | —            | —       | —                 |
+| Algorithm       | Qubits | CPU time (s) | GPU time (s) | Speedup | CPU Python alloc (MB)¹ |
+|-----------------|--------|--------------|--------------|---------|------------------------|
+| QAOA MaxCut     | 6      | —            | —            | —       | —                      |
+| QAOA MaxCut     | 10     | —            | —            | —       | —                      |
+| QAOA MaxCut     | 14     | —            | —            | —       | —                      |
+| QAOA MaxCut     | 18     | —            | —            | —       | —                      |
+| QAOA MaxCut     | 20     | —            | —            | —       | —                      |
+| VQE Heisenberg  | 6      | —            | —            | —       | —                      |
+| VQE Heisenberg  | 10     | —            | —            | —       | —                      |
+| VQE Heisenberg  | 14     | —            | —            | —       | —                      |
+| VQE Heisenberg  | 18     | —            | —            | —       | —                      |
+| VQE Heisenberg  | 20     | —            | —            | —       | —                      |
+
+¹ `Python alloc` is `tracemalloc`'s peak Python-side allocation. Qiskit Aer's
+statevector lives in the C++ backend, so the dominant memory cost is **not**
+captured here — treat this column as overhead bookkeeping only. True GPU/CPU
+memory comparisons will be added once we can run each sample in an isolated
+subprocess on real hardware.
 
 ---
 

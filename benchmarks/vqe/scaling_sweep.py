@@ -14,9 +14,11 @@ from __future__ import annotations
 import argparse
 import json
 import time
+import traceback
 import tracemalloc
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 
 # ── Ansatz builder ────────────────────────────────────────────────────────
@@ -64,8 +66,12 @@ def build_heisenberg_hamiltonian(n_qubits: int):
 
 # ── Runner ────────────────────────────────────────────────────────────────
 
-def run_vqe_cpu(n_qubits: int, depth: int = 1, maxiter: int = 30) -> dict:
-    """Run VQE on CPU via Qiskit Primitives."""
+def run_vqe_cpu(n_qubits: int, depth: int = 1, maxiter: int = 30) -> dict[str, Any]:
+    """Run VQE on CPU via Qiskit Primitives.
+
+    `python_alloc_mb` is `tracemalloc`'s peak Python-side allocation only;
+    Qiskit's C++ backend memory is invisible to this measurement.
+    """
     from scipy.optimize import minimize
 
     from qiskit.primitives import StatevectorEstimator
@@ -90,7 +96,7 @@ def run_vqe_cpu(n_qubits: int, depth: int = 1, maxiter: int = 30) -> dict:
 
     return {
         "elapsed_s": round(elapsed, 4),
-        "peak_mem_mb": round(peak / 1e6, 2),
+        "python_alloc_mb": round(peak / 1e6, 2),
         "n_iter": opt_result.nfev,
         "energy": round(float(opt_result.fun), 6),
         "converged": opt_result.success,
@@ -98,7 +104,7 @@ def run_vqe_cpu(n_qubits: int, depth: int = 1, maxiter: int = 30) -> dict:
     }
 
 
-def run_vqe_gpu(n_qubits: int, depth: int = 1, maxiter: int = 30) -> dict:
+def run_vqe_gpu(n_qubits: int, depth: int = 1, maxiter: int = 30) -> dict[str, Any]:
     """Run VQE on GPU via cuStateVec. Falls back to CPU if unavailable."""
     from importlib.util import find_spec
 
@@ -130,7 +136,7 @@ def sweep(backend: str, qubit_sizes: list[int], depth: int, maxiter: int, output
                 "backend": backend,
                 "device": res.get("device", backend),
                 "elapsed_s": res["elapsed_s"],
-                "peak_mem_mb": res.get("peak_mem_mb"),
+                "python_alloc_mb": res.get("python_alloc_mb"),
                 "n_iter": res.get("n_iter"),
                 "energy": res.get("energy"),
                 "converged": res.get("converged"),
@@ -140,7 +146,12 @@ def sweep(backend: str, qubit_sizes: list[int], depth: int, maxiter: int, output
             print(f"✓  {res['elapsed_s']:.3f}s  E={res.get('energy', '?'):.4f}")
         except Exception as exc:
             print(f"✗  {exc}")
-            rows.append({"n_qubits": n, "error": str(exc), "backend": backend})
+            rows.append({
+                "n_qubits": n,
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+                "backend": backend,
+            })
 
     output_dir.mkdir(parents=True, exist_ok=True)
     out_file = output_dir / f"vqe_{backend}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"

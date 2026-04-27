@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+import traceback
 import tracemalloc
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,10 +65,19 @@ def simulate(qc, backend: str, shots: int = 512) -> dict[str, Any]:
             return _sim_gpu(qc, shots)
         return _sim_cpu(qc, shots)
     except Exception as exc:
-        return {"elapsed_s": None, "peak_mem_mb": None, "error": str(exc), "device": backend}
+        return {
+            "elapsed_s": None,
+            "python_alloc_mb": None,
+            "error": str(exc),
+            "traceback": traceback.format_exc(),
+            "device": backend,
+        }
 
 
-def _sim_cpu(qc, shots: int) -> dict:
+# tracemalloc only sees Python-side allocations; Qiskit Aer's statevector lives
+# in the C++ backend and is invisible to this number. The field is named
+# `python_alloc_mb` to keep that limitation explicit in the JSON output.
+def _sim_cpu(qc, shots: int) -> dict[str, Any]:
     from qiskit import transpile
     from qiskit_aer import AerSimulator
 
@@ -79,10 +89,10 @@ def _sim_cpu(qc, shots: int) -> dict:
     elapsed = time.perf_counter() - t0
     _, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
-    return {"elapsed_s": round(elapsed, 5), "peak_mem_mb": round(peak / 1e6, 2), "device": "CPU"}
+    return {"elapsed_s": round(elapsed, 5), "python_alloc_mb": round(peak / 1e6, 2), "device": "CPU"}
 
 
-def _sim_gpu(qc, shots: int) -> dict:
+def _sim_gpu(qc, shots: int) -> dict[str, Any]:
     from qiskit import transpile
     from qiskit_aer import AerSimulator
 
@@ -91,17 +101,17 @@ def _sim_gpu(qc, shots: int) -> dict:
     t0 = time.perf_counter()
     sim.run(t_qc, shots=shots).result()
     elapsed = time.perf_counter() - t0
-    return {"elapsed_s": round(elapsed, 5), "peak_mem_mb": None, "device": "GPU"}
+    return {"elapsed_s": round(elapsed, 5), "python_alloc_mb": None, "device": "GPU"}
 
 
 # ── Report builders ───────────────────────────────────────────────────────
 
-def build_markdown_table(rows: list[dict], out_path: Path) -> None:
-    header = "| Algorithm | Qubits | CPU (s) | GPU (s) | Speedup | CPU Mem (MB) |"
-    sep    = "|-----------|--------|---------|---------|---------|--------------|"
+def build_markdown_table(rows: list[dict[str, Any]], out_path: Path) -> None:
+    header = "| Algorithm | Qubits | CPU (s) | GPU (s) | Speedup | CPU Python alloc (MB) |"
+    sep    = "|-----------|--------|---------|---------|---------|-----------------------|"
     lines  = [header, sep]
 
-    grouped: dict[tuple, dict] = {}
+    grouped: dict[tuple, dict[str, dict[str, Any]]] = {}
     for r in rows:
         key = (r["algorithm"], r["n_qubits"])
         grouped.setdefault(key, {})[r["backend"]] = r
@@ -112,16 +122,23 @@ def build_markdown_table(rows: list[dict], out_path: Path) -> None:
         cpu_t = cpu.get("elapsed_s")
         gpu_t = gpu.get("elapsed_s")
         speedup = f"{cpu_t/gpu_t:.1f}×" if cpu_t and gpu_t else "—"
-        cpu_mem = f"{cpu.get('peak_mem_mb', '—')}" if cpu.get("peak_mem_mb") else "—"
+        cpu_alloc = cpu.get("python_alloc_mb")
+        cpu_alloc_str = f"{cpu_alloc}" if cpu_alloc is not None else "—"
         lines.append(
             f"| {algo} | {n} "
             f"| {cpu_t if cpu_t else '—'} "
             f"| {gpu_t if gpu_t else '—'} "
             f"| {speedup} "
-            f"| {cpu_mem} |"
+            f"| {cpu_alloc_str} |"
         )
 
-    out_path.write_text("# GPU vs CPU Benchmark Results\n\n" + "\n".join(lines) + "\n")
+    footnote = (
+        "\n\n> **Note:** `Python alloc (MB)` is `tracemalloc`'s peak Python-side"
+        " allocation. Qiskit Aer's statevector lives in the C++ backend, so the"
+        " dominant cost is **not** captured here. Treat this column as overhead"
+        " bookkeeping, not as the GPU/CPU memory comparison."
+    )
+    out_path.write_text("# GPU vs CPU Benchmark Results\n\n" + "\n".join(lines) + footnote + "\n")
 
 
 # ── Main ───────────────────────────────────────────────────────────────────

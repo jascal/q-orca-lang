@@ -36,8 +36,8 @@ QAOA_SEED = """\
 | Field  | Type        | Default                          |
 |--------|-------------|----------------------------------|
 | qubits | list<qubit> | [{qubit_list}]                   |
-| gamma  | float       | 0.5                              |
-| beta   | float       | 0.25                             |
+| gamma  | float       | {gamma}                          |
+| beta   | float       | {beta}                           |
 | depth  | int         | 1                                |
 
 ## events
@@ -74,10 +74,12 @@ QAOA_SEED = """\
 """
 
 
-def seed_machine(n_qubits: int) -> str:
+def seed_machine(n_qubits: int, gamma: float = 0.5, beta: float = 0.25) -> str:
     return QAOA_SEED.format(
         n=n_qubits,
         qubit_list=", ".join(f"q{i}" for i in range(n_qubits)),
+        gamma=gamma,
+        beta=beta,
     )
 
 
@@ -259,9 +261,7 @@ def evolve(n_qubits: int, rounds: int, output_dir: Path) -> None:
         "gamma": best_gamma, "beta": best_beta, "energy": best_energy,
     }}, indent=2))
 
-    best_machine = seed_machine(n_qubits).replace("| gamma  | float       | 0.5    ", f"| gamma  | float       | {best_gamma}")
-    best_machine = best_machine.replace("| beta   | float       | 0.25   ", f"| beta   | float       | {best_beta}")
-    md_out.write_text(best_machine)
+    md_out.write_text(seed_machine(n_qubits, gamma=best_gamma, beta=best_beta))
 
     print(f"\nHistory → {json_out}")
     print(f"Best machine → {md_out}")

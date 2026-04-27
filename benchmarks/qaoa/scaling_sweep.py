@@ -15,9 +15,11 @@ from __future__ import annotations
 import argparse
 import json
 import time
+import traceback
 import tracemalloc
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 
 # ── Circuit builder ────────────────────────────────────────────────────────
@@ -51,8 +53,12 @@ def build_qaoa_maxcut_circuit(n_qubits: int, depth: int = 1, gamma: float = 0.5,
 
 # ── Backend runners ────────────────────────────────────────────────────────
 
-def run_cpu(qc, shots: int = 1024) -> dict:
-    """Simulate with Qiskit statevector (CPU)."""
+def run_cpu(qc, shots: int = 1024) -> dict[str, Any]:
+    """Simulate with Qiskit statevector (CPU).
+
+    The `python_alloc_mb` field is `tracemalloc`'s peak Python-side allocation
+    only — Qiskit Aer's statevector lives in C++ and is invisible here.
+    """
     from qiskit import transpile
     from qiskit_aer import AerSimulator
 
@@ -65,10 +71,10 @@ def run_cpu(qc, shots: int = 1024) -> dict:
     _, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     counts = result.get_counts()
-    return {"elapsed_s": elapsed, "peak_mem_mb": peak / 1e6, "counts_sample": dict(list(counts.items())[:3])}
+    return {"elapsed_s": elapsed, "python_alloc_mb": peak / 1e6, "counts_sample": dict(list(counts.items())[:3])}
 
 
-def run_gpu(qc, shots: int = 1024) -> dict:
+def run_gpu(qc, shots: int = 1024) -> dict[str, Any]:
     """Simulate with cuQuantum statevector (GPU). Falls back to CPU if unavailable."""
     try:
         from qiskit import transpile
@@ -80,7 +86,7 @@ def run_gpu(qc, shots: int = 1024) -> dict:
         result = sim.run(t_qc, shots=shots).result()
         elapsed = time.perf_counter() - t0
         counts = result.get_counts()
-        return {"elapsed_s": elapsed, "peak_mem_mb": None, "device": "GPU", "counts_sample": dict(list(counts.items())[:3])}
+        return {"elapsed_s": elapsed, "python_alloc_mb": None, "device": "GPU", "counts_sample": dict(list(counts.items())[:3])}
     except Exception as exc:
         print(f"  [GPU] Not available ({exc}), falling back to CPU")
         result = run_cpu(qc, shots)
@@ -103,6 +109,7 @@ def sweep(backend: str, qubit_sizes: list[int], depth: int, shots: int, output_d
             else:
                 res = run_cpu(qc, shots)
 
+            python_alloc = res.get("python_alloc_mb")
             row = {
                 "algorithm": "QAOA-MaxCut",
                 "n_qubits": n,
@@ -111,15 +118,21 @@ def sweep(backend: str, qubit_sizes: list[int], depth: int, shots: int, output_d
                 "cx_count": gate_count.get("cx", 0) + gate_count.get("rzz", 0),
                 "backend": backend,
                 "elapsed_s": round(res["elapsed_s"], 4),
-                "peak_mem_mb": round(res.get("peak_mem_mb") or 0, 2),
+                "python_alloc_mb": round(python_alloc, 2) if python_alloc is not None else None,
                 "shots": shots,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
             rows.append(row)
-            print(f"✓  {res['elapsed_s']:.3f}s  {res.get('peak_mem_mb', 0):.1f} MB")
+            alloc_disp = f"{python_alloc:.1f} MB" if python_alloc is not None else "(GPU: n/a)"
+            print(f"✓  {res['elapsed_s']:.3f}s  {alloc_disp}")
         except Exception as exc:
             print(f"✗  {exc}")
-            rows.append({"n_qubits": n, "error": str(exc), "backend": backend})
+            rows.append({
+                "n_qubits": n,
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+                "backend": backend,
+            })
 
     output_dir.mkdir(parents=True, exist_ok=True)
     out_file = output_dir / f"qaoa_{backend}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
