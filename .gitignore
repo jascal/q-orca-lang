@@ -38,3 +38,7 @@ orca.yaml
 
 # Scheduled job logs
 logs/
+
+# Grant / admin docs (keep out of repo)
+grant-tracker.xlsx
+*.xlsx

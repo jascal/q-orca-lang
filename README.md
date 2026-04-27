@@ -9,7 +9,7 @@
 
 Q-Orca is a quantum-aware dialect of [Orca](https://github.com/orca-lang/orca-lang), a state machine language written in Markdown. It extends Orca with Dirac ket notation for quantum states, unitary gate actions, entanglement verification, and simulation via Qiskit.
 
-All 5 example machines (Bell, GHZ, Deutsch-Jozsa, Teleportation, VQE) pass the full 5-stage verification pipeline on every commit, across Python 3.10–3.13.
+All 15 bundled example machines — from the original Bell / GHZ / Deutsch-Jozsa / Teleportation / VQE set through QAOA, predictive-coder, and LARQL polysemantic circuits — pass the full 5-stage verification pipeline on every commit, across Python 3.10–3.13.
 
 ---
 
@@ -271,7 +271,7 @@ q-orca verify examples/bell-entangler.q.orca.md --skip-dynamic
 | `--gpu-count N` | Number of GPUs to use (cuquantum backend) |
 | `--tensor-network` | Use tensor-network contraction (cuquantum backend) |
 
-All 5 bundled examples pass `--strict` on every CI run (Python 3.10–3.13).
+All bundled examples in `examples/` pass `--strict` on every CI run (Python 3.10–3.13).
 
 **Example: passing strict verify with dynamic entanglement confirmed**
 
@@ -336,6 +336,12 @@ q-orca simulate examples/bell-entangler.q.orca.md --run --json
 | `bit-flip-syndrome.q.orca.md` | 5-qubit bit-flip error correction with syndrome extraction |
 | `qaoa-maxcut.q.orca.md` | QAOA MaxCut using parameterized RZZ two-qubit gates |
 | `vqe-rotation.q.orca.md` | VQE rotation circuit with parameterized Rx gate |
+| `predictive-coder-minimal.q.orca.md` | Minimal 3-qubit quantum predictive coder (one parametric model qubit) |
+| `predictive-coder-learning.q.orca.md` | Full predictive coder with classical learning loop (drives the iterative runtime) |
+| `larql-polysemantic-2.q.orca.md` | Concept projection over 2 non-orthogonal LARQL features (minimum mechanism) |
+| `larql-polysemantic-12.q.orca.md` | 12-call-site parametric concept projection with uniform-overlap dictionary |
+| `larql-polysemantic-clusters.q.orca.md` | Block-structured 12-concept polysemy on a 3-qubit register (3 clusters of 4) |
+| `larql-gate-knn-grover.q.orca.md` | Grover-amplified gate-KNN lookup (per-layer kernel of LARQL inference) |
 
 ### Hybrid Classical + Quantum Demo
 
@@ -999,6 +1005,32 @@ q_orca/
 
 ---
 
+## Benchmarks & compute requirements
+
+The [`benchmarks/`](benchmarks/) directory contains scaling sweeps used to size
+GPU compute requests in our grant applications (NVIDIA / IBM / Microsoft):
+
+- [`benchmarks/qaoa/scaling_sweep.py`](benchmarks/qaoa/scaling_sweep.py) — QAOA MaxCut, 3–20 qubits, CPU + GPU, with `--export-qasm` for OpenQASM 2.0 dumps
+- [`benchmarks/vqe/scaling_sweep.py`](benchmarks/vqe/scaling_sweep.py) — VQE Heisenberg XXX, 4–20 qubits, COBYLA optimizer
+- [`benchmarks/gpu_vs_cpu.py`](benchmarks/gpu_vs_cpu.py) — combined sweep that emits a side-by-side table to `benchmarks/reports/gpu_vs_cpu_latest.md`
+- [`benchmarks/llm_evolution.py`](benchmarks/llm_evolution.py) — LLM-driven QAOA parameter evolution (Claude Haiku / GPT-4o-mini), the flagship demo for the LLM × GPU-simulator pairing
+
+```bash
+pip install -e ".[quantum]"
+python benchmarks/gpu_vs_cpu.py --backend cpu        # CPU baseline, no GPU needed
+python benchmarks/gpu_vs_cpu.py --backend gpu        # requires CUDA-Q + cuStateVec
+```
+
+Backend honesty: each result row records both `backend_requested` (the CLI
+flag) and the actual `device` that ran, so a CPU fallback never gets
+mistaken for a GPU number.
+
+The narrative grant memo lives at [`docs/compute-needs.md`](docs/compute-needs.md);
+[`benchmarks/reports/resource_usage.md`](benchmarks/reports/resource_usage.md)
+holds the projected GPU-hour budget.
+
+---
+
 ## Roadmap
 
 Feature planning goes through OpenSpec. Active proposals live in [`openspec/changes/`](openspec/changes/); archived (shipped) proposals in [`openspec/changes/archive/`](openspec/changes/archive/). Items below are marked with their spec status.
@@ -1015,9 +1047,13 @@ Each of these entered main with a full OpenSpec proposal → implementation → 
 - ✅ **Iterative runtime for context updates** — `simulate_machine` dispatches context-update machines to `q_orca.runtime.iterative`, which walks back-edges, rebuilds per-segment Qiskit circuits at the live context, and threads a deterministic per-iteration seed. Ships the QPC learning loop as `examples/predictive-coder-learning.q.orca.md`. *(`run-context-updates`)*
 - ✅ **Pluggable execution backends** — cuQuantum GPU, CUDA-Q compilation target *(`execution-backends`, [PR #7](../../pull/7))*
 - ✅ **Noise models** — `depolarizing`, `amplitude_damping`, `phase_damping`, `thermal(T1, T2)` in `## context`, propagated into Qiskit Aer *(`fix-noise-models`)*
-- ✅ **CCZ / MCX / MCZ gate set** — many-controlled gates formalized and round-tripped through every backend *(partial archive; parametric-action half tracked below)*
+- ✅ **Resource estimation (Stage 4c)** — `## resources` and `## resource invariants` sections; `gate_count`, `depth`, `cx_count`, `t_count`, `logical_qubits` checked against budgets at verify time *(`add-resource-estimation`, [PR #37](../../pull/37))*
+- ✅ **Parametric actions** — one `query_concept | (qs, c: int) -> qs | Hadamard(qs[c])` action callable as `query_concept(0)`, `query_concept(1)`, ... instead of N copy-pasted rows *(`extend-gate-set-and-parametric-actions`)*
+- ✅ **Gate-parser consolidation** — single shared parser for parser, Qiskit/QASM compilers, and dynamic verifier — eliminates the drift bugs that came from three independent implementations *(`consolidate-gate-parser`)*
+- ✅ **CCZ / MCX / MCZ gate set** — many-controlled gates formalized and round-tripped through every backend
 - ✅ **Completeness-check hardening** — measurement-bearing transitions are detected by action effect, not just event name *(`harden-completeness-detection`)*
 - ✅ **Bell-pair compiler fixture** — per-backend regression tests against the canonical two-qubit circuit *(`bell-pair-example`)*
+- ✅ **LARQL polysemantic clusters** — block-structured 12-concept polysemy on a 3-qubit register, matching the empirical signature reported by sparse-autoencoder studies of real transformer FFNs *(`add-polysemantic-clusters`)*
 
 See each folder under [`openspec/changes/archive/`](openspec/changes/archive/) for the proposal, design, and scenarios that shipped.
 
@@ -1027,9 +1063,7 @@ Proposals with an OpenSpec folder and agreed scope, awaiting code.
 
 - 🧾 **Cross-machine composition** — `[invoke: Child(args) shots=N]` state-level delegation with static arg/return type-checking and a `## returns` section. Mermaid renders composed machines; QASM/Qiskit refuse until a runtime lands. *([`add-parameterized-invoke`](openspec/changes/add-parameterized-invoke/))*
 - 🧾 **Per-state runtime assertions** — `[assert: classical(qs[0]); entangled(qs[0], qs[1])]` annotations backed by statistical sampling on Stage 4b, with a `## assertion policy` section for shots/confidence/on-failure. *([`add-runtime-state-assertions`](openspec/changes/add-runtime-state-assertions/))*
-- 🧾 **Resource estimation** — CX-count, T-count, depth, Clifford+T checks; a `## resource budget` section that turns overruns into verifier errors. *([`add-resource-estimation`](openspec/changes/add-resource-estimation/))*
-- 🧾 **Parametric actions** — one `query_concept | (qs, c: int) -> qs | Hadamard(qs[c])` action callable as `query_concept(0)`, `query_concept(1)`, ... instead of N copy-pasted rows. *([`extend-gate-set-and-parametric-actions`](openspec/changes/extend-gate-set-and-parametric-actions/))*
-- 🧾 **Gate-parser consolidation** — unify the three existing gate-effect parsers (parser, Qiskit/QASM compiler, dynamic verifier) behind one implementation so drift bugs stop shipping. *([`consolidate-gate-parser`](openspec/changes/consolidate-gate-parser/))*
+- 🧾 **MPS concept encoding** — hierarchical polysemantic concept registers encoded as matrix-product states, extending the LARQL polysemantic family beyond the dense-statevector regime. *([`add-mps-concept-encoding`](openspec/changes/add-mps-concept-encoding/))*
 
 ### Longer-term — research / not yet specced
 

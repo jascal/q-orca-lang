@@ -31,9 +31,9 @@ Documentation = "https://deepwiki.com/jascal/q-orca-lang"
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
-quantum = ["qiskit", "qutip", "qutip-qip"]
+quantum = ["qiskit", "qiskit-aer", "qutip", "qutip-qip", "scipy"]
 mcp = ["pyyaml"]
-all = ["qiskit", "qutip", "qutip-qip", "pyyaml"]
+all = ["qiskit", "qiskit-aer", "qutip", "qutip-qip", "scipy", "pyyaml"]
 
 [project.scripts]
 q-orca = "q_orca.cli:main"
