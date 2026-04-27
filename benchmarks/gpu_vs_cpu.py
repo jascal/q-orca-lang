@@ -166,10 +166,12 @@ def main():
                 print(f"  {algo_name} n={n:2d} [{backend.upper()}] ...", end=" ", flush=True)
                 qc = build_fn(n)
                 res = simulate(qc, backend, args.shots)
+                actual_device = res.get("device", backend.upper())
                 row = {
                     "algorithm": algo_name,
                     "n_qubits": n,
-                    "backend": backend,
+                    "backend": "gpu" if actual_device == "GPU" else "cpu",
+                    "backend_requested": backend,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     **res,
                 }
@@ -183,12 +185,17 @@ def main():
     args.report_dir.mkdir(parents=True, exist_ok=True)
     json_out = args.report_dir / f"gpu_vs_cpu_{ts}.json"
     md_out   = args.report_dir / f"gpu_vs_cpu_{ts}.md"
+    latest_md = args.report_dir / "gpu_vs_cpu_latest.md"
 
     json_out.write_text(json.dumps(rows, indent=2))
     build_markdown_table(rows, md_out)
+    # Also write a stable filename so docs can link to the most recent run
+    # without churning paths every run.
+    build_markdown_table(rows, latest_md)
 
     print(f"\nJSON report : {json_out}")
     print(f"Markdown    : {md_out}")
+    print(f"Latest      : {latest_md}")
 
 
 if __name__ == "__main__":

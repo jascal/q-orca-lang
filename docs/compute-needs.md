@@ -43,7 +43,9 @@ a plain CLI or an MCP server that LLMs can drive directly.
 ### 1. Statevector simulation scales exponentially with qubit count
 
 A statevector for $n$ qubits requires $2^n$ complex amplitudes.  At 20 qubits
-that is approximately 16 million complex doubles, or ~128 MB per state.
+that is $2^{20}\approx$ 1 million complex doubles, or ~16 MB per state; at
+24 qubits it grows to ~16 million amplitudes (~256 MB), and at 30 qubits to
+~1 billion amplitudes (~16 GB).
 Running QAOA or VQE optimization loops (hundreds of circuit evaluations per
 shot) quickly becomes infeasible on CPU-only hardware:
 
@@ -159,8 +161,9 @@ graph TD
 - CPU baseline numbers: pending (run `python benchmarks/gpu_vs_cpu.py --backend cpu`)
 - GPU numbers: pending GPU access (central goal of these grant applications)
 
-See `benchmarks/reports/resource_usage.md` for the full results table
-(updated automatically by CI after GPU runs complete).
+See `benchmarks/reports/gpu_vs_cpu_latest.md` for the most recent benchmark
+run (overwritten each invocation of `benchmarks/gpu_vs_cpu.py`). The
+narrative grant memo is in `benchmarks/reports/resource_usage.md`.
 
 ---
 

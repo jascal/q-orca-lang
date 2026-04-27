@@ -128,13 +128,15 @@ def sweep(backend: str, qubit_sizes: list[int], depth: int, maxiter: int, output
         try:
             fn = run_vqe_gpu if backend == "gpu" else run_vqe_cpu
             res = fn(n, depth=depth, maxiter=maxiter)
+            actual_device = res.get("device", backend)
             row = {
                 "algorithm": "VQE-Heisenberg",
                 "n_qubits": n,
                 "depth": depth,
                 "n_params": n * (depth + 1),
-                "backend": backend,
-                "device": res.get("device", backend),
+                "backend": "gpu" if actual_device == "GPU" else "cpu",
+                "backend_requested": backend,
+                "device": actual_device,
                 "elapsed_s": res["elapsed_s"],
                 "python_alloc_mb": res.get("python_alloc_mb"),
                 "n_iter": res.get("n_iter"),

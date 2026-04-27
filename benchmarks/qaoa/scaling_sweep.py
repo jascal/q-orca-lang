@@ -110,13 +110,16 @@ def sweep(backend: str, qubit_sizes: list[int], depth: int, shots: int, output_d
                 res = run_cpu(qc, shots)
 
             python_alloc = res.get("python_alloc_mb")
+            actual_device = res.get("device", "GPU" if backend == "gpu" else "CPU")
             row = {
                 "algorithm": "QAOA-MaxCut",
                 "n_qubits": n,
                 "depth": depth,
                 "gate_count": sum(gate_count.values()),
                 "cx_count": gate_count.get("cx", 0) + gate_count.get("rzz", 0),
-                "backend": backend,
+                "backend": "gpu" if actual_device == "GPU" else "cpu",
+                "backend_requested": backend,
+                "device": actual_device,
                 "elapsed_s": round(res["elapsed_s"], 4),
                 "python_alloc_mb": round(python_alloc, 2) if python_alloc is not None else None,
                 "shots": shots,

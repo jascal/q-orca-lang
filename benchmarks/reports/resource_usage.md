@@ -1,6 +1,8 @@
 # Q-Orca Resource Usage Report
 
-**Generated:** placeholder — run `python benchmarks/gpu_vs_cpu.py` to populate  
+**Generated:** placeholder — this is a static narrative document. Live results
+land in `gpu_vs_cpu_latest.md` (overwritten each run) and timestamped
+`gpu_vs_cpu_<ts>.{json,md}` files in this directory.  
 **Repo:** https://github.com/jascal/q-orca-lang
 
 ---
@@ -82,4 +84,6 @@ subprocess on real hardware.
 
 ---
 
-*Report template — updated automatically by `benchmarks/gpu_vs_cpu.py`.*
+*Report template — narrative is hand-maintained. Live numbers are written
+to `gpu_vs_cpu_latest.md` and `gpu_vs_cpu_<timestamp>.{json,md}` by
+`benchmarks/gpu_vs_cpu.py` each run.*
