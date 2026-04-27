@@ -15,7 +15,10 @@ Provided for IBM Quantum and Microsoft Azure Quantum grant reviewers.
 
 ```bash
 # After installing q-orca[quantum]:
-python benchmarks/qaoa/scaling_sweep.py --export-qasm --output-dir benchmarks/qasm_examples
+python benchmarks/qaoa/scaling_sweep.py --export-qasm \
+    --output-dir benchmarks/qasm_examples --min-qubits 6 --max-qubits 12 --step 6
+python benchmarks/vqe/scaling_sweep.py --export-qasm \
+    --output-dir benchmarks/qasm_examples --min-qubits 8 --max-qubits 8 --step 2
 ```
 
 These files are also the basis for IBM QPU submission (via Qiskit Runtime)

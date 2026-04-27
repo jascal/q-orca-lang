@@ -17,10 +17,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import time
 import tracemalloc
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +37,21 @@ def qaoa_circuit(n: int, depth: int = 1):
             qc.rzz(1.0, u, v)
         for i in range(n):
             qc.rx(0.5, i)
+    qc.measure_all()
+    return qc
+
+
+def vqe_circuit(n: int, depth: int = 1):
+    """Hardware-efficient VQE ansatz with bound parameters (Heisenberg target)."""
+    from qiskit import QuantumCircuit
+    qc = QuantumCircuit(n)
+    for i in range(n):
+        qc.ry(0.1, i)
+    for _ in range(depth):
+        for i in range(n - 1):
+            qc.cx(i, i + 1)
+        for i in range(n):
+            qc.ry(0.1, i)
     qc.measure_all()
     return qc
 
@@ -129,7 +143,7 @@ def main():
     print("=" * 60)
 
     rows = []
-    for algo_name, build_fn in [("QAOA-MaxCut", qaoa_circuit)]:
+    for algo_name, build_fn in [("QAOA-MaxCut", qaoa_circuit), ("VQE-Heisenberg", vqe_circuit)]:
         for n in sizes:
             for backend in backends:
                 print(f"  {algo_name} n={n:2d} [{backend.upper()}] ...", end=" ", flush=True)
@@ -139,7 +153,7 @@ def main():
                     "algorithm": algo_name,
                     "n_qubits": n,
                     "backend": backend,
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     **res,
                 }
                 rows.append(row)
@@ -148,7 +162,7 @@ def main():
                 else:
                     print(f"✓ {res['elapsed_s']:.4f}s")
 
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     args.report_dir.mkdir(parents=True, exist_ok=True)
     json_out = args.report_dir / f"gpu_vs_cpu_{ts}.json"
     md_out   = args.report_dir / f"gpu_vs_cpu_{ts}.md"

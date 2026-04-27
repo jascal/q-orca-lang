@@ -22,8 +22,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import time
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -143,38 +143,56 @@ def _call_openai(prompt: str, api_key: str) -> str:
 # ── Energy evaluator ──────────────────────────────────────────────────────
 
 def evaluate_energy(n_qubits: int, gamma: float, beta: float) -> float:
-    """Compute QAOA expectation value for MaxCut on a ring graph."""
+    """Compute QAOA expectation value for MaxCut on a ring graph.
+
+    Raises ImportError if qiskit/qiskit-aer aren't installed — install with
+    `pip install -e .[quantum]` to run real evolution.
+    """
+    from qiskit import QuantumCircuit, transpile
+    from qiskit_aer import AerSimulator
+
+    qc = QuantumCircuit(n_qubits)
+    for i in range(n_qubits):
+        qc.h(i)
+    edges = [(i, (i + 1) % n_qubits) for i in range(n_qubits)]
+    for u, v in edges:
+        qc.rzz(2 * gamma, u, v)
+    for i in range(n_qubits):
+        qc.rx(2 * beta, i)
+    qc.measure_all()
+
+    sim = AerSimulator()
+    t_qc = transpile(qc, sim)
+    result = sim.run(t_qc, shots=2048).result()
+    counts = result.get_counts()
+
+    # MaxCut energy = fraction of edges cut, averaged over shots
+    total_shots = sum(counts.values())
+    total_cut = 0
+    for bitstring, count in counts.items():
+        bits = [int(b) for b in bitstring.replace(" ", "")]
+        cut = sum(bits[u] != bits[v] for u, v in edges)
+        total_cut += cut * count
+    return total_cut / total_shots
+
+
+# ── LLM response parser ───────────────────────────────────────────────────
+
+def _extract_json_object(raw: str) -> dict | None:
+    """Pull the first flat {...} object out of an LLM response.
+
+    LLMs frequently wrap JSON in ```json ... ``` fences or add preamble text;
+    json.loads on the raw response is almost guaranteed to fail. This pulls
+    the first balanced flat JSON object out and tolerates surrounding noise.
+    """
+    cleaned = re.sub(r"```(?:json)?\s*|\s*```", "", raw)
+    match = re.search(r"\{[^{}]*\}", cleaned, re.DOTALL)
+    if not match:
+        return None
     try:
-        from qiskit import QuantumCircuit, transpile
-        from qiskit_aer import AerSimulator
-
-        qc = QuantumCircuit(n_qubits)
-        for i in range(n_qubits):
-            qc.h(i)
-        edges = [(i, (i + 1) % n_qubits) for i in range(n_qubits)]
-        for u, v in edges:
-            qc.rzz(2 * gamma, u, v)
-        for i in range(n_qubits):
-            qc.rx(2 * beta, i)
-        qc.measure_all()
-
-        sim = AerSimulator()
-        t_qc = transpile(qc, sim)
-        result = sim.run(t_qc, shots=2048).result()
-        counts = result.get_counts()
-
-        # MaxCut energy = fraction of edges cut, averaged over shots
-        total_shots = sum(counts.values())
-        total_cut = 0
-        for bitstring, count in counts.items():
-            bits = [int(b) for b in bitstring.replace(" ", "")]
-            cut = sum(bits[u] != bits[v] for u, v in edges)
-            total_cut += cut * count
-        return total_cut / total_shots
-    except Exception:
-        # Demo mode without Qiskit — return random
-        import random
-        return random.uniform(1.0, float(n_qubits) * 0.6)
+        return json.loads(match.group())
+    except json.JSONDecodeError:
+        return None
 
 
 # ── Evolution loop ────────────────────────────────────────────────────────
@@ -195,18 +213,21 @@ def evolve(n_qubits: int, rounds: int, output_dir: Path) -> None:
             f"You are tuning a QAOA MaxCut circuit on a {n_qubits}-qubit ring graph.\n"
             f"Current best: gamma={best_gamma}, beta={best_beta}, energy={best_energy:.4f}\n"
             f"Suggest new values of gamma (0.1–2.0) and beta (0.1–1.5) to increase MaxCut energy.\n"
-            f"Respond ONLY with a JSON object: {{\"gamma\": float, \"beta\": float, \"rationale\": str}}"
+            f"Output ONE JSON object on a single line, no markdown fences, no preamble:\n"
+            f'{{"gamma": <float>, "beta": <float>, "rationale": "<short string>"}}'
         )
 
         raw = call_llm(prompt)
+        suggestion = _extract_json_object(raw)
+        if suggestion is None:
+            print(f"  Round {round_idx}: LLM parse failure — raw: {raw[:120]!r}")
+            continue
         try:
-            suggestion = json.loads(raw)
             new_gamma = float(suggestion["gamma"])
             new_beta  = float(suggestion["beta"])
-            rationale = suggestion.get("rationale", "")
-        except (json.JSONDecodeError, KeyError, ValueError):
-            # Parse failure — skip round
-            print(f"  Round {round_idx}: LLM parse failure, skipping")
+            rationale = str(suggestion.get("rationale", ""))
+        except (KeyError, TypeError, ValueError) as exc:
+            print(f"  Round {round_idx}: invalid suggestion {suggestion!r} ({exc})")
             continue
 
         new_energy = evaluate_energy(n_qubits, new_gamma, new_beta)
@@ -230,7 +251,7 @@ def evolve(n_qubits: int, rounds: int, output_dir: Path) -> None:
 
     # Write outputs
     output_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     json_out = output_dir / f"llm_evolution_{n_qubits}q_{ts}.json"
     md_out   = output_dir / f"llm_evolution_{n_qubits}q_{ts}_best_machine.md"
 
