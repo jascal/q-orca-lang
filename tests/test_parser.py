@@ -843,6 +843,34 @@ class TestParametricActionSignature:
             "parametric signature must begin with `qs`" in e for e in result.errors
         ), result.errors
 
+    def test_extra_slot_without_type_annotation_is_flagged(self):
+        # `(qs, c) -> qs` looks parametric to a reader but parses as
+        # zero-parameter today because no slot contains `:`. Without the
+        # diagnostic, a transition `foo(0)` would error with an unhelpful
+        # "action is not parametric" message rather than pointing at the
+        # missing `: int` annotation. Pin the structured error.
+        result = self._parse_signature("(qs, c) -> qs")
+        assert any(
+            "missing `: type` annotation" in e and "'c'" in e for e in result.errors
+        ), result.errors
+
+    def test_extra_slot_without_type_annotation_lists_all_extras(self):
+        result = self._parse_signature("(qs, c, theta) -> qs")
+        # All extras should appear in the diagnostic so the user sees the
+        # full list of slots that need types, not just the first.
+        msgs = [e for e in result.errors if "missing `: type` annotation" in e]
+        assert msgs, result.errors
+        assert "'c'" in msgs[0] and "'theta'" in msgs[0], msgs
+
+    def test_extra_slot_diagnostic_does_not_fire_on_zero_parameter_form(self):
+        # `(qs) -> qs` and `(ctx) -> ctx` must remain warning-free; the new
+        # diagnostic is gated on `len(raw_params) > 1`.
+        for sig in ("(qs) -> qs", "(ctx) -> ctx"):
+            result = self._parse_signature(sig)
+            assert not any(
+                "missing `: type` annotation" in e for e in result.errors
+            ), (sig, result.errors)
+
 
 class TestParametricTransitionCall:
     """Transition-side grammar: bare name vs call form; arity and type

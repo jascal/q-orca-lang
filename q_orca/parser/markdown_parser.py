@@ -1071,6 +1071,18 @@ def _parse_signature(
     # form for quantum and classical actions alike — `(qs) -> qs`,
     # `(ctx) -> ctx`) parse with an empty `parameters` list.
     if not any(":" in slot for slot in raw_params):
+        # Extra slots without any `: type` annotation likely mean the user
+        # intended parametric form but forgot the annotation. Surface the
+        # mismatch here rather than letting downstream "action is not
+        # parametric" errors confuse the diagnosis when a transition tries
+        # to call e.g. `foo(0)`.
+        if len(raw_params) > 1 and errors is not None:
+            extras = ", ".join(repr(s) for s in raw_params[1:])
+            errors.append(
+                f"action {action_name!r}: extra parameter slot(s) {extras} "
+                f"missing `: type` annotation (e.g. `(qs, c: int) -> qs` "
+                f"for int-parametric actions; supported types: int, angle)."
+            )
         return [], return_type
 
     # Typed form: leading slot must be the bare qubit-list binder `qs`.

@@ -998,6 +998,86 @@ class TestComputeConceptGram:
         assert "query_concept" in message
         assert "no call sites" in message
 
+    def test_wrong_effect_shape_with_foreign_gates_raises(self):
+        # The signature shape check (3 angle params) accepts this, but the
+        # effect mixes a CNOT with a single Rz — clearly not a Ry product —
+        # so the formula in `compute_concept_gram` would silently emit a
+        # numerically wrong matrix without the effect-structure check.
+        from q_orca import ConceptGramConfigurationError, compute_concept_gram
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "CNOT(qs[0], qs[1]); Rz(qs[2], c)",
+            ["0.1, 0.2, 0.3"],
+        )
+        with pytest.raises(ConceptGramConfigurationError) as exc_info:
+            compute_concept_gram(machine)
+        message = str(exc_info.value)
+        assert "query_concept" in message
+        # Two segments instead of three triggers the segment-count branch.
+        assert "2 gate segment" in message
+
+    def test_wrong_effect_non_ry_segment_raises(self):
+        from q_orca import ConceptGramConfigurationError, compute_concept_gram
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[0], a); Rz(qs[1], b); Ry(qs[2], c)",
+            ["0.1, 0.2, 0.3"],
+        )
+        with pytest.raises(ConceptGramConfigurationError) as exc_info:
+            compute_concept_gram(machine)
+        message = str(exc_info.value)
+        assert "Rz(qs[1], b)" in message
+        assert "Ry(qs[i], [-]name)" in message
+
+    def test_wrong_effect_param_qubit_mismatch_raises(self):
+        # `Ry(qs[0], b)` swaps the parameter at qubit 0 (signature position
+        # 0 declares `a`, not `b`). Numerically wrong: angles[i, 0] would
+        # drive qs[1] instead of qs[0].
+        from q_orca import ConceptGramConfigurationError, compute_concept_gram
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[0], b); Ry(qs[1], a); Ry(qs[2], c)",
+            ["0.1, 0.2, 0.3"],
+        )
+        with pytest.raises(ConceptGramConfigurationError) as exc_info:
+            compute_concept_gram(machine)
+        message = str(exc_info.value)
+        assert "qs[0]" in message and "'b'" in message and "'a'" in message
+        assert "positional alignment" in message
+
+    def test_wrong_effect_mixed_signs_raises(self):
+        # A mixed-sign effect would compute `cos((θ_i,k - θ_j,k)/2)` while
+        # the actual circuit is no longer a clean preparation/inverse pair.
+        from q_orca import ConceptGramConfigurationError, compute_concept_gram
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[0], a); Ry(qs[1], -b); Ry(qs[2], c)",
+            ["0.1, 0.2, 0.3"],
+        )
+        with pytest.raises(ConceptGramConfigurationError) as exc_info:
+            compute_concept_gram(machine)
+        message = str(exc_info.value)
+        assert "mixes positive and negated" in message
+
+    def test_inverse_form_effect_passes(self):
+        # The inverse-preparation form (`Ry(qs[2], -c); Ry(qs[1], -b);
+        # Ry(qs[0], -a)`) is the canonical query shape used by the bundled
+        # `larql-polysemantic-clusters` example. It MUST pass the
+        # structural check unchanged.
+        from q_orca import compute_concept_gram
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[2], -c); Ry(qs[1], -b); Ry(qs[0], -a)",
+            ["0.1, 0.2, 0.3"],
+        )
+        gram = compute_concept_gram(machine)
+        assert gram.shape == (1, 1)
+
     def test_analytic_identity_matrix_on_zero_angles(self):
         """Multiple call sites all at angles (0, 0, 0) must produce all-ones gram."""
         import numpy as np

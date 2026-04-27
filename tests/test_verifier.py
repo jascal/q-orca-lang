@@ -624,6 +624,114 @@ class TestParametricActionVerification:
         errors = [e for e in result.errors if e.severity == "error"]
         assert errors == []
 
+    def test_arity_zero_call_to_parametric_action_rejected_upstream(self):
+        # Pin the parser-level invariant that `check_unitarity` relies on:
+        # parametric actions are skipped in its per-action loop and only
+        # visited via `t.bound_arguments`. A bare-name reference to a
+        # parametric action (an "arity-zero call") would silently leave the
+        # gate unchecked if it slipped past the parser. The parser MUST
+        # reject it, leaving `bound_arguments` unset on the offending
+        # transition so the verifier never sees an unbound parametric
+        # action template at a call site.
+        source = """\
+# machine BareNameSlip
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0, q1, q2] |
+
+## events
+- go
+
+## state |s0> [initial]
+## state |s1> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | go    |       | |s1>   | query_concept |
+
+## actions
+| Name          | Signature          | Effect          |
+|---------------|--------------------|-----------------|
+| query_concept | (qs, c: int) -> qs | Hadamard(qs[c]) |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        parsed = parse_q_orca_markdown(source)
+        assert any(
+            "is parametric and requires arguments" in e for e in parsed.errors
+        ), parsed.errors
+        machine = parsed.file.machines[0]
+        # The offending transition retains the bare name in `t.action` but
+        # MUST NOT carry bound_arguments — that's the precondition for the
+        # verifier's `check_unitarity` skip-then-revisit pattern at
+        # `q_orca/verifier/quantum.py` lines 128-152.
+        bare_transition = next(
+            t for t in machine.transitions if t.action == "query_concept"
+        )
+        assert bare_transition.bound_arguments is None
+        # Sanity: the verifier doesn't crash and doesn't fabricate
+        # unitarity errors against the unbound template.
+        result = verify_quantum(machine)
+        assert not any(e.code == "QUBIT_INDEX_OUT_OF_RANGE" for e in result.errors)
+
+    def test_orphan_parametric_action_warns_without_expansion_checks(self):
+        # §6.4: a declared-but-unreferenced parametric action SHALL trigger
+        # the standard ORPHAN_ACTION structural warning. Crucially, it must
+        # not fire expansion-time checks — there are no call sites to
+        # iterate, so the per-call-site loop in `check_unitarity` should
+        # contribute zero errors. Pinned by a dedicated test rather than
+        # implicitly via `test_bound_range_clean_across_call_sites`, which
+        # exercises the inverse (a parametric action that IS referenced).
+        source = """\
+# machine OrphanParam
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0, q1, q2] |
+
+## events
+- go
+
+## state |s0> [initial]
+## state |s1> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |s0>   | go    |       | |s1>   | apply_h |
+
+## actions
+| Name          | Signature          | Effect          |
+|---------------|--------------------|-----------------|
+| apply_h       | (qs) -> qs         | Hadamard(qs[0]) |
+| query_concept | (qs, c: int) -> qs | Hadamard(qs[c]) |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        machine = _machine(source)
+        structural = check_structural(machine)
+        orphans = [
+            e for e in structural.errors
+            if e.code == "ORPHAN_ACTION"
+            and e.location.get("action") == "query_concept"
+        ]
+        assert len(orphans) == 1, structural.errors
+        assert orphans[0].severity == "warning"
+        # No expansion-time errors against the orphan: the parametric
+        # branch of `check_unitarity` skips it because there are no
+        # bound_arguments to iterate.
+        unitarity = verify_quantum(machine)
+        assert all(
+            e.location.get("action") != "query_concept"
+            for e in unitarity.errors
+        ), unitarity.errors
+
     def test_template_unbound_identifier_reported_at_parse_time(self):
         # Unbound subscripts are a parse-time error; the verifier runs on
         # the resulting AST and MUST NOT raise additional expansion-time

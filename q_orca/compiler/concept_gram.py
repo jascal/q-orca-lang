@@ -29,6 +29,7 @@ block-structured Gram signature of a clustered polysemantic example.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from q_orca.ast import QActionSignature, QMachineDef
@@ -39,6 +40,14 @@ if TYPE_CHECKING:
 
 class ConceptGramConfigurationError(ValueError):
     """Raised when a machine doesn't meet the concept-gram convention."""
+
+
+# A single product-state Ry segment, e.g. `Ry(qs[0], a)` or `Ry(qs[2], -c)`.
+# Tolerates whitespace around tokens; the angle slot is `name` or `-name`.
+_RY_SEGMENT_RE = re.compile(
+    r"^\s*Ry\s*\(\s*qs\[\s*(?P<qubit>\d+)\s*\]\s*,\s*"
+    r"(?P<sign>-?)\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\)\s*$"
+)
 
 
 def _find_concept_action(
@@ -64,6 +73,74 @@ def _check_signature(machine: QMachineDef, action: QActionSignature) -> None:
             f"exactly three angle parameters (a: angle, b: angle, "
             f"c: angle)"
         )
+
+
+def _check_effect(machine: QMachineDef, action: QActionSignature) -> None:
+    """Validate the effect string is a 3-qubit Ry product-state template.
+
+    The signature shape check (`_check_signature`) only constrains parameter
+    *count* and type; it would silently accept a malformed effect like
+    ``CNOT(qs[0], qs[1]); Rz(qs[2], c)``, producing a numerically wrong Gram
+    matrix. Pin the template to either the preparation form
+    (``Ry(qs[0], a); Ry(qs[1], b); Ry(qs[2], c)``) or its inverse
+    (``Ry(qs[2], -c); Ry(qs[1], -b); Ry(qs[0], -a)``) so the formula in
+    ``compute_concept_gram`` matches the actual circuit.
+    """
+    effect = (action.effect or "").strip()
+    segments = [s.strip() for s in effect.split(";") if s.strip()]
+    if len(segments) != 3:
+        raise ConceptGramConfigurationError(
+            f"machine {machine.name!r}: action {action.name!r} effect "
+            f"{effect!r} has {len(segments)} gate segment(s); concept-gram "
+            f"requires exactly three Ry gates of the form "
+            f"`Ry(qs[0], a); Ry(qs[1], b); Ry(qs[2], c)` (or its inverse)."
+        )
+
+    parsed: list[tuple[int, str, str]] = []
+    for seg in segments:
+        m = _RY_SEGMENT_RE.match(seg)
+        if not m:
+            raise ConceptGramConfigurationError(
+                f"machine {machine.name!r}: action {action.name!r} effect "
+                f"segment {seg!r} is not of the form `Ry(qs[i], [-]name)`; "
+                f"concept-gram requires a product of single-qubit Ry "
+                f"rotations driven by the declared angle parameters."
+            )
+        parsed.append((int(m.group("qubit")), m.group("sign"), m.group("name")))
+
+    signs = {sign for _, sign, _ in parsed}
+    if len(signs) > 1:
+        raise ConceptGramConfigurationError(
+            f"machine {machine.name!r}: action {action.name!r} effect "
+            f"{effect!r} mixes positive and negated angle signs across the "
+            f"three Ry gates; concept-gram accepts the all-positive "
+            f"preparation form or the all-negated inverse form, not a mix."
+        )
+
+    expected = {k: action.parameters[k].name for k in range(3)}
+    seen_qubits: set[int] = set()
+    for qubit, _, name in parsed:
+        if qubit not in expected:
+            raise ConceptGramConfigurationError(
+                f"machine {machine.name!r}: action {action.name!r} effect "
+                f"references qs[{qubit}]; concept-gram requires qubit "
+                f"subscripts 0, 1, 2 only."
+            )
+        if qubit in seen_qubits:
+            raise ConceptGramConfigurationError(
+                f"machine {machine.name!r}: action {action.name!r} effect "
+                f"applies Ry to qs[{qubit}] more than once; concept-gram "
+                f"requires one Ry per qubit."
+            )
+        if name != expected[qubit]:
+            raise ConceptGramConfigurationError(
+                f"machine {machine.name!r}: action {action.name!r} effect "
+                f"applies Ry on qs[{qubit}] with angle {name!r}, but "
+                f"signature position {qubit} declares parameter "
+                f"{expected[qubit]!r}; concept-gram requires positional "
+                f"alignment between angle parameters and qubit indices."
+            )
+        seen_qubits.add(qubit)
 
 
 def compute_concept_gram(
@@ -111,6 +188,7 @@ def compute_concept_gram(
 
     action = _find_concept_action(machine, concept_action_label)
     _check_signature(machine, action)
+    _check_effect(machine, action)
 
     call_sites = [
         t for t in machine.transitions
