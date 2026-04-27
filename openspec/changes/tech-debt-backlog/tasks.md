@@ -49,7 +49,7 @@
   `test_warning_lists_known_gates_from_canonical_set` pins that
   recently-added gates (CCZ, MCX, MCZ, …) appear automatically.
 
-- [ ] 1.5 Flag "extra non-`qs` slot without `: type`" in
+- [x] 1.5 Flag "extra non-`qs` slot without `: type`" in
   `_parse_signature`. Today `(qs, c) -> qs` silently returns a
   zero-parameter signature because no slot contains `:`; the
   transition `foo(0)` then errors with the unhelpful "not
@@ -57,6 +57,13 @@
   `: int`. Adding an error (or warning) in `_parse_signature`
   surfaces the intent mismatch at parse time.
   (Source: Claude code review on PR #26, suggestion 1.)
+  Added a `len(raw_params) > 1` branch in the early-exit (no
+  typed slots) path of `_parse_signature` that lists all extra
+  slot names and points at the canonical `(qs, c: int) -> qs`
+  shape. New tests in `TestParametricActionSignature`
+  (`tests/test_parser.py`) pin the diagnostic, including an
+  all-extras-listed case and a no-fire case for the historical
+  zero-parameter forms `(qs) -> qs` and `(ctx) -> ctx`.
 
 - [ ] 1.6 Converge bare-name and call-form typo detection for
   parametric actions. Today an undeclared bare-name reference
@@ -117,7 +124,7 @@
   (`test_severity_valid_invariant_holds`) that asserts the
   invariant on the backend's output.
 
-- [ ] 2.2 Add a regression test pinning that arity-zero calls to
+- [x] 2.2 Add a regression test pinning that arity-zero calls to
   a parametric action (e.g. a bare-name reference to an action
   declared `query_concept(c: int)`) are rejected upstream. The
   verifier's `check_unitarity` assumes this today — parametric
@@ -125,13 +132,28 @@
   `bound_arguments`, so a bare-name slip would silently leave the
   gate unchecked.
   (Source: Claude code review on PR #27, concern 4.)
+  Added `test_arity_zero_call_to_parametric_action_rejected_upstream`
+  in `TestParametricActionVerification` (`tests/test_verifier.py`).
+  It pins three things end-to-end: (1) the parser emits the
+  "is parametric and requires arguments" error, (2) the
+  surviving transition has `bound_arguments is None` so the
+  verifier's per-call-site loop never visits it, and (3)
+  `verify_quantum` does not fabricate a spurious
+  `QUBIT_INDEX_OUT_OF_RANGE` against the unbound template.
 
-- [ ] 2.3 Add a parametric-specific `ORPHAN_ACTION` test so
+- [x] 2.3 Add a parametric-specific `ORPHAN_ACTION` test so
   §6.4 behavior (orphan parametric actions still trigger the
   error without firing expansion-time checks) is pinned by a
   dedicated test rather than only implicitly covered by
   `test_bound_range_clean_across_call_sites`.
   (Source: Claude code review on PR #27, concern 5.)
+  Added `test_orphan_parametric_action_warns_without_expansion_checks`
+  in `TestParametricActionVerification` (`tests/test_verifier.py`).
+  Builds a machine where `query_concept(c: int)` is declared but
+  never referenced; asserts (a) `check_structural` emits exactly
+  one `ORPHAN_ACTION` warning for the orphan parametric action,
+  and (b) `verify_quantum` produces zero errors keyed on the
+  orphan name — the per-call-site loop has nothing to iterate.
 
 - [ ] 2.4 Add a declarative opt-out path for `SUPERPOSITION_LEAK`
   on intentional single-target measure-to-final transitions.
@@ -211,7 +233,7 @@
   module. No separate backlog item needed — tracked there.
   (Source: Claude code review on PR #27, concern 1.)
 
-- [ ] 3.6 Validate effect structure in
+- [x] 3.6 Validate effect structure in
   `q_orca/compiler/concept_gram.py::_check_signature`. Today
   only the *parameter shape* is checked (3 angles); a caller
   could pass an action with signature
@@ -223,6 +245,17 @@
   error scenario. Not urgent for an opt-in analysis helper but
   worth doing before a second caller lands.
   (Source: Claude code review on PR #31, suggestion 3.)
+  Added a sibling `_check_effect` helper (called from
+  `compute_concept_gram` right after `_check_signature`) that
+  splits the effect on `;` and matches each segment against
+  `_RY_SEGMENT_RE` (`Ry(qs[i], [-]name)`). Rejects: wrong
+  segment count, foreign gates (CNOT/Rz/etc.), out-of-range
+  qubit subscripts, duplicate qubits, mixed sign conventions,
+  and parameter-name/qubit-position misalignment. The inverse
+  form used by `larql-polysemantic-clusters.q.orca.md` (all
+  three segments negated, qubits reversed) passes unchanged
+  — pinned by `test_inverse_form_effect_passes`. Five new
+  tests in `TestComputeConceptGram` cover each rejection branch.
 
 - [x] 3.7 Inline the unused intermediate `shape` variable in
   `_check_signature` (`concept_gram.py:50`) — it's only used in
