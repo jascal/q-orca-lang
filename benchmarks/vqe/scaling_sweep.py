@@ -97,9 +97,9 @@ def run_vqe_cpu(n_qubits: int, depth: int = 1, maxiter: int = 30) -> dict[str, A
     return {
         "elapsed_s": round(elapsed, 4),
         "python_alloc_mb": round(peak / 1e6, 2),
-        "n_iter": opt_result.nfev,
+        "n_iter": int(opt_result.nfev),
         "energy": round(float(opt_result.fun), 6),
-        "converged": opt_result.success,
+        "converged": bool(opt_result.success),
         "device": "CPU",
     }
 
