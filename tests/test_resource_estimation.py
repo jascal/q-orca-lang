@@ -72,6 +72,26 @@ def test_memoization_returns_same_dict_no_retranspile():
     assert second is first
 
 
+def test_cache_entry_evicted_when_machine_gc_collected():
+    import gc
+
+    from q_orca.compiler.resources import _RESOURCE_CACHE
+
+    m = _load("bell-entangler.q.orca.md")
+    estimate_resources(m)
+    machine_id = id(m)
+    assert machine_id in _RESOURCE_CACHE
+
+    del m
+    gc.collect()
+
+    assert machine_id not in _RESOURCE_CACHE, (
+        "weakref.finalize must drop the cache entry once the machine is "
+        "collected — otherwise a future allocation reusing the same id "
+        "gets a stale cache hit."
+    )
+
+
 def test_unknown_metric_in_resources_section():
     src = """\
 # machine Foo
