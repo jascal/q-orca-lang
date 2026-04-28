@@ -664,11 +664,16 @@ def _resolve_transition_actions(
             t.action_label = raw
             t.bound_arguments = bound
         else:
-            # Bare-name reference; validate only that it doesn't skip
-            # required parametric arguments. Undeclared bare-name actions
-            # are left alone to preserve historical parser behavior.
+            # Bare-name reference; verify the name resolves to a declared
+            # action and doesn't skip required parametric arguments.
             sig = actions_by_name.get(raw)
-            if sig is not None and sig.parameters:
+            if sig is None:
+                if errors is not None:
+                    errors.append(
+                        f"{transition_ref}: bare-name action {raw!r} is not "
+                        f"declared in the actions table."
+                    )
+            elif sig.parameters:
                 if errors is not None:
                     errors.append(
                         f"{transition_ref}: action {raw!r} is parametric and "

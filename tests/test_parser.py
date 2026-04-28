@@ -948,6 +948,25 @@ class TestParametricTransitionCall:
             for e in result.errors
         ), result.errors
 
+    def test_bare_name_unknown_action_is_error(self):
+        # Convergence with the call-form branch: an undeclared bare-name
+        # reference is a typo signal. Today `query_concep(0)` errors but
+        # `query_concep` slipped through silently — that asymmetry meant a
+        # one-character typo on a bare-name cell could hide an action that
+        # never ran. The typo is now flagged with a structured error
+        # mirroring the call-form wording.
+        result = self._parse_with_action_cell("query_concep")
+        assert any(
+            "bare-name action" in e and "is not declared" in e
+            for e in result.errors
+        ), result.errors
+
+    def test_bare_name_known_action_is_not_flagged(self):
+        # Sanity check: a declared zero-parameter action used bare-name
+        # must remain warning-free under the new check.
+        result = self._parse_with_action_cell("apply_h")
+        assert not any("is not declared" in e for e in result.errors), result.errors
+
 
 class TestParametricActionForwardReference:
     """Forward references: a transition SHALL be able to invoke an action
