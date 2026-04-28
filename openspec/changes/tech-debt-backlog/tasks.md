@@ -65,13 +65,24 @@
   all-extras-listed case and a no-fire case for the historical
   zero-parameter forms `(qs) -> qs` and `(ctx) -> ctx`.
 
-- [ ] 1.6 Converge bare-name and call-form typo detection for
+- [x] 1.6 Converge bare-name and call-form typo detection for
   parametric actions. Today an undeclared bare-name reference
   (`query_concep`) slips through silently while the call-form
   typo (`query_concep(0)`) is reported. The asymmetry was a
   deliberate scoping call on PR #26 but should be revisited now
   that section 4–7 have shipped.
   (Source: Claude code review on PR #26, suggestion 2.)
+  Converged the two paths in `_resolve_transition_actions`: an
+  undeclared bare-name reference now emits a structured
+  "bare-name action {name!r} is not declared in the actions
+  table" error, mirroring the call-form wording. A pre-flight
+  scan of all `examples/*.q.orca.md` and 103 in-test markdown
+  fixtures confirmed no live machine relied on the silent-allow
+  behavior. New tests
+  `test_bare_name_unknown_action_is_error` (typo flagged) and
+  `test_bare_name_known_action_is_not_flagged` (declared
+  zero-parameter still clean) pin both directions in
+  `TestParametricTransitionCall`.
 
 - [x] 1.7 Replace naive `args_str.split(",")` in
   `_resolve_transition_actions` with a paren-aware
