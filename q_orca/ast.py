@@ -271,7 +271,7 @@ class QEffectDef:
 
 @dataclass
 class VerificationRule:
-    kind: str  # 'unitarity' | 'entanglement' | 'completeness' | 'no_cloning' | 'custom'
+    kind: str  # 'unitarity' | 'entanglement' | 'completeness' | 'no_cloning' | 'measurement_collapse_allowed' | 'custom'
     description: str
     target: Optional[str] = None
     custom_name: Optional[str] = None
