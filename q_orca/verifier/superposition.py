@@ -19,6 +19,17 @@ SUPERPOSITION_PATTERNS = [
 SUPERPOSITION_GATES = {"H", "Rx", "Ry", "Rz", "CNOT", "CZ", "SWAP", "CCNOT", "CSWAP"}
 COLLAPSE_SENSITIVE_GATES = {"CNOT", "CZ", "SWAP", "CCNOT", "CSWAP"}
 
+# Verification-rule kind that opts a machine out of the
+# measure-from-superposition-to-final-state warning. Used by collapse-based
+# protocols (e.g. concept-projection lookup) where measurement IS the
+# terminal step and per-outcome guard splits or fabricated `prob_collapse`
+# guards would be ceremony rather than signal.
+COLLAPSE_OPT_OUT_KIND = "measurement_collapse_allowed"
+
+
+def _machine_allows_measurement_collapse(machine: QMachineDef) -> bool:
+    return any(r.kind == COLLAPSE_OPT_OUT_KIND for r in machine.verification_rules)
+
 
 def _gate_kinds_in_effect(effect_str: str) -> set[str]:
     """Extract all gate kind names from an effect string."""
@@ -70,6 +81,7 @@ def check_superposition_leaks(machine: QMachineDef) -> QVerificationResult:
 
     analysis = analyze_machine(machine)
     action_map = {a.name: a for a in machine.actions}
+    collapse_allowed = _machine_allows_measurement_collapse(machine)
 
     for state in machine.states:
         if state.name not in superposition_states:
@@ -92,6 +104,8 @@ def check_superposition_leaks(machine: QMachineDef) -> QVerificationResult:
                     is_final = target.is_final if target else False
 
                     if is_final:
+                        if collapse_allowed:
+                            continue
                         errors.append(QVerificationError(
                             code="SUPERPOSITION_LEAK",
                             message=f"Measurement from superposition state '{state.name}' to final state will collapse superposition",
@@ -149,6 +163,8 @@ def check_superposition_leaks(machine: QMachineDef) -> QVerificationResult:
                     getattr(next((s for s in machine.states if s.name == t.target), None), "is_final", False)
                     for t in transitions
                 )
+                if all_targets_final and collapse_allowed:
+                    continue
                 has_subsequent = any(
                     len([tr for tr in machine.transitions if tr.source == t.target]) > 0
                     for t in transitions

@@ -145,40 +145,33 @@ single-query simulations to recover the table above.
 > `|0^12>` vs other outcomes gives the per-concept polysemy score in the demo.
 
 ## transitions
-| Source         | Event        | Guard                              | Target        | Action                 |
-|----------------|--------------|------------------------------------|---------------|------------------------|
-| idle           | load_feature |                                    | feature_loaded| prepare_polysemantic   |
-| feature_loaded | query_c0     |                                    | queried_c0    | query_concept(0)       |
-| feature_loaded | query_c1     |                                    | queried_c1    | query_concept(1)       |
-| feature_loaded | query_c2     |                                    | queried_c2    | query_concept(2)       |
-| feature_loaded | query_c3     |                                    | queried_c3    | query_concept(3)       |
-| feature_loaded | query_c4     |                                    | queried_c4    | query_concept(4)       |
-| feature_loaded | query_c5     |                                    | queried_c5    | query_concept(5)       |
-| feature_loaded | query_c6     |                                    | queried_c6    | query_concept(6)       |
-| feature_loaded | query_c7     |                                    | queried_c7    | query_concept(7)       |
-| feature_loaded | query_c8     |                                    | queried_c8    | query_concept(8)       |
-| feature_loaded | query_c9     |                                    | queried_c9    | query_concept(9)       |
-| feature_loaded | query_c10    |                                    | queried_c10   | query_concept(10)      |
-| feature_loaded | query_c11    |                                    | queried_c11   | query_concept(11)      |
-| queried_c0     | measure_done | prob_collapse('0'*12)=0.75         | done          |                        |
-| queried_c1     | measure_done | prob_collapse('0'*12)=0.75         | done          |                        |
-| queried_c2     | measure_done | prob_collapse('0'*12)=0.333        | done          |                        |
-| queried_c3     | measure_done | prob_collapse('0'*12)=0.333        | done          |                        |
-| queried_c4     | measure_done | prob_collapse('0'*12)=0.333        | done          |                        |
-| queried_c5     | measure_done | prob_collapse('0'*12)=0.333        | done          |                        |
-| queried_c6     | measure_done | prob_collapse('0'*12)=0.333        | done          |                        |
-| queried_c7     | measure_done | prob_collapse('0'*12)=0.333        | done          |                        |
-| queried_c8     | measure_done | prob_collapse('0'*12)=0.333        | done          |                        |
-| queried_c9     | measure_done | prob_collapse('0'*12)=0.333        | done          |                        |
-| queried_c10    | measure_done | prob_collapse('0'*12)=0.333        | done          |                        |
-| queried_c11    | measure_done | prob_collapse('0'*12)=0.333        | done          |                        |
-
-## guards
-| Name                  | Expression                                                              |
-|-----------------------|-------------------------------------------------------------------------|
-| prob_collapse('0'*12) | P(|0^12>) per query; 0.75 for in-feature concepts (c0, c1), 1/3 for     |
-|                       | cross-talk concepts (c2..c11). Guards annotate the expected marked      |
-|                       | outcome only; the "any other outcome" branch is implicit in `done`.     |
+| Source         | Event        | Guard | Target        | Action                 |
+|----------------|--------------|-------|---------------|------------------------|
+| idle           | load_feature |       | feature_loaded| prepare_polysemantic   |
+| feature_loaded | query_c0     |       | queried_c0    | query_concept(0)       |
+| feature_loaded | query_c1     |       | queried_c1    | query_concept(1)       |
+| feature_loaded | query_c2     |       | queried_c2    | query_concept(2)       |
+| feature_loaded | query_c3     |       | queried_c3    | query_concept(3)       |
+| feature_loaded | query_c4     |       | queried_c4    | query_concept(4)       |
+| feature_loaded | query_c5     |       | queried_c5    | query_concept(5)       |
+| feature_loaded | query_c6     |       | queried_c6    | query_concept(6)       |
+| feature_loaded | query_c7     |       | queried_c7    | query_concept(7)       |
+| feature_loaded | query_c8     |       | queried_c8    | query_concept(8)       |
+| feature_loaded | query_c9     |       | queried_c9    | query_concept(9)       |
+| feature_loaded | query_c10    |       | queried_c10   | query_concept(10)      |
+| feature_loaded | query_c11    |       | queried_c11   | query_concept(11)      |
+| queried_c0     | measure_done |       | done          |                        |
+| queried_c1     | measure_done |       | done          |                        |
+| queried_c2     | measure_done |       | done          |                        |
+| queried_c3     | measure_done |       | done          |                        |
+| queried_c4     | measure_done |       | done          |                        |
+| queried_c5     | measure_done |       | done          |                        |
+| queried_c6     | measure_done |       | done          |                        |
+| queried_c7     | measure_done |       | done          |                        |
+| queried_c8     | measure_done |       | done          |                        |
+| queried_c9     | measure_done |       | done          |                        |
+| queried_c10    | measure_done |       | done          |                        |
+| queried_c11    | measure_done |       | done          |                        |
 
 ## actions
 | Name                 | Signature          | Effect                                                              |
@@ -187,10 +180,7 @@ single-query simulations to recover the table above.
 | query_concept        | (qs, c: int) -> qs | Hadamard(qs[c])                                                     |
 
 ## verification rules
-- unitarity: Ry, X, CRy, and Hadamard all preserve norm; every transition
-  evolves the 12-qubit register unitarily from `|0^12>`
-- non_orthogonality: `|<concept_i | concept_j>| = 1/2 for i ≠ j`, so every
-  off-diagonal Gram entry sits on the cross-talk floor
-- no_cloning: |f> is not duplicated; the 12 queries each require a fresh
-  preparation from the classical description of the feature (the demo
-  reifies this by running 12 independent circuits)
+- unitarity: Ry, X, CRy, and Hadamard preserve norm — every transition evolves the 12-qubit register unitarily from `|0^12>`
+- non_orthogonality: `|<concept_i | concept_j>| = 1/2 for i ≠ j`, so every off-diagonal Gram entry sits on the cross-talk floor
+- no_cloning: |f> is not duplicated; the 12 queries each require a fresh preparation from the classical description of the feature (the demo reifies this by running 12 independent circuits)
+- measurement_collapse_allowed: `done` is the intended collapse sink — each branch ends in measurement; analytic `P(|0^12>)` per query (0.75 for c0/c1, 1/3 for c2..c11) is documented in the polysemy-scores table above

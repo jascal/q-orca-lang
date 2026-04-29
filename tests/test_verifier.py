@@ -816,6 +816,133 @@ class TestSuperpositionLeaks:
         assert "SUPERPOSITION_LEAK" in codes
 
 
+class TestMeasurementCollapseAllowed:
+    """Opt-out path for SUPERPOSITION_LEAK on intentional terminal collapse.
+
+    Replaces the tactical `prob_collapse(...)` guard fix used on the
+    polysemantic examples with a declarative machine-wide rule.
+    """
+
+    _SOURCE_TEMPLATE = """\
+# machine CollapseSink
+
+## context
+| Field  | Type        | Default |
+|--------|-------------|---------|
+| qubits | list<qubit> |         |
+
+## events
+- apply
+- measure
+
+## state |00> [initial]
+> Ground
+
+## state |+0> = (|0> + |1>)|0>/√2
+> Superposition
+
+## state |result> [final]
+> Measured
+
+## transitions
+| Source | Event   | Guard | Target   | Action  |
+|--------|---------|-------|----------|---------|
+| |00>   | apply   |       | |+0>     | do_H    |
+| |+0>   | measure |       | |result> |         |
+
+## actions
+| Name | Signature  | Effect          |
+|------|------------|-----------------|
+| do_H | (qs) -> qs | Hadamard(qs[0]) |
+{rules_section}"""
+
+    _RULES_OPT_OUT = """
+## verification rules
+- measurement_collapse_allowed: terminal collapse on `|result>` is intentional
+"""
+
+    def test_warning_fires_without_opt_out(self):
+        # Baseline: same shape, no opt-out — warning fires (regression-pin).
+        machine = _machine(self._SOURCE_TEMPLATE.format(rules_section=""))
+        result = check_superposition_leaks(machine)
+        leaks = [e for e in result.errors if e.code == "SUPERPOSITION_LEAK"]
+        assert leaks, "expected SUPERPOSITION_LEAK warning without opt-out rule"
+        # No rule means the kind never gets parsed in the first place.
+        assert all(
+            r.kind != "measurement_collapse_allowed"
+            for r in machine.verification_rules
+        )
+
+    def test_opt_out_rule_suppresses_per_transition_warning(self):
+        machine = _machine(
+            self._SOURCE_TEMPLATE.format(rules_section=self._RULES_OPT_OUT)
+        )
+        # The new rule kind parses as a structured kind, not as `custom`.
+        assert any(
+            r.kind == "measurement_collapse_allowed"
+            for r in machine.verification_rules
+        )
+        result = check_superposition_leaks(machine)
+        assert all(
+            e.code != "SUPERPOSITION_LEAK" for e in result.errors
+        ), result.errors
+        assert result.valid
+
+    def test_opt_out_does_not_mask_unguarded_to_non_final(self):
+        # Critical: the rule MUST NOT silence the genuine error case
+        # (unguarded measurement to a NON-final state from a superposition).
+        # That path is undefined behavior and should still be flagged.
+        source = """\
+# machine UnsafeMidCollapse
+
+## context
+| Field  | Type        | Default |
+|--------|-------------|---------|
+| qubits | list<qubit> |         |
+
+## events
+- apply
+- measure
+- finish
+
+## state |00> [initial]
+> Ground
+
+## state |+0> = (|0> + |1>)|0>/√2
+> Superposition
+
+## state |mid>
+> Non-final landing — undefined behavior under unguarded measure
+
+## state |done> [final]
+> Terminal
+
+## transitions
+| Source | Event   | Guard | Target | Action |
+|--------|---------|-------|--------|--------|
+| |00>   | apply   |       | |+0>   | do_H   |
+| |+0>   | measure |       | |mid>  |        |
+| |mid>  | finish  |       | |done> |        |
+
+## actions
+| Name | Signature  | Effect          |
+|------|------------|-----------------|
+| do_H | (qs) -> qs | Hadamard(qs[0]) |
+
+## verification rules
+- measurement_collapse_allowed: collapse on terminal step is intended
+"""
+        machine = _machine(source)
+        result = check_superposition_leaks(machine)
+        unguarded_to_non_final = [
+            e for e in result.errors
+            if e.code == "SUPERPOSITION_LEAK" and e.severity == "error"
+        ]
+        assert unguarded_to_non_final, (
+            "opt-out rule must not mask unguarded measurement to a non-final state"
+        )
+
+
 class TestFullPipeline:
     def test_bell_entangler_valid(self, bell_source):
         machine = _machine(bell_source)

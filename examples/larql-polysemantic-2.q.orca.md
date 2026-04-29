@@ -76,19 +76,13 @@ cross-talk sparse autoencoders see when concept count exceeds hidden dim.
 > `|00>` vs other outcomes gives the polysemy score for the queried concept.
 
 ## transitions
-| Source         | Event        | Guard                        | Target        | Action                |
-|----------------|--------------|------------------------------|---------------|-----------------------|
-| idle           | load_feature |                              | feature_loaded| prepare_polysemantic  |
-| feature_loaded | query_c0     |                              | queried_c0    | query_concept(0)      |
-| feature_loaded | query_c1     |                              | queried_c1    | query_concept(1)      |
-| queried_c0     | measure_done | prob_collapse('00')=0.75     | done          |                       |
-| queried_c1     | measure_done | prob_collapse('00')=0.75     | done          |                       |
-
-## guards
-| Name                | Expression                                                          |
-|---------------------|---------------------------------------------------------------------|
-| prob_collapse('00') | P(|00>) = 3/4 per query (symmetric loading of both concepts into    |
-|                     | the feature); guards annotate the expected marked outcome only.     |
+| Source         | Event        | Guard | Target        | Action                |
+|----------------|--------------|-------|---------------|-----------------------|
+| idle           | load_feature |       | feature_loaded| prepare_polysemantic  |
+| feature_loaded | query_c0     |       | queried_c0    | query_concept(0)      |
+| feature_loaded | query_c1     |       | queried_c1    | query_concept(1)      |
+| queried_c0     | measure_done |       | done          |                       |
+| queried_c1     | measure_done |       | done          |                       |
 
 ## actions
 | Name                 | Signature          | Effect                                                              |
@@ -100,3 +94,6 @@ cross-talk sparse autoencoders see when concept count exceeds hidden dim.
 - unitarity: Ry, X, CRy, and Hadamard all preserve norm
 - non_orthogonality: `|<concept_0 | concept_1>| = 1/2`
 - no_cloning: |f> is not duplicated; each query needs a fresh preparation
+- measurement_collapse_allowed: `done` is the intended collapse sink — each
+  branch ends in measurement; analytic `P(|00>)` per query is documented in
+  the polysemy-scores table above

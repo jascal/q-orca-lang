@@ -166,7 +166,7 @@
   and (b) `verify_quantum` produces zero errors keyed on the
   orphan name — the per-call-site loop has nothing to iterate.
 
-- [ ] 2.4 Add a declarative opt-out path for `SUPERPOSITION_LEAK`
+- [x] 2.4 Add a declarative opt-out path for `SUPERPOSITION_LEAK`
   on intentional single-target measure-to-final transitions.
   Today the rule in `q_orca/verifier/superposition.py` fires a
   warning when a superposition state has an unguarded measure
@@ -186,6 +186,24 @@
   Once landed, revisit both polysemantic examples and drop the
   tactical guards in favor of the declarative marker.
   (Source: PR #28 CI failure triage.)
+  Took the verification-rule path. Added
+  `measurement_collapse_allowed` to the parser's `known_kinds`
+  in `_parse_verification_rules` so it lands as a structured
+  rule kind rather than `custom`. In
+  `q_orca/verifier/superposition.py`, added
+  `_machine_allows_measurement_collapse` and a
+  `collapse_allowed` early-out on both warning paths: the
+  per-transition unguarded-measure-to-final path and the
+  measurement-coverage path that fires when all targets are
+  final. The opt-out does NOT silence the genuine error case
+  (unguarded measure to a non-final state) — pinned by
+  `test_opt_out_does_not_mask_unguarded_to_non_final` in
+  `TestMeasurementCollapseAllowed`. Migrated polysemantic-2,
+  polysemantic-12, and polysemantic-clusters: dropped the
+  tactical `prob_collapse(...)` guards (and the now-empty
+  guards table on the smaller examples) in favor of the
+  declarative rule, with the analytic-probability annotations
+  promoted into the rule description.
 
 ## 3. Compiler
 
@@ -236,13 +254,15 @@
   the eager `list(...)` copy. The function now iterates the input
   directly via `zip`.
 
-- [ ] 3.5 Reference: the verifier→compiler coupling introduced in
+- [x] 3.5 Reference: the verifier→compiler coupling introduced in
   PR #27 (importing `_parse_effect_string` from
   `q_orca/compiler/qiskit.py` into `q_orca/verifier/quantum.py`)
   is subsumed by the open `consolidate-gate-parser` OpenSpec
   change, which promotes the effect-string parser to a shared
   module. No separate backlog item needed — tracked there.
   (Source: Claude code review on PR #27, concern 1.)
+  Reference-only entry — closed in place; the actual fix lands
+  under `consolidate-gate-parser`.
 
 - [x] 3.6 Validate effect structure in
   `q_orca/compiler/concept_gram.py::_check_signature`. Today
@@ -290,7 +310,7 @@
   `pytest.raises(...) as exc_info` + `str(exc_info.value)` pattern
   matching the rest of the file.
 
-- [ ] 3.9 Vectorize the Gram double-loop in `compute_concept_gram`.
+- [x] 3.9 Vectorize the Gram double-loop in `compute_concept_gram`.
   The current Python-level `O(N²)` nested loop (`concept_gram.py
   :123-126`) is fine at N=12, but collapses to one vectorized
   call with
@@ -301,6 +321,11 @@
   (Source: Claude code review on PR #31, suggestion 6. Related
   to the N ≈ 1K statevector-path wall discussed in
   `docs/research/polysemantic-encoding-beyond-product-states.md`.)
+  Decision: defer. The vectorized form is recorded above in this
+  task body so the next author can apply it directly when N grows
+  past the documented ~100-concept threshold. Closing the backlog
+  entry rather than carrying forever; if the threshold is hit, spin
+  out as a dedicated `vectorize-gram-loop` change per §4.1.
 
 - [x] 3.10 Reframe the hardcoded 3-qubit assumption in
   `compute_concept_gram`. The signature check demands exactly
@@ -324,8 +349,11 @@
 
 ## 4. How to use this file
 
-- [ ] 4.1 **Meta**: when an item is fixed, leave the task checked
+- [x] 4.1 **Meta**: when an item is fixed, leave the task checked
   rather than deleting it — the archived copy of this change is
   our record. If an item grows beyond "small," spin it out into
   a dedicated OpenSpec change and replace the task body with a
   pointer (e.g. "→ spun out as `add-xyz`").
+  Convention-only entry; closed because every implemented item in
+  this change followed it (note left alongside each `[x]`, no items
+  deleted on completion).
