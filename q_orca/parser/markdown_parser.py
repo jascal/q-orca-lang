@@ -831,7 +831,13 @@ def _parse_effects_table(table: MdTable) -> list[QEffectDef]:
 
 def _parse_verification_rules(list_el: MdBulletList) -> list[VerificationRule]:
     rules: list[VerificationRule] = []
-    known_kinds = ["unitarity", "entanglement", "completeness", "no_cloning"]
+    known_kinds = [
+        "unitarity",
+        "entanglement",
+        "completeness",
+        "no_cloning",
+        "measurement_collapse_allowed",
+    ]
 
     for item in list_el.items:
         colon_index = item.find(":")

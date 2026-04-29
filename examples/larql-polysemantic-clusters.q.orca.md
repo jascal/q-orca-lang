@@ -189,40 +189,33 @@ independent prepare+query circuits to recover the polysemy column.
 > Measurement collapsed the 3-qubit register to a classical bitstring.
 
 ## transitions
-| Source          | Event         | Guard                       | Target           | Action                              |
-|-----------------|---------------|-----------------------------|------------------|-------------------------------------|
-| idle            | load_feature  |                             | feature_loaded   | prepare_concept(3.2, 0.4, 0.4)      |
-| feature_loaded  | query_paris   |                             | queried_paris    | query_concept(3.2, 0.4, 0.4)    |
-| feature_loaded  | query_tokyo   |                             | queried_tokyo    | query_concept(3.2, -0.4, -0.4)  |
-| feature_loaded  | query_london  |                             | queried_london   | query_concept(2.4, 0.4, -0.4)   |
-| feature_loaded  | query_berlin  |                             | queried_berlin   | query_concept(2.4, -0.4, 0.4)   |
-| feature_loaded  | query_apple   |                             | queried_apple    | query_concept(0.4, 3.2, 0.4)    |
-| feature_loaded  | query_banana  |                             | queried_banana   | query_concept(0.4, 2.4, -0.4)   |
-| feature_loaded  | query_cherry  |                             | queried_cherry   | query_concept(-0.4, 3.2, -0.4)  |
-| feature_loaded  | query_durian  |                             | queried_durian   | query_concept(-0.4, 2.4, 0.4)   |
-| feature_loaded  | query_car     |                             | queried_car      | query_concept(0.4, 0.4, 3.2)    |
-| feature_loaded  | query_boat    |                             | queried_boat     | query_concept(0.4, -0.4, 2.4)   |
-| feature_loaded  | query_plane   |                             | queried_plane    | query_concept(-0.4, 0.4, 2.4)   |
-| feature_loaded  | query_rocket  |                             | queried_rocket   | query_concept(-0.4, -0.4, 3.2)  |
-| queried_paris   | measure_done  | prob_collapse('000')=1.000  | done             |                                     |
-| queried_tokyo   | measure_done  | prob_collapse('000')=0.720  | done             |                                     |
-| queried_london  | measure_done  | prob_collapse('000')=0.720  | done             |                                     |
-| queried_berlin  | measure_done  | prob_collapse('000')=0.720  | done             |                                     |
-| queried_apple   | measure_done  | prob_collapse('000')=0.001  | done             |                                     |
-| queried_banana  | measure_done  | prob_collapse('000')=0.007  | done             |                                     |
-| queried_cherry  | measure_done  | prob_collapse('000')=0.001  | done             |                                     |
-| queried_durian  | measure_done  | prob_collapse('000')=0.015  | done             |                                     |
-| queried_car     | measure_done  | prob_collapse('000')=0.001  | done             |                                     |
-| queried_boat    | measure_done  | prob_collapse('000')=0.007  | done             |                                     |
-| queried_plane   | measure_done  | prob_collapse('000')=0.015  | done             |                                     |
-| queried_rocket  | measure_done  | prob_collapse('000')=0.001  | done             |                                     |
-
-## guards
-| Name                    | Expression                                                                 |
-|-------------------------|----------------------------------------------------------------------------|
-| prob_collapse('000')    | Analytic `P(|000>)` per query: 1.000 (self), 0.720 (cluster-mates),       |
-|                         | ≲ 0.09 (cross-cluster). Guards annotate the expected marked outcome only; |
-|                         | the "any other outcome" branch is implicit in `done`.                      |
+| Source          | Event         | Guard | Target           | Action                              |
+|-----------------|---------------|-------|------------------|-------------------------------------|
+| idle            | load_feature  |       | feature_loaded   | prepare_concept(3.2, 0.4, 0.4)      |
+| feature_loaded  | query_paris   |       | queried_paris    | query_concept(3.2, 0.4, 0.4)    |
+| feature_loaded  | query_tokyo   |       | queried_tokyo    | query_concept(3.2, -0.4, -0.4)  |
+| feature_loaded  | query_london  |       | queried_london   | query_concept(2.4, 0.4, -0.4)   |
+| feature_loaded  | query_berlin  |       | queried_berlin   | query_concept(2.4, -0.4, 0.4)   |
+| feature_loaded  | query_apple   |       | queried_apple    | query_concept(0.4, 3.2, 0.4)    |
+| feature_loaded  | query_banana  |       | queried_banana   | query_concept(0.4, 2.4, -0.4)   |
+| feature_loaded  | query_cherry  |       | queried_cherry   | query_concept(-0.4, 3.2, -0.4)  |
+| feature_loaded  | query_durian  |       | queried_durian   | query_concept(-0.4, 2.4, 0.4)   |
+| feature_loaded  | query_car     |       | queried_car      | query_concept(0.4, 0.4, 3.2)    |
+| feature_loaded  | query_boat    |       | queried_boat     | query_concept(0.4, -0.4, 2.4)   |
+| feature_loaded  | query_plane   |       | queried_plane    | query_concept(-0.4, 0.4, 2.4)   |
+| feature_loaded  | query_rocket  |       | queried_rocket   | query_concept(-0.4, -0.4, 3.2)  |
+| queried_paris   | measure_done  |       | done             |                                     |
+| queried_tokyo   | measure_done  |       | done             |                                     |
+| queried_london  | measure_done  |       | done             |                                     |
+| queried_berlin  | measure_done  |       | done             |                                     |
+| queried_apple   | measure_done  |       | done             |                                     |
+| queried_banana  | measure_done  |       | done             |                                     |
+| queried_cherry  | measure_done  |       | done             |                                     |
+| queried_durian  | measure_done  |       | done             |                                     |
+| queried_car     | measure_done  |       | done             |                                     |
+| queried_boat    | measure_done  |       | done             |                                     |
+| queried_plane   | measure_done  |       | done             |                                     |
+| queried_rocket  | measure_done  |       | done             |                                     |
 
 ## actions
 | Name                | Signature                                  | Effect                                                           |
@@ -231,10 +224,7 @@ independent prepare+query circuits to recover the polysemy column.
 | query_concept   | (qs, a: angle, b: angle, c: angle) -> qs    | Ry(qs[2], -c); Ry(qs[1], -b); Ry(qs[0], -a)                      |
 
 ## verification rules
-- unitarity: Ry preserves norm; every transition evolves the 3-qubit
-  register unitarily from `|000>`
-- structured_non_orthogonality: intra-cluster `|<c_i|c_j>|² = 0.720`
-  (uniform) and inter-cluster `|<c_i|c_j>|² < 0.10` — a block-structured
-  Gram matrix, not a uniform cross-talk floor
-- no_cloning: the prepared feature is not duplicated; each query needs a
-  fresh prepare+query sequence (the demo runs 12 independent circuits)
+- unitarity: Ry preserves norm; every transition evolves the 3-qubit register unitarily from `|000>`
+- structured_non_orthogonality: intra-cluster `|<c_i|c_j>|² = 0.720` (uniform) and inter-cluster `|<c_i|c_j>|² < 0.10` — a block-structured Gram matrix, not a uniform cross-talk floor
+- no_cloning: the prepared feature is not duplicated; each query needs a fresh prepare+query sequence (the demo runs 12 independent circuits)
+- measurement_collapse_allowed: `done` is the intended collapse sink — each branch ends in measurement; analytic `P(|000>)` per query (1.000 self, 0.720 cluster-mate, ≲ 0.09 cross-cluster) is documented in the polysemy-scores table above
