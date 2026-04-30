@@ -325,7 +325,7 @@
   task body so the next author can apply it directly when N grows
   past the documented ~100-concept threshold. Closing the backlog
   entry rather than carrying forever; if the threshold is hit, spin
-  out as a dedicated `vectorize-gram-loop` change per §4.1.
+  out as a dedicated `vectorize-gram-loop` change per §5.1.
 
 - [x] 3.10 Reframe the hardcoded 3-qubit assumption in
   `compute_concept_gram`. The signature check demands exactly
@@ -392,9 +392,56 @@
   new location.
   (Source: Claude Sonnet 4.6 code review on PR #45, suggestion 6.)
 
-## 4. How to use this file
+## 4. MCP server / skills
 
-- [x] 4.1 **Meta**: when an item is fixed, leave the task checked
+- [ ] 4.1 Surface parse errors from `parse_skill`
+  (`q_orca/skills.py:131-143`). Today the skill calls
+  `parse_q_orca_markdown(source)` and builds `machines` from
+  `parsed.file.machines`, returning `status="success"` regardless
+  of `parsed.errors`. A genuinely malformed source (invalid table
+  syntax, malformed kets, etc.) produces `parsed.errors` populated
+  AND `parsed.file.machines = []`, so the skill reports
+  `status="success", machines=[], machine=None` — silently
+  swallowing the error list. The `parse_machine` MCP tool that
+  fronts this then can't distinguish "no machine in input" from
+  "machine had parse errors." Mirror the `verify_skill` pattern
+  (lines 163-177): when `parsed.errors` is non-empty, return
+  `status="error"` with the errors surfaced in a structured field
+  on `ParseSkillResult`. Genuine "input contained no machine
+  heading" (`parsed.errors == [] and parsed.file.machines == []`)
+  stays `status="success"` with `machines=[]` so the call shape
+  remains unambiguous.
+  (Source: Hermes QA on the MCP server, observation 3.)
+
+- [ ] 4.2 Document the no-auth-on-tool-calls model in
+  `q_orca/mcp_server/`'s top-level docs / README. The MCP server
+  speaks JSON-RPC over stdio, so any client that connects can call
+  any tool — including `generate_machine` and `refine_machine`
+  which spend on the LLM provider — without an auth check. This
+  is intentional given the stdio = local trust boundary, but the
+  property is invisible to operators who haven't read the code.
+  Add a "Threat model" or "Trust boundary" section that names
+  stdio-as-local-trust-boundary explicitly, and flag the LLM-
+  spending tools so anyone wiring up a non-stdio transport in the
+  future knows to add auth before flipping the bit.
+  (Source: Hermes QA on the MCP server, observation 2.)
+
+- [ ] 4.3 Sanitize exception messages on the `tools/call` error
+  path (`q_orca/mcp_server/`, around the `isError` content build
+  flagged at line 244 in Hermes's report). Today caught exceptions
+  are stringified directly into the response; a stack trace or
+  filesystem path leak would land verbatim in the client message.
+  Low priority while the transport is stdio-only (the client *is*
+  the local user), but a cheap hardening step before any non-
+  stdio transport ships. Either filter to a known set of
+  exception types with curated messages, or strip absolute paths
+  and limit to the exception class name + a short generic
+  message, with the full repr behind a debug flag.
+  (Source: Hermes QA on the MCP server, observation 4.)
+
+## 5. How to use this file
+
+- [x] 5.1 **Meta**: when an item is fixed, leave the task checked
   rather than deleting it — the archived copy of this change is
   our record. If an item grows beyond "small," spin it out into
   a dedicated OpenSpec change and replace the task body with a
