@@ -1288,6 +1288,33 @@ class TestComputeConceptGramMps:
         message = str(exc_info.value)
         assert "3 angle parameters" in message
 
+    def test_call_site_wrong_arity_raises(self):
+        """Defensive guard for callers that build a `QMachineDef`
+        programmatically (bypassing the parser, which enforces arity at
+        parse time). Without this guard, ragged ``bound_arguments`` reach
+        the angle-matrix build and numpy raises `setting an array element
+        with a sequence` — a confusing message that mentions neither the
+        machine nor the helper. The helper must surface a contextful
+        `MpsGramConfigurationError` instead."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            ["0.1, 0.2, 0.3", "0.4, 0.5, 0.6"],
+        )
+        # Truncate the second call site's bound arguments to 2, mimicking
+        # a hand-built machine that sidestepped parser-level arity checks.
+        machine.transitions[1].bound_arguments = (
+            machine.transitions[1].bound_arguments[:2]
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        message = str(exc_info.value)
+        assert "query_concept" in message
+        assert "2 arguments" in message
+        assert "expected exactly 3" in message
+
     def test_missing_action_raises(self):
         from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
 

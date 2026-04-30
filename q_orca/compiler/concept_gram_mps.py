@@ -99,12 +99,8 @@ def _check_signature(
 
 def _parse_staircase_effect(
     machine: QMachineDef, action: QActionSignature, n_qubits: int
-) -> tuple[bool, list[tuple[int, str]]]:
-    """Parse a CNOT-staircase effect.
-
-    Returns ``(is_inverse, [(qubit, param_name), ...])`` where the list
-    has length ``n_qubits`` in *signature-positional order* (so entry
-    ``k`` is the param bound to ``qs[k]``).
+) -> bool:
+    """Parse a CNOT-staircase effect, returning ``is_inverse``.
 
     Accepts either the preparation form
     ``Ry(qs[0], p_0); CNOT(qs[0], qs[1]); ...; Ry(qs[n-1], p_{n-1})``
@@ -196,12 +192,10 @@ def _parse_staircase_effect(
             f"staircase requires adjacent CNOTs {expected_cnots}"
         )
 
-    # Map each Ry's angle param-name back to its signature position
-    # (= the qubit index it acts on, since both forms enumerate qubits
-    # 0..n-1). Validate name matches the declared parameter at that
-    # signature position.
+    # Validate each Ry's angle param-name matches the declared parameter
+    # at its signature position (= the qubit index it acts on, since
+    # both forms enumerate qubits 0..n-1).
     param_names = [p.name for p in action.parameters]
-    by_qubit: list[tuple[int, str]] = [(0, "")] * n_qubits
     for qubit, _sign, name in parsed_ry:
         if name != param_names[qubit]:
             raise MpsGramConfigurationError(
@@ -212,12 +206,10 @@ def _parse_staircase_effect(
                 f"positional alignment between angle parameters and "
                 f"qubit indices"
             )
-        by_qubit[qubit] = (qubit, name)
 
-    return is_inverse, by_qubit
+    return is_inverse
 
 
-_RY = None  # type: ignore[var-annotated]
 _CNOT = None  # type: ignore[var-annotated]
 
 
@@ -353,7 +345,7 @@ def compute_concept_gram_mps(
 
     action = _find_concept_action(machine, concept_action_label)
     _check_signature(machine, action, n_qubits)
-    is_inverse, _by_qubit = _parse_staircase_effect(machine, action, n_qubits)
+    is_inverse = _parse_staircase_effect(machine, action, n_qubits)
 
     call_sites = [
         t for t in machine.transitions
@@ -365,6 +357,15 @@ def compute_concept_gram_mps(
             f"has no call sites in the transitions table; mps concept-"
             f"gram needs at least one parametric call site to enumerate"
         )
+
+    for t in call_sites:
+        if len(t.bound_arguments) != n_qubits:
+            raise MpsGramConfigurationError(
+                f"machine {machine.name!r}: call site to "
+                f"{concept_action_label!r} has {len(t.bound_arguments)} "
+                f"arguments; expected exactly {n_qubits} angle literals "
+                f"(one per qubit in the register)"
+            )
 
     angles = np.array(
         [[float(b.value) for b in t.bound_arguments] for t in call_sites],
