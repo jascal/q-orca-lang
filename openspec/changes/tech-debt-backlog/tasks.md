@@ -347,6 +347,51 @@
   parameters, no more, no less" so the requirement reads as
   intentional rather than illustrative.
 
+- [ ] 3.11 Wrap `float(b.value)` coercion in
+  `compute_concept_gram_mps` (`concept_gram_mps.py`, the per-call-site
+  arity-validation block + the angle-matrix build a few lines below)
+  with a `try/except ValueError` that re-raises as
+  `MpsGramConfigurationError` naming the offending call site, action,
+  and value. Today a non-numeric `BoundArg.value` (e.g., a context-
+  field reference, if a future parser path ever lets one through to
+  `bound_arguments`) surfaces as a bare `ValueError` from the float
+  coercion, mentioning neither the machine nor the helper. Not a live
+  bug — the parser only emits int/float literals into `BoundArg.value`
+  today — so this is defense-in-depth for callers that build
+  `QMachineDef`s programmatically, mirroring the rationale for the
+  per-call-site arity guard added in PR #45.
+  (Source: Claude Sonnet 4.6 code review on PR #45, suggestion 2.)
+
+- [ ] 3.12 Vectorize the Gram double-loop in
+  `compute_concept_gram_mps` (`concept_gram_mps.py:392-395`). The
+  matrix is Hermitian by construction (`gram[j,i] = conj(gram[i,j])`)
+  with unit-modulus diagonal, but the current implementation computes
+  all N² inner products independently. Two cheap wins available, in
+  order of preference: (a) stack the flat statevectors into a single
+  `(N, 2^n)` array and compute the whole Gram in one
+  `flat @ flat.conj().T` numpy call (also typically more accurate);
+  (b) cut the loop to `for i in range(n_calls): for j in range(i,
+  n_calls):` with a `gram[j, i] = gram[i, j].conjugate()` mirror,
+  halving the constant. The module docstring advertises
+  `O(N² · 2ⁿ)` runtime when option (a) makes it effectively a single
+  BLAS call. Irrelevant at the shipped n=3 / N≈12 example but worth
+  doing before a larger MPS dictionary lands.
+  (Source: Claude Sonnet 4.6 code review on PR #45, suggestion 5.
+  Related to the N ≈ 1K statevector-path wall discussed in
+  `docs/research/polysemantic-encoding-beyond-product-states.md`.)
+
+- [ ] 3.13 Promote `_infer_qubit_count` from
+  `q_orca/compiler/qasm.py` to a public helper in a shared module
+  (e.g. `q_orca/compiler/util.py`). Both `compute_concept_gram` and
+  `compute_concept_gram_mps` reach into the qasm module's underscored
+  API to call it; convention has already been set by the first
+  helper, but each new caller hardens the smell. Not a blocker for
+  any individual PR — appropriate to land "next time you touch
+  `qasm.py`" or as a small dedicated refactor change. Update the two
+  concept-gram helpers (and any future caller) to import from the
+  new location.
+  (Source: Claude Sonnet 4.6 code review on PR #45, suggestion 6.)
+
 ## 4. How to use this file
 
 - [x] 4.1 **Meta**: when an item is fixed, leave the task checked
