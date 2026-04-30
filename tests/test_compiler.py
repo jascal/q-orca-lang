@@ -1095,6 +1095,327 @@ class TestComputeConceptGram:
         np.testing.assert_allclose(np.abs(gram), np.ones((3, 3)), atol=1e-9)
 
 
+class TestComputeConceptGramMps:
+    """Covers the `compute_concept_gram_mps` analysis helper (Section 2 of
+    add-mps-concept-encoding)."""
+
+    def _make_machine(
+        self,
+        sig: str,
+        effect: str,
+        calls: list[str],
+        action_name: str = "query_concept",
+        n_qubits: int = 3,
+    ):
+        """Build a minimal machine with N call sites to a parametric action.
+
+        ``calls`` is a list of argument-literal strings. ``n_qubits``
+        controls the size of the ``qubits`` register.
+        """
+        qubit_list = ", ".join(f"q{k}" for k in range(n_qubits))
+        transitions = []
+        states = ["## state idle [initial]"]
+        for i, args in enumerate(calls):
+            state_name = f"q{i}"
+            states.append(f"## state {state_name}")
+            transitions.append(
+                f"| idle | ev{i} | | {state_name} | {action_name}({args}) |"
+            )
+        states.append("## state done [final]")
+        events = "\n".join(f"- ev{i}" for i in range(len(calls))) or "- noop"
+        trans_body = "\n".join(transitions) or (
+            "| idle | noop | | done |  |"
+        )
+        source = (
+            "# machine M\n\n"
+            "## context\n"
+            "| Field  | Type        | Default      |\n"
+            "|--------|-------------|--------------|\n"
+            f"| qubits | list<qubit> | [{qubit_list}] |\n\n"
+            "## events\n"
+            f"{events}\n\n"
+            + "\n\n".join(states) + "\n\n"
+            "## transitions\n"
+            "| Source | Event | Guard | Target | Action |\n"
+            "|--------|-------|-------|--------|--------|\n"
+            f"{trans_body}\n\n"
+            "## actions\n"
+            "| Name | Signature | Effect |\n"
+            "|------|-----------|--------|\n"
+            f"| {action_name} | {sig} | {effect} |\n"
+        )
+        result = parse_q_orca_markdown(source)
+        assert result.errors == [], result.errors
+        return result.file.machines[0]
+
+    def _staircase_inverse(self, n: int) -> str:
+        """Canonical inverse-form CNOT-staircase effect on n qubits."""
+        param_names = "abcdefgh"[:n]
+        # Inverse: Ry(qs[n-1], -p_{n-1}); CNOT(n-2, n-1); ...;
+        # Ry(qs[1], -p_1); CNOT(0, 1); Ry(qs[0], -p_0).
+        segs: list[str] = []
+        for k in range(n - 1, -1, -1):
+            segs.append(f"Ry(qs[{k}], -{param_names[k]})")
+            if k > 0:
+                segs.append(f"CNOT(qs[{k - 1}], qs[{k}])")
+        return "; ".join(segs)
+
+    def _staircase_prep(self, n: int) -> str:
+        """Canonical preparation-form CNOT-staircase effect on n qubits."""
+        param_names = "abcdefgh"[:n]
+        segs: list[str] = []
+        for k in range(n):
+            segs.append(f"Ry(qs[{k}], {param_names[k]})")
+            if k < n - 1:
+                segs.append(f"CNOT(qs[{k}], qs[{k + 1}])")
+        return "; ".join(segs)
+
+    def test_zero_angles_identity_gram(self):
+        """Zero angles → all Ry rotations are identity → CNOTs stay
+        controlled by |0⟩ → final state is |0...0⟩ → all-ones Gram."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_prep(3),
+            ["0, 0, 0", "0, 0, 0", "0, 0, 0"],
+            action_name="prepare_concept",
+        )
+        gram = compute_concept_gram_mps(
+            machine, concept_action_label="prepare_concept"
+        )
+        assert gram.shape == (3, 3)
+        assert gram.dtype == np.complex128
+        np.testing.assert_allclose(np.abs(gram), np.ones((3, 3)), atol=1e-9)
+
+    def test_diagonal_is_unit_modulus(self):
+        """Self-overlap |⟨c_i|c_i⟩| = 1 for any angle tuple."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_prep(3),
+            ["0.7, 1.3, 2.1", "0.4, 0.5, 0.6", "1.5707963, 0.0, 1.5707963"],
+            action_name="prepare_concept",
+        )
+        gram = compute_concept_gram_mps(
+            machine, concept_action_label="prepare_concept"
+        )
+        np.testing.assert_allclose(np.abs(np.diag(gram)), np.ones(3), atol=1e-9)
+
+    def test_inverse_form_effect_passes(self):
+        """The inverse (query) form is the canonical shape used by the
+        upcoming hierarchical example. It MUST pass the structural check."""
+        from q_orca import compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            ["0.1, 0.2, 0.3"],
+        )
+        gram = compute_concept_gram_mps(machine)
+        assert gram.shape == (1, 1)
+
+    def test_prep_form_effect_passes(self):
+        from q_orca import compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_prep(3),
+            ["0.1, 0.2, 0.3"],
+            action_name="prepare_concept",
+        )
+        gram = compute_concept_gram_mps(
+            machine, concept_action_label="prepare_concept"
+        )
+        assert gram.shape == (1, 1)
+
+    def test_n2_register_works(self):
+        """Helper accepts any register size, not just n=3."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
+
+        # Two call sites at angles (0, π) and (π, 0). Both produce
+        # computational-basis states that are orthogonal:
+        #   prep(0, π): Ry(0)|0⟩ ⊗ |0⟩ → CNOT(0,1) → |00⟩ → Ry(π) on qs[1] → |01⟩
+        #   prep(π, 0): Ry(π)|0⟩ → |1⟩, CNOT(0,1) → |11⟩, Ry(0) on qs[1] → |11⟩
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle) -> qs",
+            self._staircase_prep(2),
+            [f"0, {np.pi}", f"{np.pi}, 0"],
+            action_name="prepare_concept",
+            n_qubits=2,
+        )
+        gram = compute_concept_gram_mps(
+            machine, concept_action_label="prepare_concept"
+        )
+        assert gram.shape == (2, 2)
+        np.testing.assert_allclose(np.abs(np.diag(gram)), np.ones(2), atol=1e-9)
+        # Off-diagonal: ⟨01|11⟩ = 0
+        assert abs(gram[0, 1]) < 1e-9
+        assert abs(gram[1, 0]) < 1e-9
+
+    def test_wrong_signature_int_parameter_raises(self):
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, c: int) -> qs",
+            "Hadamard(qs[c])",
+            ["0"],
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        message = str(exc_info.value)
+        assert "query_concept" in message
+        assert "3 angle parameters" in message
+
+    def test_wrong_signature_too_few_angles_raises(self):
+        """Two angle parameters on a 3-qubit register is wrong."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle) -> qs",
+            "Ry(qs[0], a); Ry(qs[1], b)",
+            ["0.1, 0.2"],
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        message = str(exc_info.value)
+        assert "3 angle parameters" in message
+
+    def test_missing_action_raises(self):
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            ["0.1, 0.2, 0.3"],
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(
+                machine, concept_action_label="does_not_exist"
+            )
+        message = str(exc_info.value)
+        assert "does_not_exist" in message
+        assert "query_concept" in message  # listed as hint
+
+    def test_no_call_sites_raises(self):
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            [],
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        message = str(exc_info.value)
+        assert "query_concept" in message
+        assert "no call sites" in message
+
+    def test_non_staircase_product_state_raises(self):
+        """Pure product-state effect (no CNOTs) is the rung-0 shape;
+        callers must use `compute_concept_gram` for that case."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[0], a); Ry(qs[1], b); Ry(qs[2], c)",
+            ["0.1, 0.2, 0.3"],
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        message = str(exc_info.value)
+        # Three segments instead of expected five → segment-count branch.
+        assert "3 gate segment" in message
+        assert "5 segments" in message
+
+    def test_non_staircase_non_adjacent_cnot_raises(self):
+        """A long-range CNOT between non-adjacent qubits violates the
+        staircase pattern."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[2]); Ry(qs[1], b); "
+            "CNOT(qs[1], qs[2]); Ry(qs[2], c)",
+            ["0.1, 0.2, 0.3"],
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        message = str(exc_info.value)
+        assert "adjacent CNOTs" in message
+
+    def test_non_staircase_wrong_segment_kind_raises(self):
+        """A non-Ry/non-CNOT gate at a staircase position is rejected."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[0], a); Hadamard(qs[1]); Ry(qs[1], b); "
+            "CNOT(qs[1], qs[2]); Ry(qs[2], c)",
+            ["0.1, 0.2, 0.3"],
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        message = str(exc_info.value)
+        assert "Hadamard(qs[1])" in message
+        assert "CNOT(qs[i], qs[j])" in message
+
+    def test_mixed_signs_raises(self):
+        """A mix of positive and negative angle signs is neither a clean
+        prep nor a clean inverse — reject."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Ry(qs[1], -b); "
+            "CNOT(qs[1], qs[2]); Ry(qs[2], c)",
+            ["0.1, 0.2, 0.3"],
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        message = str(exc_info.value)
+        assert "mixes positive and negated" in message
+
+    def test_param_position_mismatch_raises(self):
+        """Swapping which parameter drives which qubit is a numerically
+        wrong shape — reject."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            # Position 0 should drive `a`, but here it drives `b`.
+            "Ry(qs[0], b); CNOT(qs[0], qs[1]); Ry(qs[1], a); "
+            "CNOT(qs[1], qs[2]); Ry(qs[2], c)",
+            ["0.1, 0.2, 0.3"],
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        message = str(exc_info.value)
+        assert "qs[0]" in message and "'b'" in message and "'a'" in message
+        assert "positional alignment" in message
+
+    def test_unsupported_bond_dim_raises(self):
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            ["0.1, 0.2, 0.3"],
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine, bond_dim=4)
+        message = str(exc_info.value)
+        assert "bond_dim=4" in message
+        assert "not yet implemented" in message
+
+
 class TestSharedFixtureCompilerAdapter:
     """The Qiskit compiler's effect-string adapter must agree with the
     shared parser fixture on AST gate shape for every supported gate kind.

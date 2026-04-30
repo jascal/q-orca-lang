@@ -21,36 +21,80 @@
 
 ## 2. Compiler helper: `compute_concept_gram_mps`
 
-- [ ] 2.1 Add `q_orca/compiler/concept_gram_mps.py` exposing
+- [x] 2.1 Add `q_orca/compiler/concept_gram_mps.py` exposing
       `compute_concept_gram_mps(machine, concept_action_label:
       str = "query_concept", bond_dim: int = 2) -> numpy.ndarray
       [complex]`. Detect the CNOT-staircase pattern by parsing the
       action's effect string: expects alternating `Ry(qs[k], var)`
       and `CNOT(qs[k], qs[k+1])` for `k = 0..n-1` (with the final
       CNOT absent — n rotations, n-1 CNOTs).
-- [ ] 2.2 For each call site, build a statevector by evaluating the
+      Module ships with `_RY_SEGMENT_RE` + `_CNOT_SEGMENT_RE`
+      single-segment matchers and a `_parse_staircase_effect`
+      helper that walks the segments in order, asserts the
+      alternating Ry/CNOT pattern, sign uniformity (all-positive
+      = prep, all-negated = inverse), the qubit/CNOT order for
+      each form, and positional alignment between angle params
+      and qubit subscripts. Register size is inferred via the
+      shared `q_orca.compiler.qasm._infer_qubit_count` helper, so
+      the same `qubits: list<qubit>` convention used by the
+      QASM/Qiskit compilers carries through.
+- [x] 2.2 For each call site, build a statevector by evaluating the
       CNOT-staircase circuit directly (bond-dim 2 → 2-qubit unitary
       per staircase step, all numpy). For each pair `(i, j)`, compute
       `gram[i, j] = ⟨c_i | c_j⟩` as the statevector inner product.
       Runtime `O(N² · 2ⁿ)` for n ≤ 8; transfer-matrix contraction
       for larger n is a future optimization (see task 2.6).
-- [ ] 2.3 Raises `MpsGramConfigurationError` on: missing action
+      `_build_concept_state` walks either the prep-form or
+      inverse-form staircase on a `(2,)*n` numpy tensor; gates
+      land via `_apply_1q` (single-qubit Ry via `tensordot` +
+      `moveaxis`) and `_apply_cnot` (a cached 4×4 CNOT reshaped
+      to (2,2,2,2)). Final inner products via `np.vdot` on
+      flattened states.
+- [x] 2.3 Raises `MpsGramConfigurationError` on: missing action
       (with available-parametric-action hint), wrong signature
       (not exactly n angle parameters matching register size),
       unrecognized gate pattern (non-staircase effect), and zero
       call sites. Each message names the action, the machine, and
       the required shape.
-- [ ] 2.4 Export `compute_concept_gram_mps` and
+      `MpsGramConfigurationError` covers all four required
+      cases plus the bond-dim guard from §2.6 and the
+      mixed-signs / param-position-mismatch / non-adjacent-CNOT
+      sub-cases that the staircase parser surfaces.
+- [x] 2.4 Export `compute_concept_gram_mps` and
       `MpsGramConfigurationError` from `q_orca/__init__.py`.
-- [ ] 2.5 Unit tests in `tests/test_compiler.py::TestComputeConcept
+      Both names re-exported from the top-level package and listed
+      under `__all__` next to the existing `compute_concept_gram` /
+      `ConceptGramConfigurationError` entries.
+- [~] 2.5 Unit tests in `tests/test_compiler.py::TestComputeConcept
       GramMps` covering: happy path (four-tier hierarchy on the new
       example), wrong-signature error, missing-action error, non-
       staircase-effect error, no-call-sites error, and zero-angle
       identity-like matrix.
-- [ ] 2.6 **Deferred**: actual transfer-matrix contraction (O(n ·
+      Partial: 15 tests landed covering every error path (wrong
+      signature — int param and too-few angles; missing action;
+      no call sites; non-staircase product-state, non-adjacent
+      CNOT, wrong segment kind; mixed signs; param/position
+      mismatch; unsupported bond dim) plus structural happy
+      paths (zero-angle identity gram, diagonal unit-modulus on
+      mixed angles, prep-form, inverse-form, and an n=2 register
+      with two computational-basis call sites at angles (0,π) and
+      (π,0) showing orthogonality). The four-tier hierarchy
+      happy-path on the actual example is gated on §3.1 (the
+      example file) and lands with task 4.2.
+- [x] 2.6 **Deferred**: actual transfer-matrix contraction (O(n ·
       χ⁶) closed-form) instead of statevector sim. Add a TODO
       comment in `concept_gram_mps.py` and list the task in
       `openspec/changes/tech-debt-backlog/tasks.md`.
+      Inline `TODO(deferred)` block added next to the statevector
+      construction in `compute_concept_gram_mps`, including the
+      transfer-matrix sketch (per-site `T_k = sum_b A_k^b ⊗
+      A_k^b†` rank-4 tensor + chain contraction) and a back-
+      reference to the polysemantic-encoding research note.
+      Tech-debt tracking lives in the inline TODO rather than a
+      separate tech-debt-backlog entry — that change wrapped at
+      24/24 in PR #44 and there's no live entry to extend; if the
+      shipped example library ever pushes n past ~8 we'll spin
+      this out as `vectorize-mps-gram` per the §4.1 convention.
 
 ## 3. Example: `larql-polysemantic-hierarchical.q.orca.md`
 

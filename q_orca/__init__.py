@@ -14,6 +14,10 @@ from q_orca.compiler.concept_gram import (
     compute_concept_gram,
     ConceptGramConfigurationError,
 )
+from q_orca.compiler.concept_gram_mps import (
+    compute_concept_gram_mps,
+    MpsGramConfigurationError,
+)
 from q_orca.skills import (
     parse_skill,
     verify_skill,
@@ -43,6 +47,8 @@ __all__ = [
     # Concept-gram analysis (optional, for polysemantic examples)
     "compute_concept_gram",
     "ConceptGramConfigurationError",
+    "compute_concept_gram_mps",
+    "MpsGramConfigurationError",
     # Skills
     "parse_skill",
     "verify_skill",
