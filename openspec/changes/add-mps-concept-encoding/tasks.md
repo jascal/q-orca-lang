@@ -2,7 +2,7 @@
 
 ## 1. Design the hierarchical concept dictionary
 
-- [ ] 1.1 Pick 12 angle triples `(α_i, β_i, γ_i)` producing a
+- [x] 1.1 Pick 12 angle triples `(α_i, β_i, γ_i)` producing a
       two-level hierarchy under the CNOT-staircase MPS encoding
       `|c_i⟩ = Ry(q0, α_i) CNOT(q0, q1) Ry(q1, β_i) CNOT(q1, q2)
       Ry(q2, γ_i) |000⟩`. Target four Gram-matrix tiers:
@@ -11,13 +11,33 @@
       verify the four-tier structure by computing the analytic
       overlap matrix via transfer-matrix contraction before writing
       the example file.
-- [ ] 1.2 Document the 12-concept hierarchy (3 super-groups × 2 sub-
+      Final design: α ∈ {0, 2π/3, 4π/3} (super-group, q0),
+      β ∈ {-0.75, +0.75} (sub-cluster, q1), γ ∈ {-0.35, +0.35}
+      (concept, q2). Per-tier achieved bands (numerically verified
+      via `compute_concept_gram_mps` in step 2): self 1.000,
+      sub-mate 0.882 (uniform), super-sib [0.472, 0.535],
+      cross-group [0.118, 0.250]. Cross max sits at the cyclic-α
+      cos²(π/3)=0.25 floor (above the < 0.15 stretch target);
+      design.md's fallback applies — four ordered tiers with strict
+      inter-tier separation (sub→super gap 0.347; super→cross gap
+      0.222), which is what the pipeline test asserts.
+- [x] 1.2 Document the 12-concept hierarchy (3 super-groups × 2 sub-
       clusters × 2 concepts, or whatever partition the angle design
       supports) in the example's leading paragraph with a Gram
       heatmap table.
-- [ ] 1.3 Compute the analytic polysemy column for
+      Hierarchy is named (animals/fruits/vehicles super-groups;
+      mammals/birds, berries/tropical, land/air sub-clusters; 12
+      named concepts) and documented in the example's leading
+      paragraph with the angle table, the analytic per-tier band
+      table, and an ASCII Gram heatmap that resolves the four tiers.
+- [x] 1.3 Compute the analytic polysemy column for
       `|f⟩ = |c_0⟩` and tabulate it in the example's leading
       paragraph. Expected to show all four tiers in one column.
+      Polysemy column for `|f⟩ = |dog⟩ = |c_0⟩` tabulated in the
+      example: 1.000 (dog/self), 0.882 (cat/sub-mate), 0.535 / 0.472
+      (robin/eagle, super-sib), and eight cross-group entries
+      ranging 0.118 – 0.250. All four tiers appear in the single
+      column.
 
 ## 2. Compiler helper: `compute_concept_gram_mps`
 
@@ -98,28 +118,41 @@
 
 ## 3. Example: `larql-polysemantic-hierarchical.q.orca.md`
 
-- [ ] 3.1 Write the example with: 3-qubit concept register
+- [x] 3.1 Write the example with: 3-qubit concept register
       (`qubits: list<qubit>`), 12 concepts in a two-level hierarchy,
       one parametric `prepare_concept(a: angle, b: angle, c: angle)`
       (one call site, feature = `c_0`), one parametric
       `query_concept(a: angle, b: angle, c: angle)` (12 call sites),
       convergent `done [final]` state. Leading paragraph documents
       the hierarchy and the four-tier Gram matrix.
-- [ ] 3.2 Parses clean (`parsed.errors == []`), verifies valid
+      `examples/larql-polysemantic-hierarchical.q.orca.md` ships
+      the machine `LarqlPolysemanticHierarchical` (15 states, 25
+      transitions, 2 actions). The leading paragraph documents the
+      animals/fruits/vehicles super-groups, the angle table, the
+      four-tier Gram band table, the ASCII heatmap, and the
+      polysemy column for `|f⟩ = |dog⟩`.
+- [x] 3.2 Parses clean (`parsed.errors == []`), verifies valid
       (static), compiles to QASM + Qiskit + Mermaid without
       warnings. Covered by
       `test_larql_polysemantic_hierarchical_pipeline`.
-- [ ] 3.3 `compile_to_qiskit` produces the expected gate count —
+      Verified end-to-end: `parse_q_orca_markdown` returns no errors,
+      `verify(skip_dynamic=True)` reports VALID with 0 errors and
+      0 warnings, and the QASM/Qiskit/Mermaid compilers produce the
+      expected register and gate counts.
+- [x] 3.3 `compile_to_qiskit` produces the expected gate count —
       3 rotations + 2 CNOTs for prepare (5 gates) + 5 gates × 12
       queries + 2 additional CNOTs in query inversions = 65 gates.
       Exact count verified during implementation; tasks document
       the number once measured.
+      Measured: 39 `qc.ry(` calls and 26 `qc.cx(` calls — i.e.,
+      13 transitions × (3 Ry + 2 CX) = 65 gates total. Asserted in
+      `test_larql_polysemantic_hierarchical_pipeline`.
 
 ## 4. Tests
 
-- [ ] 4.1 `larql-polysemantic-hierarchical` added to `EXAMPLE_FILES`
+- [x] 4.1 `larql-polysemantic-hierarchical` added to `EXAMPLE_FILES`
       fixture in `tests/test_examples.py`.
-- [ ] 4.2 `test_larql_polysemantic_hierarchical_pipeline` asserts:
+- [x] 4.2 `test_larql_polysemantic_hierarchical_pipeline` asserts:
       parametric-action signature shape (three angle params on both
       `prepare_concept` and `query_concept`), 12 parametric call
       sites on `query_concept`, QASM contains `qubit[3] q;`, Qiskit
@@ -127,36 +160,47 @@
       `qc.ry(` and `qc.cx(` counts, and
       `compute_concept_gram_mps(machine)` returns a 12×12 matrix
       whose four tiers land in the documented bands.
-- [ ] 4.3 Demo run exercises the shots path; pipeline test exercises
+      Test landed and asserts: signature shape on both parametric
+      actions, 12 query call sites, `qubit[3] q;` in QASM,
+      `QuantumCircuit(3)` plus 39 ry / 26 cx in the Qiskit script,
+      diagonal == 1, and the four off-diagonal tiers (sub_min ≥ 0.85,
+      sub_max ≤ 0.90, super in [0.45, 0.56], cross_max ≤ 0.26) with
+      strict sub→super (≥ 0.20) and super→cross (≥ 0.15)
+      separation.
+- [x] 4.3 Demo run exercises the shots path; pipeline test exercises
       the analytic path.
+      Demo runs 12 independent prepare+query Qiskit circuits at 1024
+      shots each (shots path); pipeline test only calls
+      `compute_concept_gram_mps` (analytic path), so the two paths
+      cover disjoint code.
 
 ## 5. Demo: `demos/larql_polysemantic_hierarchical/demo.py`
 
-- [ ] 5.1 Mirrors `demos/larql_polysemantic_clusters/demo.py`:
+- [x] 5.1 Mirrors `demos/larql_polysemantic_clusters/demo.py`:
       parse + verify → compile (Mermaid + QASM + Qiskit) → 12
       independent Qiskit circuits at 1024 shots each → polysemy
       column print.
-- [ ] 5.2 Prints the analytic Gram matrix as a 4-tier ASCII heatmap
+- [x] 5.2 Prints the analytic Gram matrix as a 4-tier ASCII heatmap
       (`#` ≥ 0.7, `o` ∈ [0.3, 0.7), `.` ∈ [0.1, 0.3), blank < 0.1)
       using `compute_concept_gram_mps`.
-- [ ] 5.3 Compares empirical vs. analytic polysemy: prints
+- [x] 5.3 Compares empirical vs. analytic polysemy: prints
       `max |error|`, `mc_std` bound, pass/fail on
       `max_error < 3 · mc_std`. Exits nonzero on fail.
-- [ ] 5.4 Module docstring names the hierarchy topology, points at
+- [x] 5.4 Module docstring names the hierarchy topology, points at
       the example file, and references the sibling clusters demo.
       Closing section prints a side-by-side comparison of the
       rung-0 (flat) vs. rung-1 (hierarchical) Gram signatures.
 
 ## 6. Documentation
 
-- [ ] 6.1 README "Parametric actions" section grows a
+- [x] 6.1 README "Parametric actions" section grows a
       "Hierarchical polysemy" sub-heading with a paragraph summary
       and links to the new example + demo, and back to
       `larql-polysemantic-clusters` as the flat-tier variant.
-- [ ] 6.2 `CHANGELOG.md` `## Unreleased` grows a bullet under
+- [x] 6.2 `CHANGELOG.md` `## Unreleased` grows a bullet under
       **Added** describing the new example, demo, and
       `compute_concept_gram_mps` helper.
-- [ ] 6.3 No new top-level docs under `docs/language/` — the
+- [x] 6.3 No new top-level docs under `docs/language/` — the
       example file is the authoritative documentation for the
       pattern. The research note at
       `docs/research/polysemantic-encoding-beyond-product-states.md`
@@ -164,11 +208,16 @@
 
 ## 7. Spec consistency
 
-- [ ] 7.1 `openspec validate add-mps-concept-encoding --strict`
+- [x] 7.1 `openspec validate add-mps-concept-encoding --strict`
       passes.
-- [ ] 7.2 Full pytest suite green.
-- [ ] 7.3 Ruff clean across touched files.
-- [ ] 7.4 Demo run locally produces `max_error < threshold` → PASS.
+- [x] 7.2 Full pytest suite green.
+      770 passed, 6 skipped — including the new
+      `test_larql_polysemantic_hierarchical_pipeline` test and the
+      auto-parameterized `test_verify_all_examples` coverage.
+- [x] 7.3 Ruff clean across touched files.
+- [x] 7.4 Demo run locally produces `max_error < threshold` → PASS.
+      Demo PASS recorded — `max_err = 0.0158` < threshold
+      `0.0469` (3 × Monte-Carlo std bound at 1024 shots).
 
 ## 8. Archive
 

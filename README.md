@@ -341,6 +341,7 @@ q-orca simulate examples/bell-entangler.q.orca.md --run --json
 | `larql-polysemantic-2.q.orca.md` | Concept projection over 2 non-orthogonal LARQL features (minimum mechanism) |
 | `larql-polysemantic-12.q.orca.md` | 12-call-site parametric concept projection with uniform-overlap dictionary |
 | `larql-polysemantic-clusters.q.orca.md` | Block-structured 12-concept polysemy on a 3-qubit register (3 clusters of 4) |
+| `larql-polysemantic-hierarchical.q.orca.md` | Hierarchical 12-concept polysemy via bond-2 MPS encoding (3 super-groups × 2 sub-clusters × 2) |
 | `larql-gate-knn-grover.q.orca.md` | Grover-amplified gate-KNN lookup (per-layer kernel of LARQL inference) |
 
 ### Hybrid Classical + Quantum Demo
@@ -586,6 +587,32 @@ Use `larql-polysemantic-12` as the minimum-mechanism demo (single `int`
 parameter, one action template); use `larql-polysemantic-clusters` when
 you want the clustered-phenomenon signature on top of the same parametric
 mechanism.
+
+#### Hierarchical polysemy
+
+The clusters example above is the rung-0 polysemantic encoding — concepts
+prepared as **product states** on the 3-qubit register, producing three
+flat overlap tiers (self / cluster-mate / cross-cluster). Real
+sparse-autoencoder dictionaries report *graded* within-cluster similarity
+and **sub-cluster structure** that flat block tiers cannot express.
+[`examples/larql-polysemantic-hierarchical.q.orca.md`](examples/larql-polysemantic-hierarchical.q.orca.md)
+lifts the encoding to **bond-dimension-2 matrix product states** via a
+`Ry(q0,α); CNOT(q0,q1); Ry(q1,β); CNOT(q1,q2); Ry(q2,γ)` staircase. The
+12 concepts are organized as a two-level hierarchy — 3 super-groups
+(`animals`, `fruits`, `vehicles`) × 2 sub-clusters × 2 concepts — and the
+Gram matrix splits into **four** ordered tiers: self 1.000 /
+sub-cluster-mate 0.882 / super-group-sibling [0.47, 0.54] / cross-group
+[0.12, 0.25].
+
+The optional `q_orca.compiler.concept_gram_mps.compute_concept_gram_mps(machine)`
+helper produces the Gram matrix for machines following the CNOT-staircase
+convention (parallel to `compute_concept_gram` for product-state
+machines). See [`demos/larql_polysemantic_hierarchical/demo.py`](demos/larql_polysemantic_hierarchical/demo.py)
+for a run that prints the 4-tier Gram heatmap, recovers the polysemy
+column from 12 Qiskit circuits, and prints a side-by-side rung-0 vs
+rung-1 comparison. Background and the full ansatz ladder
+(rungs 0–3) are in
+[`docs/research/polysemantic-encoding-beyond-product-states.md`](docs/research/polysemantic-encoding-beyond-product-states.md).
 
 ---
 
