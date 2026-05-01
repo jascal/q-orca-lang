@@ -17,6 +17,7 @@ EXAMPLE_FILES = {
     "larql-polysemantic-2": "larql-polysemantic-2.q.orca.md",
     "larql-polysemantic-12": "larql-polysemantic-12.q.orca.md",
     "larql-polysemantic-clusters": "larql-polysemantic-clusters.q.orca.md",
+    "larql-polysemantic-hierarchical": "larql-polysemantic-hierarchical.q.orca.md",
 }
 
 
@@ -213,3 +214,134 @@ class TestExamples:
 
         # Diagonal must be exactly 1 (self-overlap).
         np.testing.assert_allclose(np.diag(gsq), np.ones(12), atol=1e-9)
+
+    def test_larql_polysemantic_hierarchical_pipeline(self):
+        """End-to-end: parse → verify → compile (QASM + Qiskit + Mermaid) →
+        MPS-bond-2 concept gram four-tier hierarchy.
+
+        Covers task 4.2 of add-mps-concept-encoding: the 12-call-site
+        CNOT-staircase parametric machine must parse clean, verify, compile
+        to a 3-qubit register with the expected ry/cx counts, and produce a
+        12×12 Gram matrix whose four off-diagonal tiers (self / sub-cluster-
+        mate / super-group-sibling / cross-group) are strictly ordered.
+        """
+        import numpy as np
+
+        from q_orca import (
+            QSimulationOptions,
+            VerifyOptions,
+            compile_to_mermaid,
+            compile_to_qasm,
+            compile_to_qiskit,
+            compute_concept_gram_mps,
+            parse_q_orca_markdown,
+            verify,
+        )
+
+        source = (
+            EXAMPLES_DIR / "larql-polysemantic-hierarchical.q.orca.md"
+        ).read_text()
+        parsed = parse_q_orca_markdown(source)
+        assert parsed.errors == []
+        machine = parsed.file.machines[0]
+
+        parametric_actions = {a.name: a for a in machine.actions if a.parameters}
+        assert set(parametric_actions) == {"prepare_concept", "query_concept"}
+        for name in ("prepare_concept", "query_concept"):
+            params = parametric_actions[name].parameters
+            assert [(p.name, p.type) for p in params] == [
+                ("a", "angle"),
+                ("b", "angle"),
+                ("c", "angle"),
+            ], f"{name} signature shape mismatch"
+
+        query_call_sites = [
+            t for t in machine.transitions if t.action == "query_concept"
+        ]
+        assert len(query_call_sites) == 12
+
+        result = verify(machine, VerifyOptions(skip_dynamic=True))
+        assert result.valid, [e for e in result.errors if e.severity == "error"]
+
+        qasm = compile_to_qasm(machine)
+        assert "qubit[3] q;" in qasm
+
+        mermaid = compile_to_mermaid(machine)
+        assert (
+            "LarqlPolysemanticHierarchical" in mermaid
+            or "feature_loaded" in mermaid
+        )
+
+        qiskit_script = compile_to_qiskit(
+            machine,
+            QSimulationOptions(analytic=False, shots=0, run=False, skip_qutip=True),
+        )
+        assert "QuantumCircuit(3)" in qiskit_script
+        # Each parametric action emits 3 Ry + 2 CNOT (CNOT staircase). With
+        # 1 prepare + 12 query call sites = 13 transitions, we expect
+        # 13 × 3 = 39 ry and 13 × 2 = 26 cx — i.e., 65 gates total.
+        assert qiskit_script.count("qc.ry(") == 39
+        assert qiskit_script.count("qc.cx(") == 26
+
+        gram = compute_concept_gram_mps(machine)
+        assert gram.shape == (12, 12)
+        gsq = np.abs(gram) ** 2
+
+        # Diagonal must be exactly 1 (self-overlap).
+        np.testing.assert_allclose(np.diag(gsq), np.ones(12), atol=1e-9)
+
+        # Tier classification by (super-group, sub-cluster) coordinates: i //
+        # 4 is the super-group index, (i // 2) % 2 is the sub-cluster index
+        # within the super-group.
+        sub_mate_pairs = []
+        super_sib_pairs = []
+        cross_pairs = []
+        for i in range(12):
+            gi, si = i // 4, (i // 2) % 2
+            for j in range(i + 1, 12):
+                gj, sj = j // 4, (j // 2) % 2
+                v = gsq[i, j]
+                if gi == gj and si == sj:
+                    sub_mate_pairs.append(v)
+                elif gi == gj:
+                    super_sib_pairs.append(v)
+                else:
+                    cross_pairs.append(v)
+        assert len(sub_mate_pairs) == 6
+        assert len(super_sib_pairs) == 12
+        assert len(cross_pairs) == 48
+
+        sub_min, sub_max = min(sub_mate_pairs), max(sub_mate_pairs)
+        sup_min, sup_max = min(super_sib_pairs), max(super_sib_pairs)
+        cr_min, cr_max = min(cross_pairs), max(cross_pairs)
+
+        # Sub-cluster-mate tier: tight band around 0.882 (analytic
+        # cos²(0.35) for the γ-only difference).
+        assert 0.85 <= sub_min <= sub_max <= 0.90, (
+            f"sub-cluster-mate tier outside [0.85, 0.90]: "
+            f"min={sub_min:.4f} max={sub_max:.4f}"
+        )
+
+        # Super-group-sibling tier: band around [0.47, 0.54].
+        assert 0.45 <= sup_min <= sup_max <= 0.56, (
+            f"super-group-sibling tier outside [0.45, 0.56]: "
+            f"min={sup_min:.4f} max={sup_max:.4f}"
+        )
+
+        # Cross-group tier: wider band [0.11, 0.26]. Higher than rung-0
+        # because cyclic α at 2π/3 spacing gives a cos²(π/3)=0.25 floor on
+        # cross-group α factor; β/γ alignment determines the rest.
+        assert 0.10 <= cr_min and cr_max <= 0.26, (
+            f"cross-group tier outside [0.10, 0.26]: "
+            f"min={cr_min:.4f} max={cr_max:.4f}"
+        )
+
+        # Tier ordering: sub > super > cross (strict separation).
+        assert sub_min > sup_max + 0.20, (
+            f"insufficient sub→super gap: "
+            f"sub_min={sub_min:.4f} super_max={sup_max:.4f}"
+        )
+        assert sup_min > cr_max + 0.15, (
+            f"insufficient super→cross gap: "
+            f"super_min={sup_min:.4f} cross_max={cr_max:.4f}"
+        )
