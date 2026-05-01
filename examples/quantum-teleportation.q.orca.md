@@ -62,9 +62,9 @@
 | set_outcome_2 | (ctx) -> ctx | ctx.outcome = 2  |
 | set_outcome_3 | (ctx) -> ctx | ctx.outcome = 3  |
 | apply_I    | (qs) -> qs     |                  |
-| apply_Z    | (qs) -> qs     | Z(qs[0])         |
-| apply_X    | (qs) -> qs     | X(qs[0])         |
-| apply_XZ   | (qs) -> qs     | X(qs[0]); Z(qs[0]) |
+| apply_Z    | (qs) -> qs     | Z(qs[2])         |
+| apply_X    | (qs) -> qs     | X(qs[2])         |
+| apply_XZ   | (qs) -> qs     | X(qs[2]); Z(qs[2]) |
 
 ## effects
 | Name             | Input             | Output             |
