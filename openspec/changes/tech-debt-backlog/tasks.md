@@ -439,13 +439,156 @@
   message, with the full repr behind a debug flag.
   (Source: Hermes QA on the MCP server, observation 4.)
 
-## 5. How to use this file
+## 5. Example library — QA findings (2026-05-01)
 
-- [x] 5.1 **Meta**: when an item is fixed, leave the task checked
+Sourced from a full QA pass on `examples/*.q.orca.md`, 2026-05-01.
+The teleportation correction-target bug from the same QA was fixed
+in-place (qs[0] → qs[2] on `apply_Z` / `apply_X` / `apply_XZ` in
+`examples/quantum-teleportation.q.orca.md`); items below are the
+remaining findings.
+
+- [ ] 5.1 **bit-flip-syndrome.q.orca.md: missing (1,1) syndrome
+  produces wrong corrections.** Today the example has two correction
+  actions — `correct_q0: if bits[0] == 1: X(qs[0])` and `correct_q2:
+  if bits[1] == 1: X(qs[2])`. Under syndrome (1,1) the error sits on
+  q1, so both corrections fire on the wrong qubits and q1 stays
+  flipped, giving a logical X on the encoded state for ~25% of error
+  patterns. The verifier doesn't catch it because there's no rule
+  that every syndrome pattern must map to its correct correction.
+  The proper fix needs the parser to support compound bit conditions
+  (`if bits[0] == 1 and bits[1] == 1: X(qs[1])`), which today silently
+  parse to `None` (verified: `_parse_conditional_gate_from_effect` on
+  the compound form returns `None` with no error). Scope:
+    - `q_orca/ast.py::QEffectConditional` — extend with
+      `extra_conditions: list[tuple[int, int]]` (or refactor to a list
+      of `(bit_idx, value)` tuples); existing single-condition
+      consumers stay backward-compatible by reading the first entry.
+    - `q_orca/parser/markdown_parser.py::_parse_conditional_gate_from_effect`
+      — extend the regex to optionally match
+      `(\s+and\s+bits\[(\d+)\]\s*==\s*(\d+))*` after the first
+      condition, before the `:` and gate body.
+    - `q_orca/compiler/qasm.py` — emit `if (c[0] && c[1]) { ... }`
+      for compound conditions (OpenQASM 3.0 supports `&&`).
+    - `q_orca/compiler/qiskit.py` — Qiskit's `if_test` doesn't accept
+      AND'd conditions directly; emit nested `with qc.if_test(...)`
+      blocks (the inner gate fires only when both bits match).
+    - `q_orca/verifier/quantum.py::feedforward_bits.add(...)` (around
+      line 388) — add every condition's `bit_idx`, not just the
+      head one.
+    - Once the parser change lands, fix the example: keep
+      `correct_q0` and `correct_q2` (they remain correct for the
+      single-error cases (1,0) and (0,1) — they fire spuriously on
+      (1,1) but the new `correct_q1` undoes the spurious flips by
+      acting on q1 in the right way). Cleanest rewrite: tighten both
+      to "this bit set AND the other clear," then add `correct_q1: if
+      bits[0] == 1 and bits[1] == 1: X(qs[1])`. Add a behavior test
+      asserting all four syndrome patterns end in the correct logical
+      state.
+  Severity: high — example silently produces wrong quantum results.
+  May warrant a dedicated OpenSpec change
+  (`extend-conditional-gate-compound-bits`) per §5.1 since it touches
+  AST + parser + two compilers + verifier.
+  (Source: 2026-05-01 example library QA, bug 2.)
+
+- [ ] 5.2 **README example count is stale (15 → 16).** `README.md:12`
+  ("All 15 bundled example machines …") and `README.md:274` ("All
+  bundled examples …") both reflect the pre-`larql-gate-knn-grover`
+  count; `docs/compute-needs.md:155` has the same drift. There are 16
+  examples in `examples/` today (`ls examples/*.q.orca.md | wc -l`).
+  Fix: update the three references and add a brief note in the README
+  to derive the count from the directory rather than hardcoding it,
+  or replace with "all bundled example machines" without a number.
+  (Source: 2026-05-01 example library QA, overall verdict.)
+
+- [ ] 5.3 **Stale syntax in `vqe-heisenberg.q.orca.md` and
+  `predictive-coder-learning.q.orca.md` — they don't parse on the
+  live parser, but their tests pass via `verify_skill`.** Direct
+  `parse_q_orca_markdown` against the current parser yields:
+    - `vqe-heisenberg`: 3 errors — `apply_ansatz: (qs, theta) -> qs`
+      missing `: angle` annotation on the `theta` slot; `set_energy`
+      and `increment_iter` use compound RHS expressions
+      (`ctx.theta * ctx.theta - 1.0`, `ctx.iteration + 1`) which the
+      mutation parser rejects ("must be a numeric literal or a bare
+      context-field identifier").
+    - `predictive-coder-learning`: 4 errors — `apply_ansatz` uses
+      array-index notation in the angle slot (`Ry(qs[0], theta[0])`)
+      which the angle-expression parser doesn't accept.
+  These tests pass because `verify_skill`
+  (`q_orca/skills.py:157-181`) calls `parse_q_orca_markdown` but
+  doesn't check `parsed.errors` before proceeding to verification —
+  the malformed AST runs through verify and emits `status="valid"`.
+  Two-part fix: (a) gate `verify_skill` on `parsed.errors` being
+  empty (mirrors the gap that §4.1 already documents for
+  `parse_skill`); (b) bring both example files into compliance with
+  the current parser (annotate the parametric `theta` slot, decompose
+  compound RHS into helper-context fields or split into multiple
+  mutations, replace `theta[0..2]` with three scalar fields
+  `theta_0`, `theta_1`, `theta_2`). Item (a) prevents future drift;
+  item (b) clears the live divergence.
+  (Source: 2026-05-01 example library QA, "Stale Examples".)
+
+- [ ] 5.4 **Test coverage gaps for shipped examples.** Six of the 16
+  examples have weak or no test coverage (verified by collecting
+  `pytest --collect-only` and grepping for each example name):
+    - No tests at all: `predictive-coder-minimal`,
+      `predictive-coder-learning`, `larql-gate-knn-grover`.
+    - Parse-only (no verify/compile/behavior assertion):
+      `bit-flip-syndrome`, `active-teleportation`.
+    - Resource-only (no parse/verify/compile against the example
+      file): `qaoa-maxcut` (covered by
+      `test_resource_estimation.py::test_qaoa_maxcut_resources`).
+  Fix shape: mirror the structure of `tests/test_quantum_teleportation.py`
+  (parse / verify / compile / snapshot classes) for each gap example.
+  Behavior tests should assert end-state correctness where applicable
+  (e.g. for `bit-flip-syndrome`, all four syndrome patterns end at
+  `|corrected>` with the right logical state — but that test should
+  block on §5.1 since the underlying example is broken). Defer
+  `predictive-coder-learning` until §5.3 (b) lands.
+  (Source: 2026-05-01 example library QA, "Untested Examples".)
+
+- [ ] 5.5 **Verifier blind spot — gate targets aren't checked
+  against state-description intent.** The teleportation correction
+  bug (Z/X/XZ targeting qs[0] instead of qs[2]) was a copy-paste
+  error that survived the full 5-stage pipeline because the verifier
+  only checks unitarity / branch-completeness / Bell-pair Schmidt
+  rank — not which qubit holds Bob's state. The state markdown bodies
+  are explicit about qubit ownership ("Bob holds q2"), but the
+  verifier doesn't read prose. A cheap heuristic: in
+  `q_orca/verifier/quantum.py`, when a transition is annotated with
+  Bell-correction semantics (or more generally, when the source
+  state's body mentions a specific qubit by index), warn if the
+  paired action's gate targets a *different* qubit. Likely false-
+  positive-prone — better is to spec out a `target_qubit` annotation
+  on Bell-correction states (or an explicit `corrects: q2` field on
+  the transition) and check it structurally. Not urgent — the
+  teleportation example is now correct — but worth designing before
+  another correction-style example lands.
+  (Source: 2026-05-01 example library QA, bug 1 root cause.)
+
+- [ ] 5.6 **Verifier blind spot — exhaustive syndrome coverage.**
+  Companion to §5.5 and the precondition for §5.1's behavior test.
+  Today `feedforward_completeness` checks that every measured bit
+  drives *some* correction; it doesn't check that every `2^N`-pattern
+  of `N` measured bits has a defined correction path. For the
+  bit-flip code with 2 syndrome bits there are 4 patterns and 4
+  correction targets (none, q0, q1, q2); the missing (1,1) → q1 case
+  was invisible to the verifier. Spec sketch: add a rule
+  `syndrome_exhaustiveness` (or extend `feedforward_completeness`
+  under a new option) that — when a `list<bit>` field of width N is
+  fully populated by mid-circuit measurements — enforces that the
+  combined conditional-gate effects cover all `2^N` patterns or are
+  explicitly partial (annotated by the user). Pairs naturally with
+  the compound-condition parser work in §5.1.
+  (Source: 2026-05-01 example library QA, bug 2 root cause.)
+
+## 6. How to use this file
+
+- [x] 6.1 **Meta**: when an item is fixed, leave the task checked
   rather than deleting it — the archived copy of this change is
   our record. If an item grows beyond "small," spin it out into
   a dedicated OpenSpec change and replace the task body with a
   pointer (e.g. "→ spun out as `add-xyz`").
   Convention-only entry; closed because every implemented item in
   this change followed it (note left alongside each `[x]`, no items
-  deleted on completion).
+  deleted on completion). Originally numbered §5.1; renumbered to
+  §6.1 when the example-library QA findings were added as §5.
