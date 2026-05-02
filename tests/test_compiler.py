@@ -1272,21 +1272,24 @@ class TestComputeConceptGramMps:
             compute_concept_gram_mps(machine)
         message = str(exc_info.value)
         assert "query_concept" in message
-        assert "3 angle parameters" in message
+        assert "all parameters of type `angle`" in message
 
-    def test_wrong_signature_too_few_angles_raises(self):
-        """Two angle parameters on a 3-qubit register is wrong."""
+    def test_wrong_signature_non_angle_param_raises(self):
+        """A non-angle parameter type fails the signature check. (The
+        loosened convention accepts >= 1 parameters of any name, but all
+        of them must be of type `angle`.)"""
         from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
 
         machine = self._make_machine(
-            "(qs, a: angle, b: angle) -> qs",
-            "Ry(qs[0], a); Ry(qs[1], b)",
-            ["0.1, 0.2"],
+            "(qs, a: angle, b: angle, n: int) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Ry(qs[1], b); "
+            "CNOT(qs[1], qs[2]); Ry(qs[2], a)",
+            ["0.1, 0.2, 1"],
         )
         with pytest.raises(MpsGramConfigurationError) as exc_info:
             compute_concept_gram_mps(machine)
         message = str(exc_info.value)
-        assert "3 angle parameters" in message
+        assert "all parameters of type `angle`" in message
 
     def test_call_site_wrong_arity_raises(self):
         """Defensive guard for callers that build a `QMachineDef`
@@ -1358,9 +1361,9 @@ class TestComputeConceptGramMps:
         with pytest.raises(MpsGramConfigurationError) as exc_info:
             compute_concept_gram_mps(machine)
         message = str(exc_info.value)
-        # Three segments instead of expected five → segment-count branch.
-        assert "3 gate segment" in message
-        assert "5 segments" in message
+        # Three Ry segments and zero CNOTs → skeleton-shape branch.
+        assert "3 Ry segment(s)" in message
+        assert "0 CNOT segment(s)" in message
 
     def test_non_staircase_non_adjacent_cnot_raises(self):
         """A long-range CNOT between non-adjacent qubits violates the
@@ -1538,6 +1541,153 @@ class TestComputeConceptGramMps:
         message = str(exc_info.value)
         assert "bond_dim=4" in message
         assert "not yet implemented" in message
+
+    # ------------------------------------------------------------------
+    # Rz interference-knob extension (extend-mps-matcher-rz-phases).
+    # The matcher accepts optional Rz phase rotations anywhere in the
+    # staircase as 1-qubit interference knobs — they preserve the bond-2
+    # MPS structure and feed through the analytic contraction.
+    # ------------------------------------------------------------------
+
+    def test_rz_with_zero_phase_matches_bare_staircase(self):
+        """A staircase with `Rz(qs[k], phi)` and `phi=0` at every call
+        site MUST produce the same Gram as the bare-staircase machine
+        (Rz(0) is the identity). This is the strict backward-compat
+        check for the new shape."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
+
+        triples = ["0.4, 1.1, 0.7", "0.3, -0.2, 0.5"]
+
+        machine_with_rz = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle, phi: angle) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Rz(qs[1], phi); "
+            "Ry(qs[1], a + b); CNOT(qs[1], qs[2]); Ry(qs[2], b + c)",
+            [f"{t}, 0.0" for t in triples],
+            action_name="prepare_concept",
+        )
+        machine_bare = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); "
+            "Ry(qs[1], a + b); CNOT(qs[1], qs[2]); Ry(qs[2], b + c)",
+            triples,
+            action_name="prepare_concept",
+        )
+        g_rz = compute_concept_gram_mps(
+            machine_with_rz, concept_action_label="prepare_concept"
+        )
+        g_bare = compute_concept_gram_mps(
+            machine_bare, concept_action_label="prepare_concept"
+        )
+        np.testing.assert_allclose(np.abs(g_rz), np.abs(g_bare), atol=1e-12)
+
+    def test_rz_changes_gram_amplitude(self):
+        """Two call sites with identical (a, b, c) but different `phi`
+        SHALL produce an off-diagonal overlap strictly less than 1."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle, phi: angle) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Rz(qs[1], phi); "
+            "Ry(qs[1], a + b); CNOT(qs[1], qs[2]); Ry(qs[2], b + c)",
+            ["0.4, 1.1, 0.7, 0.0", "0.4, 1.1, 0.7, 0.5"],
+            action_name="prepare_concept",
+        )
+        gram = compute_concept_gram_mps(
+            machine, concept_action_label="prepare_concept"
+        )
+        np.testing.assert_allclose(np.abs(np.diag(gram)), np.ones(2), atol=1e-9)
+        assert abs(gram[0, 1]) < 1.0 - 1e-6
+
+    def test_rz_on_zero_state_is_global_phase(self):
+        """All angles 0 → register stays in |000> through Ry/CNOT, so an
+        Rz(qs[k], phi) at the end only adds a global phase. Two
+        concepts with phi=±θ thus have |<c_0|c_1>|² = 1 (modulus is
+        invariant under global phase), even though the complex Gram
+        entry has nontrivial argument."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle, phi: angle) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Ry(qs[1], a + b); "
+            "CNOT(qs[1], qs[2]); Ry(qs[2], b + c); Rz(qs[0], phi)",
+            ["0.0, 0.0, 0.0, 0.7", "0.0, 0.0, 0.0, -0.7"],
+            action_name="prepare_concept",
+        )
+        gram = compute_concept_gram_mps(
+            machine, concept_action_label="prepare_concept"
+        )
+        # |<c_0|c_1>|² = 1 (only differ by a global phase factor).
+        assert abs(abs(gram[0, 1]) - 1.0) < 1e-9
+        # But the complex entry itself isn't real — phase = exp(i*0.7).
+        assert abs(gram[0, 1].imag) > 1e-3
+
+    def test_rz_linear_combination_angle_accepted(self):
+        """An Rz with a linear-combination angle (e.g., `phi_a + phi_b`)
+        SHALL parse via the same `_parse_linear_combination` path as Ry."""
+        from q_orca import compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle, phi_a: angle, phi_b: angle) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Rz(qs[1], phi_a + phi_b); "
+            "Ry(qs[1], a + b); CNOT(qs[1], qs[2]); Ry(qs[2], b + c)",
+            ["0.4, 1.1, 0.7, 0.1, 0.2"],
+            action_name="prepare_concept",
+        )
+        gram = compute_concept_gram_mps(
+            machine, concept_action_label="prepare_concept"
+        )
+        assert gram.shape == (1, 1)
+
+    def test_rz_out_of_range_qubit_raises(self):
+        """An Rz on a qubit index outside the register is rejected."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle, phi: angle) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Rz(qs[5], phi); "
+            "Ry(qs[1], a + b); CNOT(qs[1], qs[2]); Ry(qs[2], b + c)",
+            ["0.1, 0.2, 0.3, 0.5"],
+            action_name="prepare_concept",
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(
+                machine, concept_action_label="prepare_concept"
+            )
+        message = str(exc_info.value)
+        assert "qs[5]" in message
+        assert "out of range" in message
+
+    def test_rz_unrecognized_angle_expression_raises(self):
+        """A non-linear angle expression inside an Rz raises with the
+        same `unrecognized_angle_expression` kind as Ry."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle, phi: angle) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Ry(qs[1], a + b); "
+            "CNOT(qs[1], qs[2]); Ry(qs[2], b + c)",
+            ["0.1, 0.2, 0.3, 0.5"],
+            action_name="prepare_concept",
+        )
+        action = next(
+            a for a in machine.actions if a.name == "prepare_concept"
+        )
+        action.effect = (
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Rz(qs[1], phi * a); "
+            "Ry(qs[1], a + b); CNOT(qs[1], qs[2]); Ry(qs[2], b + c)"
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(
+                machine, concept_action_label="prepare_concept"
+            )
+        assert exc_info.value.kind == "unrecognized_angle_expression"
+        assert "phi * a" in str(exc_info.value)
 
 
 class TestSharedFixtureCompilerAdapter:

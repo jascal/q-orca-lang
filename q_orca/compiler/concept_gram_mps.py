@@ -12,14 +12,19 @@ the product-state helper.
 Convention assumed by this helper:
 
 1. A single parametric concept action (preparation *or* its inverse)
-   with signature ``(qs, p_0: angle, p_1: angle, ..., p_{n-1}: angle)
-   -> qs`` — exactly ``n`` angle parameters where ``n`` matches the
-   size of the ``qubits`` register declared in ``## context``.
-2. A CNOT-staircase effect, either the preparation form
-   ``Ry(qs[0], <expr_0>); CNOT(qs[0], qs[1]); Ry(qs[1], <expr_1>);
+   with signature ``(qs, p_0: angle, p_1: angle, ..., p_{m-1}: angle)
+   -> qs`` — at least one parameter, and *all* parameters of type
+   ``angle``. The parameter count ``m`` need not match the qubit
+   register size ``n``; it is set by the action's effect, not by the
+   register.
+2. A CNOT-staircase effect on ``n`` qubits, in either the preparation
+   form ``Ry(qs[0], <expr_0>); CNOT(qs[0], qs[1]); Ry(qs[1], <expr_1>);
    CNOT(qs[1], qs[2]); ... Ry(qs[n-1], <expr_{n-1}>)`` or the inverse
    form (Ry order reversed, expressions negated, CNOTs self-inverse so
-   they reappear in reversed position). Each ``<expr_k>`` SHALL be a
+   they reappear in reversed position). Optional ``Rz(qs[k], <expr>)``
+   phase-knob rotations may appear anywhere in the effect string —
+   ``Rz`` is 1-qubit and preserves the bond-2 MPS structure (Schmidt
+   rank unchanged across the middle bond). Each ``<expr>`` SHALL be a
    *linear combination of the action's bound angle parameters* — i.e.,
    a sum of terms each of the form ``c · p`` where ``c`` is an
    optional numeric coefficient (defaulting to 1) and ``p`` is one of
@@ -27,9 +32,17 @@ Convention assumed by this helper:
    (``Ry(qs[0], a)``) is the degenerate one-term linear combination
    ``1·a`` and is accepted. The default
    ``concept_action_label="query_concept"`` targets the inverse (query)
-   form used by the canonical example.
+   form used by ``larql-polysemantic-hierarchical.q.orca.md``; examples
+   using ``Rz`` knobs SHOULD enumerate the preparation form instead,
+   because the inverse-form symmetry that lets the helper compute the
+   prep-form Gram from inverse-form states breaks once ``Rz`` enters
+   the staircase (the inverse's ``Rz`` acts on ``|0>`` and collapses
+   to a global phase). See
+   ``examples/larql-animals-interference.q.orca.md`` for the
+   prep-form pattern.
 3. ``N >= 1`` call sites to that action in the transitions table,
-   each with a literal ``n``-tuple of angle arguments.
+   each with a literal ``m``-tuple of angle arguments matching the
+   action's signature length.
 
 Given such a machine, ``compute_concept_gram_mps`` enumerates the
 call sites in declaration order, evaluates each Ry's linear-combination
@@ -84,6 +97,17 @@ class MpsGramConfigurationError(ValueError):
 # angle parameters (see `_parse_linear_combination`).
 _RY_SEGMENT_RE = re.compile(
     r"^\s*Ry\s*\(\s*qs\[\s*(?P<qubit>\d+)\s*\]\s*,\s*"
+    r"(?P<expr>.+?)\s*\)\s*$"
+)
+
+# A single Rz segment, e.g. `Rz(qs[0], phi_dog)`, `Rz(qs[1], -phi_dog)`,
+# or `Rz(qs[0], phi_a + phi_b)`. Same linear-combination angle parser as
+# Ry. Rz gates are 1-qubit phase rotations and are accepted anywhere in
+# the staircase as an "interference knob" — they preserve the bond-2
+# MPS structure (Schmidt rank unchanged across the middle bond) but
+# perturb the Gram amplitudes.
+_RZ_SEGMENT_RE = re.compile(
+    r"^\s*Rz\s*\(\s*qs\[\s*(?P<qubit>\d+)\s*\]\s*,\s*"
     r"(?P<expr>.+?)\s*\)\s*$"
 )
 
@@ -194,114 +218,149 @@ def _check_signature(
     machine: QMachineDef, action: QActionSignature, n_qubits: int
 ) -> None:
     params = action.parameters
-    if len(params) != n_qubits or any(p.type != "angle" for p in params):
+    if not params or any(p.type != "angle" for p in params):
         shape = [(p.name, p.type) for p in params]
         raise MpsGramConfigurationError(
             f"machine {machine.name!r}: action {action.name!r} has "
             f"signature parameters {shape}; mps concept-gram requires "
-            f"exactly {n_qubits} angle parameters (one per qubit in the "
-            f"register)"
+            f"at least one parameter and all parameters of type `angle`"
         )
 
 
 def _parse_staircase_effect(
     machine: QMachineDef, action: QActionSignature, n_qubits: int
-) -> tuple[bool, list[dict[str, float]]]:
-    """Parse a CNOT-staircase effect.
+) -> list[tuple]:
+    """Parse a CNOT-staircase effect into an ordered list of operations.
 
-    Returns ``(is_inverse, ry_coeffs)`` where ``ry_coeffs[i]`` is the
-    parsed linear combination (``{param_name: coefficient}``) for the
-    Ry rotation acting on qubit ``i`` in *qubit-index order* (so
-    ``ry_coeffs[0]`` is the Ry on qs[0] regardless of which end of the
-    staircase the gate appears at).
+    Returns a list of ``(kind, *args)`` tuples in the order they appear
+    in the effect string:
 
-    Accepts either the preparation form
-    ``Ry(qs[0], <expr_0>); CNOT(qs[0], qs[1]); ...; Ry(qs[n-1],
-    <expr_{n-1}>)`` or the inverse form ``Ry(qs[n-1], <expr_{n-1}'>);
-    CNOT(qs[n-2], qs[n-1]); ...; Ry(qs[0], <expr_0'>)``. Each ``<expr>``
-    SHALL be a linear combination of the action's bound angle parameters
-    (see `_parse_linear_combination`); the canonical inverse form uses
-    the negation of the prep form's expressions, but this helper does
-    not enforce a sign convention — it evaluates whatever linear
-    combination the user wrote.
+    - ``("ry", qubit, coeffs_dict)`` — a Ry rotation on the staircase
+      skeleton; appears exactly ``n_qubits`` times, on qubits in
+      ``range(n_qubits)`` (preparation form) or ``range(n_qubits - 1,
+      -1, -1)`` (inverse form).
+    - ``("rz", qubit, coeffs_dict)`` — an optional Rz phase rotation
+      ("interference knob"); may appear zero or more times, on any
+      qubit, anywhere in the effect string. Rz gates are 1-qubit and
+      do not change the bond-2 MPS structure.
+    - ``("cnot", control, target)`` — a CNOT on adjacent qubits;
+      appears exactly ``n_qubits - 1`` times, on pairs ``(k, k+1)``
+      with ``k`` running ``0..n-2`` (prep) or ``n-2..0`` (inverse).
+
+    The Ry/CNOT skeleton must alternate ``Ry, CNOT, Ry, CNOT, ..., Ry``
+    when Rz gates are removed from the sequence. Each angle expression
+    (Ry or Rz) SHALL be a linear combination of the action's bound
+    angle parameters — see `_parse_linear_combination`.
 
     Raises ``MpsGramConfigurationError`` on any deviation from the
     staircase shape or on a non-linear angle expression.
     """
     effect = (action.effect or "").strip()
     segments = [s.strip() for s in effect.split(";") if s.strip()]
-    expected_len = 2 * n_qubits - 1
-    if len(segments) != expected_len:
-        raise MpsGramConfigurationError(
-            f"machine {machine.name!r}: action {action.name!r} effect "
-            f"{effect!r} has {len(segments)} gate segment(s); the CNOT "
-            f"staircase on {n_qubits} qubits requires exactly "
-            f"{expected_len} segments ({n_qubits} Ry rotations and "
-            f"{n_qubits - 1} adjacent CNOTs, alternating)"
-        )
-
     param_names = [p.name for p in action.parameters]
 
-    # The staircase alternates Ry, CNOT, Ry, CNOT, ..., Ry. Both prep and
-    # inverse forms preserve that alternation; they differ only in
-    # qubit ordering. Each Ry's angle expression is parsed as a linear
-    # combination of the action's bound parameters.
-    parsed_ry: list[tuple[int, dict[str, float]]] = []
-    parsed_cnot: list[tuple[int, int]] = []
-    for idx, seg in enumerate(segments):
-        if idx % 2 == 0:
-            m = _RY_SEGMENT_RE.match(seg)
-            if not m:
-                raise MpsGramConfigurationError(
-                    f"machine {machine.name!r}: action {action.name!r} "
-                    f"effect segment {seg!r} (position {idx}) is not of "
-                    f"the form `Ry(qs[i], <expr>)`; the CNOT staircase "
-                    f"requires Ry rotations at even positions"
-                )
+    ops: list[tuple] = []
+    skeleton: list[tuple] = []  # Ry/CNOT subsequence used for shape validation.
+
+    def _parse_angle_expr(gate_label: str, qubit: int, expr: str) -> dict[str, float]:
+        try:
+            return _parse_linear_combination(expr, param_names)
+        except _NonLinearExpr as e:
+            raise MpsGramConfigurationError(
+                f"machine {machine.name!r}: action {action.name!r} "
+                f"{gate_label}(qs[{qubit}], {expr}): angle expression "
+                f"{expr!r} is not a linear combination of the "
+                f"action's bound angle parameters {param_names} "
+                f"({e}). mps concept-gram accepts angle expressions "
+                f"of the form `c_0·p_0 + c_1·p_1 + ...` (sums of "
+                f"terms, each an optional numeric coefficient times "
+                f"a single bound parameter name)",
+                kind="unrecognized_angle_expression",
+            ) from e
+
+    for seg in segments:
+        m = _RY_SEGMENT_RE.match(seg)
+        if m:
             qubit = int(m.group("qubit"))
-            expr = m.group("expr")
-            try:
-                coeffs = _parse_linear_combination(expr, param_names)
-            except _NonLinearExpr as e:
+            coeffs = _parse_angle_expr("Ry", qubit, m.group("expr"))
+            ops.append(("ry", qubit, coeffs))
+            skeleton.append(("ry", qubit))
+            continue
+
+        m = _RZ_SEGMENT_RE.match(seg)
+        if m:
+            qubit = int(m.group("qubit"))
+            if qubit < 0 or qubit >= n_qubits:
                 raise MpsGramConfigurationError(
                     f"machine {machine.name!r}: action {action.name!r} "
-                    f"Ry(qs[{qubit}], {expr}): angle expression "
-                    f"{expr!r} is not a linear combination of the "
-                    f"action's bound angle parameters {param_names} "
-                    f"({e}). mps concept-gram accepts angle expressions "
-                    f"of the form `c_0·p_0 + c_1·p_1 + ...` (sums of "
-                    f"terms, each an optional numeric coefficient times "
-                    f"a single bound parameter name)",
-                    kind="unrecognized_angle_expression",
-                ) from e
-            parsed_ry.append((qubit, coeffs))
-        else:
-            m = _CNOT_SEGMENT_RE.match(seg)
-            if not m:
-                raise MpsGramConfigurationError(
-                    f"machine {machine.name!r}: action {action.name!r} "
-                    f"effect segment {seg!r} (position {idx}) is not of "
-                    f"the form `CNOT(qs[i], qs[j])`; the CNOT staircase "
-                    f"requires CNOTs at odd positions"
+                    f"effect segment {seg!r} targets qs[{qubit}], which "
+                    f"is out of range for the {n_qubits}-qubit register"
                 )
-            parsed_cnot.append((int(m.group("control")), int(m.group("target"))))
+            coeffs = _parse_angle_expr("Rz", qubit, m.group("expr"))
+            ops.append(("rz", qubit, coeffs))
+            continue
+
+        m = _CNOT_SEGMENT_RE.match(seg)
+        if m:
+            control = int(m.group("control"))
+            target = int(m.group("target"))
+            ops.append(("cnot", control, target))
+            skeleton.append(("cnot", control, target))
+            continue
+
+        raise MpsGramConfigurationError(
+            f"machine {machine.name!r}: action {action.name!r} effect "
+            f"segment {seg!r} is not of the form `Ry(qs[i], <expr>)`, "
+            f"`Rz(qs[i], <expr>)`, or `CNOT(qs[i], qs[j])`; mps concept-"
+            f"gram accepts only those gate shapes in the staircase"
+        )
+
+    # Validate the Ry/CNOT skeleton (Rz gates have already been
+    # accumulated into `ops` and contribute nothing to the staircase
+    # shape check).
+    expected_len = 2 * n_qubits - 1
+    if len(skeleton) != expected_len:
+        ry_count = sum(1 for s in skeleton if s[0] == "ry")
+        cnot_count = sum(1 for s in skeleton if s[0] == "cnot")
+        raise MpsGramConfigurationError(
+            f"machine {machine.name!r}: action {action.name!r} effect "
+            f"{effect!r} has {ry_count} Ry segment(s) and {cnot_count} "
+            f"CNOT segment(s) on the staircase skeleton; the CNOT "
+            f"staircase on {n_qubits} qubits requires exactly "
+            f"{n_qubits} Ry rotations and {n_qubits - 1} adjacent CNOTs"
+        )
+
+    parsed_ry: list[int] = [s[1] for s in skeleton if s[0] == "ry"]
+    parsed_cnot: list[tuple[int, int]] = [
+        (s[1], s[2]) for s in skeleton if s[0] == "cnot"
+    ]
+
+    # The Ry/CNOT skeleton must alternate Ry, CNOT, Ry, CNOT, ..., Ry.
+    for idx, entry in enumerate(skeleton):
+        expected_kind = "ry" if idx % 2 == 0 else "cnot"
+        if entry[0] != expected_kind:
+            raise MpsGramConfigurationError(
+                f"machine {machine.name!r}: action {action.name!r} effect "
+                f"{effect!r}: the Ry/CNOT skeleton (Rz gates ignored) "
+                f"must alternate Ry, CNOT, Ry, CNOT, ..., Ry; got "
+                f"{entry[0]!r} at skeleton position {idx}"
+            )
 
     # Determine prep vs inverse from the qubit ordering of the Ry
-    # rotations (the one structural feature the two forms differ on
-    # that doesn't depend on user-chosen sign conventions).
-    actual_ry_qubits = [q for q, _ in parsed_ry]
+    # rotations on the skeleton (the one structural feature the two
+    # forms differ on that doesn't depend on user-chosen sign conventions).
     prep_qubits = list(range(n_qubits))
     inverse_qubits = list(range(n_qubits - 1, -1, -1))
-    if actual_ry_qubits == prep_qubits:
-        is_inverse = False
+    if parsed_ry == prep_qubits:
         expected_cnots = [(k, k + 1) for k in range(n_qubits - 1)]
-    elif actual_ry_qubits == inverse_qubits:
-        is_inverse = True
+        form = "preparation"
+    elif parsed_ry == inverse_qubits:
         expected_cnots = [(k, k + 1) for k in range(n_qubits - 2, -1, -1)]
+        form = "inverse"
     else:
         raise MpsGramConfigurationError(
             f"machine {machine.name!r}: action {action.name!r} effect "
-            f"{effect!r} applies Ry on qubits {actual_ry_qubits}; the "
+            f"{effect!r} applies Ry on qubits {parsed_ry}; the "
             f"CNOT staircase requires Ry on qubits {prep_qubits} "
             f"(preparation form) or {inverse_qubits} (inverse form)"
         )
@@ -309,19 +368,11 @@ def _parse_staircase_effect(
     if parsed_cnot != expected_cnots:
         raise MpsGramConfigurationError(
             f"machine {machine.name!r}: action {action.name!r} effect "
-            f"{effect!r} has CNOTs {parsed_cnot}; the "
-            f"{'inverse' if is_inverse else 'preparation'} CNOT "
+            f"{effect!r} has CNOTs {parsed_cnot}; the {form} CNOT "
             f"staircase requires adjacent CNOTs {expected_cnots}"
         )
 
-    # Re-index the Ry coefficients by qubit so callers can look up
-    # ``ry_coeffs[k]`` for the rotation on ``qs[k]`` regardless of the
-    # gate-order in which it appeared.
-    ry_coeffs: list[dict[str, float]] = [None] * n_qubits  # type: ignore[list-item]
-    for qubit, coeffs in parsed_ry:
-        ry_coeffs[qubit] = coeffs
-
-    return is_inverse, ry_coeffs
+    return ops
 
 
 _CNOT = None  # type: ignore[var-annotated]
@@ -349,6 +400,17 @@ def _ry_matrix(np_module, theta: float):
     return np_module.array([[c, -s], [s, c]], dtype=complex)
 
 
+def _rz_matrix(np_module, theta: float):
+    half = theta / 2.0
+    return np_module.array(
+        [
+            [np_module.exp(-1j * half), 0.0],
+            [0.0, np_module.exp(1j * half)],
+        ],
+        dtype=complex,
+    )
+
+
 def _apply_1q(np_module, state, U, qubit: int):
     """Apply 2x2 gate ``U`` on ``qubit`` of statevector tensor ``state``."""
     state = np_module.moveaxis(state, qubit, 0)
@@ -367,7 +429,7 @@ def _apply_cnot(np_module, state, control: int, target: int):
     return state
 
 
-def _evaluate_ry_angle(
+def _evaluate_angle(
     coeffs: dict[str, float], param_names: list[str], bound: list[float]
 ) -> float:
     """Substitute ``bound[i]`` for ``param_names[i]`` in the linear
@@ -383,40 +445,39 @@ def _build_concept_state(
     np_module,
     n_qubits: int,
     bound: list[float],
-    is_inverse: bool,
     param_names: list[str],
-    ry_coeffs: list[dict[str, float]],
+    ops: list[tuple],
 ):
     """Build |c_i> for a single call site under the given bound-argument tuple.
 
-    ``bound[k]`` is the literal value bound to the parameter at
-    signature position ``k``. Each Ry's float angle is computed by
-    evaluating ``ry_coeffs[k]`` (a ``{param_name: coefficient}``
-    dictionary) under the ``bound`` substitution.
+    ``ops`` is the ordered list of operations returned by
+    ``_parse_staircase_effect``. Each Ry/Rz angle expression is
+    evaluated against ``bound`` (positional substitution into
+    ``param_names``) and applied in declaration order; CNOTs apply
+    directly. The starting state is ``|0^n>``.
     """
     state = np_module.zeros((2,) * n_qubits, dtype=complex)
     state[(0,) * n_qubits] = 1.0
 
-    if is_inverse:
-        # Inverse: Ry(qs[n-1], <expr>); CNOT(n-2, n-1); ...;
-        # Ry(qs[1], <expr>); CNOT(0, 1); Ry(qs[0], <expr>).
-        for k in range(n_qubits - 1, -1, -1):
-            theta = _evaluate_ry_angle(ry_coeffs[k], param_names, bound)
+    for op in ops:
+        kind = op[0]
+        if kind == "ry":
+            _, qubit, coeffs = op
+            theta = _evaluate_angle(coeffs, param_names, bound)
             state = _apply_1q(
-                np_module, state, _ry_matrix(np_module, theta), k
+                np_module, state, _ry_matrix(np_module, theta), qubit
             )
-            if k > 0:
-                state = _apply_cnot(np_module, state, k - 1, k)
-    else:
-        # Prep: Ry(qs[0], <expr>); CNOT(0, 1); Ry(qs[1], <expr>); ...;
-        # CNOT(n-2, n-1); Ry(qs[n-1], <expr>).
-        for k in range(n_qubits):
-            theta = _evaluate_ry_angle(ry_coeffs[k], param_names, bound)
+        elif kind == "rz":
+            _, qubit, coeffs = op
+            theta = _evaluate_angle(coeffs, param_names, bound)
             state = _apply_1q(
-                np_module, state, _ry_matrix(np_module, theta), k
+                np_module, state, _rz_matrix(np_module, theta), qubit
             )
-            if k < n_qubits - 1:
-                state = _apply_cnot(np_module, state, k, k + 1)
+        elif kind == "cnot":
+            _, control, target = op
+            state = _apply_cnot(np_module, state, control, target)
+        else:  # pragma: no cover - defensive; _parse_staircase_effect filters
+            raise AssertionError(f"unexpected op kind {kind!r}")
 
     return state
 
@@ -480,7 +541,7 @@ def compute_concept_gram_mps(
 
     action = _find_concept_action(machine, concept_action_label)
     _check_signature(machine, action, n_qubits)
-    is_inverse, ry_coeffs = _parse_staircase_effect(machine, action, n_qubits)
+    ops = _parse_staircase_effect(machine, action, n_qubits)
     param_names = [p.name for p in action.parameters]
 
     call_sites = [
@@ -494,13 +555,14 @@ def compute_concept_gram_mps(
             f"gram needs at least one parametric call site to enumerate"
         )
 
+    n_params = len(action.parameters)
     for t in call_sites:
-        if len(t.bound_arguments) != n_qubits:
+        if len(t.bound_arguments) != n_params:
             raise MpsGramConfigurationError(
                 f"machine {machine.name!r}: call site to "
                 f"{concept_action_label!r} has {len(t.bound_arguments)} "
-                f"arguments; expected exactly {n_qubits} angle literals "
-                f"(one per qubit in the register)"
+                f"arguments; expected exactly {n_params} angle literals "
+                f"(one per parameter of the action's signature)"
             )
 
     angles = np.array(
@@ -522,8 +584,7 @@ def compute_concept_gram_mps(
     # product-states.md` for the closed-form derivation.
     states = [
         _build_concept_state(
-            np, n_qubits, angles[i].tolist(), is_inverse,
-            param_names, ry_coeffs,
+            np, n_qubits, angles[i].tolist(), param_names, ops,
         )
         for i in range(n_calls)
     ]
