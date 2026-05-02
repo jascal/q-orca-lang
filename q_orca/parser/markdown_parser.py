@@ -17,6 +17,7 @@ from q_orca.ast import (
     VariableRef, ValueRef, QEffectMeasure, QEffectConditional,
     QContextMutation, QEffectContextUpdate,
     ActionParameter, BoundArg,
+    EncodingDecl, ThetaBlock, ThetaRow,
 )
 from q_orca.verifier.quantum import KNOWN_UNITARY_GATES
 
@@ -87,7 +88,7 @@ MdElement = MdHeading | MdTable | MdBulletList | MdBlockquote
 # row got glued onto the section heading; we detect this shape to recover.
 _KNOWN_SECTIONS = frozenset({
     "context", "events", "transitions", "guards", "actions", "effects",
-    "verification rules", "invariants",
+    "verification rules", "invariants", "encoding", "theta",
 })
 
 
@@ -306,6 +307,8 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
     verification_rules: list[VerificationRule] = []
     invariants: list[Invariant] = []
     resource_metrics: list[str] = []
+    encoding: Optional[EncodingDecl] = None
+    theta: Optional[ThetaBlock] = None
 
     # Pre-scan for the context table so that angle expressions in actions
     # can reference numeric context fields regardless of section order.
@@ -394,6 +397,22 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
                     i += 1
                 continue
 
+            if section_name_lower == "encoding":
+                i += 1
+                if i < len(elements) and isinstance(elements[i], MdTable):
+                    encoding = _parse_encoding_table(elements[i], errors)
+                    i += 1
+                continue
+
+            if section_name_lower == "theta":
+                i += 1
+                if i < len(elements) and isinstance(elements[i], MdTable):
+                    theta = _parse_theta_table(
+                        elements[i], encoding, context, errors
+                    )
+                    i += 1
+                continue
+
         i += 1
 
     if not name:
@@ -420,6 +439,8 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
         verification_rules=verification_rules,
         invariants=invariants,
         resource_metrics=resource_metrics,
+        encoding=encoding,
+        theta=theta,
     )
 
 
@@ -919,6 +940,241 @@ def _parse_resources_table(table: MdTable, errors: list[str] | None = None) -> l
             continue
         metrics.append(name)
     return metrics
+
+
+_HEA_VALID_ROTATIONS = ("Rx", "Ry", "Rz")
+_HEA_VALID_ENTANGLERS = ("ring", "chain")
+_HEA_REQUIRED_KEYS = ("kind", "depth", "entangler", "rotations")
+_HEA_OPTIONAL_KEYS = ("qubits",)
+_HEA_KNOWN_KEYS = frozenset(_HEA_REQUIRED_KEYS + _HEA_OPTIONAL_KEYS)
+
+
+def _parse_encoding_table(
+    table: MdTable, errors: list[str] | None = None
+) -> Optional[EncodingDecl]:
+    """Parse a `## encoding` key/value table into an EncodingDecl.
+
+    Errors are appended via the structured `encoding_*` prefix. On any
+    error the function returns `None` so the machine's `encoding` field
+    stays unset.
+    """
+    key_idx = _find_column_index(table.headers, "key")
+    val_idx = _find_column_index(table.headers, "value")
+    if key_idx < 0 or val_idx < 0:
+        if errors is not None:
+            errors.append(
+                "encoding_table_columns: `## encoding` requires columns "
+                "`key` and `value`"
+            )
+        return None
+
+    raw: dict[str, str] = {}
+    for row in table.rows:
+        if key_idx >= len(row) or val_idx >= len(row):
+            continue
+        k = _strip_backticks(row[key_idx]).strip().lower()
+        v = _strip_backticks(row[val_idx]).strip()
+        if not k:
+            continue
+        if k not in _HEA_KNOWN_KEYS:
+            if errors is not None:
+                errors.append(
+                    f"encoding_unknown_key: '{k}' (expected one of "
+                    f"{', '.join(_HEA_KNOWN_KEYS)})"
+                )
+            return None
+        raw[k] = v
+
+    missing = [k for k in _HEA_REQUIRED_KEYS if k not in raw]
+    if missing:
+        if errors is not None:
+            errors.append(
+                f"encoding_missing_keys: {missing} (required: "
+                f"{list(_HEA_REQUIRED_KEYS)})"
+            )
+        return None
+
+    kind = raw["kind"].lower()
+    if kind != "hea":
+        if errors is not None:
+            errors.append(
+                f"encoding_unsupported_kind: '{raw['kind']}' "
+                f"(only 'hea' is supported)"
+            )
+        return None
+
+    try:
+        depth = int(raw["depth"])
+    except ValueError:
+        if errors is not None:
+            errors.append(
+                f"encoding_bad_depth: '{raw['depth']}' is not an integer"
+            )
+        return None
+    if depth < 1:
+        if errors is not None:
+            errors.append(
+                f"encoding_bad_depth: depth must be a positive integer, "
+                f"got {depth}"
+            )
+        return None
+
+    entangler = raw["entangler"].lower()
+    if entangler not in _HEA_VALID_ENTANGLERS:
+        if errors is not None:
+            errors.append(
+                f"encoding_bad_entangler: '{raw['entangler']}' "
+                f"(expected one of {list(_HEA_VALID_ENTANGLERS)})"
+            )
+        return None
+
+    rotation_tokens = [
+        tok.strip() for tok in raw["rotations"].split(",") if tok.strip()
+    ]
+    if not rotation_tokens:
+        if errors is not None:
+            errors.append(
+                "encoding_bad_rotations: `rotations` must list at least "
+                "one of Rx, Ry, Rz"
+            )
+        return None
+    rotations: list[str] = []
+    for tok in rotation_tokens:
+        if tok not in _HEA_VALID_ROTATIONS:
+            if errors is not None:
+                errors.append(
+                    f"encoding_bad_rotations: unsupported rotation "
+                    f"'{tok}' (expected one of "
+                    f"{list(_HEA_VALID_ROTATIONS)})"
+                )
+            return None
+        if tok in rotations:
+            if errors is not None:
+                errors.append(
+                    f"encoding_bad_rotations: duplicate rotation '{tok}'"
+                )
+            return None
+        rotations.append(tok)
+
+    qubits_field = raw.get("qubits") or None
+    return EncodingDecl(
+        kind="hea",
+        depth=depth,
+        entangler=entangler,
+        rotations=tuple(rotations),
+        qubits=qubits_field,
+    )
+
+
+def _resolve_register_size(
+    encoding: EncodingDecl, context: list[ContextField]
+) -> Optional[int]:
+    """Find the size of the qubits register declared by `encoding`.
+
+    Returns None if the field is absent or its default value cannot be
+    parsed as a list of qubit names.
+    """
+    target = encoding.qubits or "qubits"
+    for f in context:
+        if f.name == target and isinstance(f.type, QTypeList):
+            if f.default_value:
+                items = re.findall(r"q\d+", f.default_value)
+                if items:
+                    return len(items)
+    return None
+
+
+def _parse_theta_table(
+    table: MdTable,
+    encoding: Optional[EncodingDecl],
+    context: list[ContextField],
+    errors: list[str] | None = None,
+) -> Optional[ThetaBlock]:
+    """Parse a `## theta` table into a `ThetaBlock`.
+
+    Each row maps a concept name to a rank-3 numpy tensor of shape
+    `(|rotations|, depth, n)`. Errors are appended with `theta_*`
+    prefix; on any structural failure the function returns `None`.
+    """
+    import ast as _py_ast
+
+    import numpy as _np
+
+    if encoding is None:
+        if errors is not None:
+            errors.append(
+                "theta_no_encoding: `## theta` requires a preceding "
+                "`## encoding` section"
+            )
+        return None
+
+    n = _resolve_register_size(encoding, context)
+    if n is None:
+        if errors is not None:
+            errors.append(
+                f"theta_no_register: cannot resolve register "
+                f"'{encoding.qubits or 'qubits'}' size from context"
+            )
+        return None
+
+    expected_shape = (len(encoding.rotations), encoding.depth, n)
+
+    concept_idx = _find_column_index(table.headers, "concept")
+    tensor_idx = _find_column_index(table.headers, "tensor")
+    if concept_idx < 0 or tensor_idx < 0:
+        if errors is not None:
+            errors.append(
+                "theta_table_columns: `## theta` requires columns "
+                "`concept` and `tensor`"
+            )
+        return None
+
+    seen: dict[str, int] = {}
+    rows: list[ThetaRow] = []
+    for row_pos, row in enumerate(table.rows, start=1):
+        if concept_idx >= len(row) or tensor_idx >= len(row):
+            continue
+        concept = _strip_backticks(row[concept_idx]).strip()
+        tensor_src = row[tensor_idx].strip()
+        if not concept:
+            continue
+        if concept in seen:
+            if errors is not None:
+                errors.append(
+                    f"theta_duplicate_concept: '{concept}' "
+                    f"(rows {seen[concept]} and {row_pos})"
+                )
+            return None
+        seen[concept] = row_pos
+
+        try:
+            literal = _py_ast.literal_eval(tensor_src)
+        except (ValueError, SyntaxError) as exc:
+            if errors is not None:
+                errors.append(
+                    f"theta_malformed_literal: concept '{concept}' "
+                    f"row {row_pos}: {exc}"
+                )
+            return None
+        try:
+            tensor = _np.asarray(literal, dtype=float)
+        except (TypeError, ValueError) as exc:
+            if errors is not None:
+                errors.append(
+                    f"theta_non_numeric: concept '{concept}' row "
+                    f"{row_pos}: {exc}"
+                )
+            return None
+        if tensor.shape != expected_shape:
+            if errors is not None:
+                errors.append(
+                    f"theta_shape_mismatch: concept '{concept}' has "
+                    f"shape {tensor.shape}, expected {expected_shape}"
+                )
+            return None
+        rows.append(ThetaRow(concept=concept, tensor=tensor))
+
+    return ThetaBlock(rows=rows)
 
 
 # ============================================================

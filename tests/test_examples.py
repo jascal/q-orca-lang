@@ -20,6 +20,7 @@ EXAMPLE_FILES = {
     "larql-polysemantic-hierarchical": "larql-polysemantic-hierarchical.q.orca.md",
     "larql-animals-hierarchy": "larql-animals-hierarchy.q.orca.md",
     "larql-animals-interference": "larql-animals-interference.q.orca.md",
+    "larql-hea-minimal": "larql-hea-minimal.q.orca.md",
 }
 
 
@@ -372,4 +373,83 @@ class TestExamples:
         assert diff.max() >= 0.05, (
             "cross-coupled Gram unexpectedly factorizes: "
             f"max |gram_mps^2 − gram_prod^2| = {diff.max():.6f} < 0.05"
+        )
+
+    def test_larql_hea_minimal_pipeline(self):
+        """End-to-end: parse → verify → HEA concept gram three-tier hierarchy.
+
+        Covers the rung-2 HEA encoding example: a 3-qubit depth-3 ring-entangler
+        ansatz with rotations (Ry, Rz) and three concepts (a, b, c) where a–b
+        share a sub-cluster and c is the cross-cluster outsider. Validates the
+        explicit `## encoding` + `## theta` grammar, the AST surface, the
+        Stage 4b consistency check, and the analytic |<c_i|c_j>|² produced by
+        compute_concept_gram_hea. QASM/Qiskit emit is out of scope for HEA-
+        encoded machines (deferred to a follow-up proposal).
+        """
+        import numpy as np
+
+        from q_orca import (
+            VerifyOptions,
+            compute_concept_gram_hea,
+            parse_q_orca_markdown,
+            verify,
+        )
+        from q_orca.ast import EncodingDecl
+        from q_orca.verifier.hea_encoding import HEA_TIER_TOLERANCE
+
+        source = (EXAMPLES_DIR / "larql-hea-minimal.q.orca.md").read_text()
+        parsed = parse_q_orca_markdown(source)
+        assert parsed.errors == []
+        machine = parsed.file.machines[0]
+
+        assert machine.encoding == EncodingDecl(
+            kind="hea",
+            depth=3,
+            entangler="ring",
+            rotations=("Ry", "Rz"),
+            qubits=None,
+        )
+
+        assert machine.theta is not None
+        assert len(machine.theta.rows) == 3
+        assert [r.concept for r in machine.theta.rows] == ["a", "b", "c"]
+        for row in machine.theta.rows:
+            assert row.tensor.shape == (2, 3, 3), (
+                f"concept {row.concept} tensor shape {row.tensor.shape} "
+                f"!= (2, 3, 3)"
+            )
+
+        query_call_sites = [
+            t for t in machine.transitions if t.action == "query_concept"
+        ]
+        assert len(query_call_sites) == 3
+
+        result = verify(machine, VerifyOptions(skip_dynamic=True))
+        assert result.valid, [e for e in result.errors if e.severity == "error"]
+
+        gram = compute_concept_gram_hea(machine)
+        assert gram.shape == (3, 3)
+        gsq = np.abs(gram) ** 2
+
+        np.testing.assert_allclose(np.diag(gsq), np.ones(3), atol=1e-9)
+
+        # Sub-cluster (a–b): near-identical θ, |<a|b>|² ≈ 0.9999.
+        assert gsq[0, 1] >= 0.999, (
+            f"sub-cluster overlap |<a|b>|² = {gsq[0, 1]:.6f} below 0.999"
+        )
+
+        # Cross-cluster max: a–c and b–c around 0.38.
+        cross_max = max(gsq[0, 2], gsq[1, 2])
+        assert 0.35 <= cross_max <= 0.42, (
+            f"cross-cluster overlap outside [0.35, 0.42]: "
+            f"|<a|c>|²={gsq[0, 2]:.4f} |<b|c>|²={gsq[1, 2]:.4f}"
+        )
+
+        # Sub→cross gap must clear the documented HEA_TIER_TOLERANCE
+        # (0.025) by a comfortable margin — the spike-validated example
+        # gap is ≈ 0.6162.
+        gap = gsq[0, 1] - cross_max
+        assert gap > HEA_TIER_TOLERANCE, (
+            f"sub→cross gap {gap:.4f} ≤ HEA_TIER_TOLERANCE "
+            f"({HEA_TIER_TOLERANCE})"
         )
