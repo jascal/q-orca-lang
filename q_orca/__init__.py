@@ -28,7 +28,7 @@ from q_orca.skills import (
 from q_orca.config import load_config, QOrcaConfig
 from q_orca.llm import create_provider, LLMProvider
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     # Parser
