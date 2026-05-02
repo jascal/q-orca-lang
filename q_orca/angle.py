@@ -26,15 +26,27 @@ def evaluate_angle(
       - name*pi or pi*name: gamma*pi, pi*gamma
     A leading minus is permitted on every form.
 
+    Linear combinations of any of the above are also accepted at the top level
+    using ``+`` and ``-`` operators (e.g., ``a + b``, ``-a - b``,
+    ``2*pi + gamma``). Terms are evaluated recursively and summed.
+
     Literal forms are tried first, so a context field literally named ``pi``
     cannot shadow the ``pi`` literal.
 
     Raises ValueError for anything else.
     """
     text = text.strip()
+
+    # Linear combination: split on top-level + / - and sum the terms.
+    terms = _split_linear_combination(text)
+    if terms is not None:
+        return sum(evaluate_angle(term, context) for term in terms)
+
     sign = 1
     if text.startswith("-"):
         sign = -1
+        text = text[1:].strip()
+    elif text.startswith("+"):
         text = text[1:].strip()
 
     # Decimal literal
@@ -110,3 +122,43 @@ def evaluate_angle(
             else "."
         )
     )
+
+
+def _split_linear_combination(text: str) -> Optional[list[str]]:
+    """Split a linear combination on top-level ``+`` / ``-`` operators.
+
+    Returns a list of signed term strings (e.g., ``"a + b"`` -> ``["a", "+b"]``,
+    ``"-a - b"`` -> ``["-a", "-b"]``), or ``None`` if no top-level split was
+    found. The leading sign of the first term is preserved.
+    """
+    if not text:
+        return None
+
+    terms: list[str] = []
+    paren_depth = 0
+    start = 0
+    # Skip a leading sign so we don't split on it.
+    i = 1 if text[0] in "+-" else 0
+    while i < len(text):
+        c = text[i]
+        if c == "(":
+            paren_depth += 1
+        elif c == ")":
+            paren_depth -= 1
+        elif paren_depth == 0 and c in "+-":
+            # Distinguish a top-level operator from a unary sign attached
+            # to a preceding operator (e.g., ``2*-a`` shouldn't split here).
+            j = i - 1
+            while j >= 0 and text[j] == " ":
+                j -= 1
+            if j >= 0 and text[j] not in "+-*/(":
+                terms.append(text[start:i].strip())
+                start = i  # include the sign as part of the next term
+                i += 1
+                continue
+        i += 1
+
+    if not terms:
+        return None
+    terms.append(text[start:].strip())
+    return terms

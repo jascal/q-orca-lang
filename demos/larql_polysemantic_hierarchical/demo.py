@@ -15,15 +15,22 @@ machine, the rung-1 sibling of `larql_polysemantic_clusters`:
        4-tier) Gram signatures.
 
 Topology: 3 super-groups × 2 sub-clusters × 2 concepts = 12 concepts on a
-3-qubit register. Each concept is encoded as the bond-2 MPS
+3-qubit register. Each concept is encoded as the *cross-coupled* bond-2
+MPS
 
-    |c_i> = Ry(q0, α_i) CNOT(q0, q1) Ry(q1, β_i) CNOT(q1, q2) Ry(q2, γ_i) |000>
+    |c_i> = Ry(q0, α_i) CNOT(q0, q1) Ry(q1, α_i + β_i) CNOT(q1, q2) Ry(q2, β_i + γ_i) |000>
 
-with α ∈ {0, 2π/3, 4π/3} (super-group), β ∈ {-0.75, +0.75} (sub-cluster),
-and γ ∈ {-0.35, +0.35} (concept). This produces analytic
-`|<c_i|c_j>|²` tiers — self 1.0, sub-cluster-mate 0.882, super-group-
-sibling [0.47, 0.54], cross-group [0.12, 0.25] — distinct from the
-flat-block clusters demo's three uniform tiers.
+with α ∈ {0, 2π/3, 4π/3} (super-group), β ∈ {-0.5, +0.5} (sub-cluster),
+and γ ∈ {-0.35, +0.35} (concept). The q1 and q2 rotations bind linear-
+combination angles (`α + β`, `β + γ`) — the cross-coupling is what makes
+the Gram non-factorized. The bare staircase (single-parameter Ry on each
+qubit) factorizes as `∏_k cos((θ_{i,k} − θ_{j,k})/2)` despite Schmidt rank
+2 — a known counter-example documented in the
+`fix-mps-encoding-non-factorizing` design note. The cross-coupled
+encoding produces analytic `|<c_i|c_j>|²` tiers — self 1.000, sub-
+cluster-mate 0.882 (uniform), super-group-sibling {0.335, 0.593, 0.753},
+cross-group [0.000, 0.178] — distinct from the flat-block clusters
+demo's three uniform tiers.
 
 Usage:
     pip install q-orca[quantum]
@@ -75,13 +82,13 @@ def banner(title: str) -> None:
 
 
 def heatmap_tier(value: float) -> str:
-    """4-tier ASCII heatmap: '#' ≥ 0.7, 'o' ∈ [0.3, 0.7), '.' ∈ [0.1, 0.3), blank < 0.1."""
+    """4-tier ASCII heatmap: '#' ≥ 0.7, 'o' ∈ [0.3, 0.7), '.' ∈ [0.05, 0.3), blank < 0.05."""
     v = abs(value)
     if v >= 0.7:
         return "#"
     if v >= 0.3:
         return "o"
-    if v >= 0.1:
+    if v >= 0.05:
         return "."
     return " "
 
@@ -89,7 +96,7 @@ def heatmap_tier(value: float) -> str:
 def print_gram_heatmap(gram: np.ndarray) -> None:
     """Print |gram|² as a 4-tier 12×12 ASCII heatmap with hierarchy labels."""
     gsq = np.abs(gram) ** 2
-    print("  |gram[i,j]|²  (# ≥ 0.7, o ∈ [0.3, 0.7), . ∈ [0.1, 0.3), blank < 0.1)")
+    print("  |gram[i,j]|²  (# ≥ 0.7, o ∈ [0.3, 0.7), . ∈ [0.05, 0.3), blank < 0.05)")
     print("  ", "".join(f"{i:>3}" for i in range(12)))
     for i in range(12):
         row = "".join(f"  {heatmap_tier(gsq[i, j])}" for j in range(12))
@@ -100,9 +107,9 @@ def print_gram_heatmap(gram: np.ndarray) -> None:
 def build_query_circuit(prepare_angles: tuple, query_angles: tuple):
     """Build a prepare(feature) + query(concept) circuit on 3 qubits.
 
-    Mirrors the .q.orca.md effect strings exactly:
-        prepare:  Ry(q0, a); CNOT(q0,q1); Ry(q1, b); CNOT(q1,q2); Ry(q2, c)
-        query:    Ry(q2,-c); CNOT(q1,q2); Ry(q1,-b); CNOT(q0,q1); Ry(q0,-a)
+    Mirrors the .q.orca.md effect strings exactly (cross-coupled bond-2):
+        prepare:  Ry(q0, a); CNOT(q0,q1); Ry(q1, a+b); CNOT(q1,q2); Ry(q2, b+c)
+        query:    Ry(q2,-(b+c)); CNOT(q1,q2); Ry(q1,-(a+b)); CNOT(q0,q1); Ry(q0,-a)
     """
     from qiskit import QuantumCircuit
 
@@ -110,13 +117,13 @@ def build_query_circuit(prepare_angles: tuple, query_angles: tuple):
     a, b, c = prepare_angles
     qc.ry(a, 0)
     qc.cx(0, 1)
-    qc.ry(b, 1)
+    qc.ry(a + b, 1)
     qc.cx(1, 2)
-    qc.ry(c, 2)
+    qc.ry(b + c, 2)
     a2, b2, c2 = query_angles
-    qc.ry(-c2, 2)
+    qc.ry(-(b2 + c2), 2)
     qc.cx(1, 2)
-    qc.ry(-b2, 1)
+    qc.ry(-(a2 + b2), 1)
     qc.cx(0, 1)
     qc.ry(-a2, 0)
     qc.measure(range(3), range(3))
@@ -221,11 +228,11 @@ def main() -> None:
     )
     print(
         f"  super-group-sib    |<c_i|c_j>|² : min={min(super_sib):.4f} "
-        f"max={max(super_sib):.4f}  (n={len(super_sib)}; analytic [0.47, 0.54])"
+        f"max={max(super_sib):.4f}  (n={len(super_sib)}; analytic {{0.335, 0.593, 0.753}})"
     )
     print(
         f"  cross-group        |<c_i|c_j>|² : min={min(cross):.4f} "
-        f"max={max(cross):.4f}  (n={len(cross)}; analytic [0.12, 0.25])"
+        f"max={max(cross):.4f}  (n={len(cross)}; analytic [0.000, 0.178])"
     )
 
     # 4. Per-concept polysemy column (|f> = |dog>)
@@ -276,13 +283,18 @@ def main() -> None:
     print("      tiers : 1.000 / 0.720 / ≲ 0.09")
     print("              (self / cluster-mate / cross-cluster — three flat tiers)")
     print()
-    print("    rung-1 (this demo, MPS bond-2 CNOT staircase):")
-    print("      |c_i> = Ry(q0,α) CNOT(q0,q1) Ry(q1,β) CNOT(q1,q2) Ry(q2,γ) |000>")
-    print("      tiers : 1.000 / 0.882 / [0.47, 0.54] / [0.12, 0.25]")
+    print("    rung-1 (this demo, cross-coupled bond-2 MPS):")
+    print("      |c_i> = Ry(q0,α) CNOT(q0,q1) Ry(q1,α+β) CNOT(q1,q2) Ry(q2,β+γ) |000>")
+    print("      tiers : 1.000 / 0.882 / {0.335, 0.593, 0.753} / [0.000, 0.178]")
     print("              (self / sub-mate / super-sib / cross-group — four ordered tiers)")
     print()
-    print("    The CNOT staircase entangles adjacent qubits, lifting the")
-    print("    block diagonal of rung-0 into a graded two-level hierarchy.")
+    print("    The bond-2 CNOT staircase is a *prerequisite* for this hierarchy")
+    print("    (it gives the register an entangled MPS structure), but it is not")
+    print("    sufficient on its own — the bare staircase Ry(q0,α)·CNOT·Ry(q1,β)·")
+    print("    CNOT·Ry(q2,γ)·|000> has a Gram identical to rung-0's product-state")
+    print("    Gram despite Schmidt rank 2. The cross-coupled angle structure")
+    print("    (α+β on q1, β+γ on q2) is what breaks the factorization and")
+    print("    produces the graded four-tier hierarchy.")
 
     raise SystemExit(0 if passed else 1)
 

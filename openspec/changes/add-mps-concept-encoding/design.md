@@ -196,3 +196,12 @@ math between demo and test.
   keeps the helper simple and the error mode unambiguous. A more
   permissive detector is future work once a second MPS topology
   (brick-wall, tree) is shipped.
+
+## Post-mortem (added 2026-05-01)
+
+The staircase encoding shipped in this change has Schmidt rank 2
+but its Gram still factorizes as
+⟨c_i | c_j⟩ = ∏_k cos((θ_{i,k} − θ_{j,k})/2). The four-tier
+signature emerges from the angle design, not the entanglement.
+The example, helper, demo, and docs are corrected in the
+follow-up change `fix-mps-encoding-non-factorizing`.
