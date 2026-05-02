@@ -1663,6 +1663,65 @@ class TestComputeConceptGramMps:
         assert "qs[5]" in message
         assert "out of range" in message
 
+    def test_rz_in_inverse_form_rejected(self):
+        """An inverse-form (query) effect with a non-trivial `Rz` is
+        rejected with `kind="rz_in_inverse_form"`. Reason: the helper
+        builds states by applying the effect to `|0^n>`; the inverse
+        form's `Rz` lands on `|0>` and collapses to a global phase, so
+        the analytic Gram would silently lose the phase axis. The
+        guardrail directs the user to use the preparation form
+        instead. See `tech-debt-backlog/tasks.md` §5.16."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle, phi: angle) -> qs",
+            "Ry(qs[2], -b - c); CNOT(qs[1], qs[2]); Rz(qs[1], -phi); "
+            "Ry(qs[1], -a - b); CNOT(qs[0], qs[1]); Ry(qs[0], -a)",
+            ["0.1, 0.2, 0.3, 0.5"],
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        assert exc_info.value.kind == "rz_in_inverse_form"
+        message = str(exc_info.value)
+        assert "Rz(qs[1], <expr>)" in message
+        assert "preparation form" in message
+        assert "larql-animals-interference" in message
+
+    def test_rz_in_inverse_form_with_zero_coeffs_accepted(self):
+        """A trivial `Rz` in the inverse form (all coefficients zero,
+        e.g., `Rz(qs[1], a - a)`) is accepted because it is the identity
+        at every call site. The guardrail only rejects non-trivial
+        `Rz` segments where at least one coefficient is non-zero."""
+        from q_orca import compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[2], -b - c); CNOT(qs[1], qs[2]); Rz(qs[1], a - a); "
+            "Ry(qs[1], -a - b); CNOT(qs[0], qs[1]); Ry(qs[0], -a)",
+            ["0.1, 0.2, 0.3"],
+        )
+        gram = compute_concept_gram_mps(machine)
+        assert gram.shape == (1, 1)
+
+    def test_rz_in_preparation_form_accepted(self):
+        """The companion to the inverse-form guardrail: a non-trivial
+        `Rz` in the *preparation* form is fine and must NOT trigger
+        `rz_in_inverse_form`. This is the canonical
+        `larql-animals-interference.q.orca.md` shape."""
+        from q_orca import compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle, phi: angle) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Ry(qs[1], a + b); "
+            "Rz(qs[1], phi); CNOT(qs[1], qs[2]); Ry(qs[2], b + c)",
+            ["0.0, -0.5, 0.0, 0.0", "0.0, -0.5, 0.0, 1.5707963"],
+            action_name="prepare_concept",
+        )
+        gram = compute_concept_gram_mps(
+            machine, concept_action_label="prepare_concept"
+        )
+        assert gram.shape == (2, 2)
+
     def test_rz_unrecognized_angle_expression_raises(self):
         """A non-linear angle expression inside an Rz raises with the
         same `unrecognized_angle_expression` kind as Ry."""

@@ -81,9 +81,20 @@ class MpsGramConfigurationError(ValueError):
 
     The ``kind`` attribute (when set) classifies the failure mode:
 
-    - ``unrecognized_angle_expression``: a Ry segment's angle expression
-      is not a linear combination of the action's bound angle parameters
-      (e.g., ``a * b``, ``sin(a)``, ``a^2``, or a bare numeric literal).
+    - ``unrecognized_angle_expression``: a Ry/Rz segment's angle
+      expression is not a linear combination of the action's bound angle
+      parameters (e.g., ``a * b``, ``sin(a)``, ``a^2``, or a bare
+      numeric literal).
+    - ``rz_in_inverse_form``: the action effect is in inverse (query)
+      form and contains a non-trivial ``Rz`` segment. The helper builds
+      states by applying the effect to ``|0^n>``; in the inverse form
+      the ``Rz`` lands on ``|0>`` and degrades to a global phase, so the
+      analytic Gram would silently lose the phase axis. Examples using
+      ``Rz`` knobs SHALL enumerate the preparation form.
+
+    Other configuration errors (signature shape, staircase skeleton,
+    out-of-range qubits, unknown gate kinds, etc.) are raised without a
+    ``kind`` attribute — callers fall through to message inspection.
     """
 
     def __init__(self, message: str, *, kind: str | None = None):
@@ -371,6 +382,39 @@ def _parse_staircase_effect(
             f"{effect!r} has CNOTs {parsed_cnot}; the {form} CNOT "
             f"staircase requires adjacent CNOTs {expected_cnots}"
         )
+
+    # Guardrail: the helper builds concept states by applying the effect
+    # string to `|0^n>`. In the inverse form, an `Rz` segment runs
+    # *before* the corresponding `Ry` rotates its target qubit off `|0>`
+    # (because gate order is reversed); since `Rz(theta)|0> =
+    # exp(-i*theta/2)|0>`, the phase collapses to a global factor and the
+    # helper would silently return a Gram that is invariant on the phase
+    # axis. The preparation form does not have this issue (`Rz` runs
+    # *after* its qubit has been rotated). Reject the configuration with
+    # a contextful error rather than producing a misleading result.
+    # Tracked in `tech-debt-backlog/tasks.md` §5.16; symbolic inversion
+    # of the inverse-form effect is the deeper fix and remains open.
+    if form == "inverse":
+        nontrivial_rz = [
+            op for op in ops
+            if op[0] == "rz" and any(c != 0.0 for c in op[2].values())
+        ]
+        if nontrivial_rz:
+            _, qubit, coeffs = nontrivial_rz[0]
+            raise MpsGramConfigurationError(
+                f"machine {machine.name!r}: action {action.name!r} effect "
+                f"{effect!r} is in inverse (query) form and contains a "
+                f"non-trivial `Rz(qs[{qubit}], <expr>)` segment with "
+                f"coefficients {coeffs}. Applied to `|0^n>`, the inverse-"
+                f"form `Rz` runs before its target qubit has been rotated "
+                f"and collapses to a global phase, so the analytic Gram "
+                f"would silently lose the phase-knob axis. Examples that "
+                f"use `Rz` interference knobs SHALL enumerate the "
+                f"preparation form (one parametric call site per "
+                f"concept) — see "
+                f"`examples/larql-animals-interference.q.orca.md`",
+                kind="rz_in_inverse_form",
+            )
 
     return ops
 
