@@ -1748,6 +1748,152 @@ class TestComputeConceptGramMps:
         assert exc_info.value.kind == "unrecognized_angle_expression"
         assert "phi * a" in str(exc_info.value)
 
+    def test_unrecognized_angle_expression_bare_literal_raises(self):
+        """A bare numeric literal in a Ry slot (no parameter reference)
+        is not a linear combination and must raise with kind
+        `unrecognized_angle_expression`. The compiler spec lists this
+        alongside `a*b`, `sin(a)`, and `a^2`."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            ["0.1, 0.2, 0.3"],
+        )
+        action = next(a for a in machine.actions if a.name == "query_concept")
+        action.effect = (
+            "Ry(qs[2], -c); CNOT(qs[1], qs[2]); Ry(qs[1], 2.5); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], -a)"
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        assert exc_info.value.kind == "unrecognized_angle_expression"
+        message = str(exc_info.value)
+        assert "2.5" in message
+        assert "linear combination" in message
+
+    def test_unrecognized_angle_expression_power_raises(self):
+        """`a^2` in a Ry slot is parsed as `BinOp(BitXor)` and is not a
+        linear combination — must raise with kind
+        `unrecognized_angle_expression`."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            ["0.1, 0.2, 0.3"],
+        )
+        action = next(a for a in machine.actions if a.name == "query_concept")
+        action.effect = (
+            "Ry(qs[2], -c); CNOT(qs[1], qs[2]); Ry(qs[1], a^2); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], -a)"
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        assert exc_info.value.kind == "unrecognized_angle_expression"
+        assert "a^2" in str(exc_info.value)
+
+    def test_constant_times_negated_parameter_accepted(self):
+        """`2*-a` is a syntactically valid linear combination
+        (coefficient -2 on `a`). The helper's
+        `_parse_linear_combination` must accept it and feed the right
+        Gram through, in line with how it already handles `2*a` and
+        `-2*a`. The parametric-template validator in the parser does
+        not currently accept `2*-a` literal; we use the same parser-
+        bypass approach as the other linear-combination tests in this
+        class (mutate `action.effect` after parsing) to exercise the
+        helper's structural path directly."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
+
+        # Reference machine: linear angle `-a` (coefficient -1 on a)
+        # at twice the input angle, so the reference and the `2*-a`
+        # machine apply the same rotation (Ry(-2*0.2) = Ry(-0.4)).
+        ref_machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[2], -c); CNOT(qs[1], qs[2]); Ry(qs[1], -b); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], -a)",
+            ["0.4, 0.5, 0.6"],
+        )
+        ref_gram = compute_concept_gram_mps(ref_machine)
+
+        # Build a machine with the canonical inverse staircase, then
+        # rewrite the qs[0] slot to `2*-a`. The parser already accepts
+        # the canonical form, so we don't trip the template validator.
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            # Halve `a` so `2*-a` recovers the reference's `-a`.
+            ["0.2, 0.5, 0.6"],
+        )
+        action = next(a for a in machine.actions if a.name == "query_concept")
+        action.effect = (
+            "Ry(qs[2], -c); CNOT(qs[1], qs[2]); Ry(qs[1], -b); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], 2*-a)"
+        )
+        gram = compute_concept_gram_mps(machine)
+        np.testing.assert_allclose(gram, ref_gram, atol=1e-9)
+
+    def test_all_constant_product_raises_with_no_parameter_reference(self):
+        """`2*3` has no parameter reference and must raise with a
+        diagnostic that says so — not the misleading "product of two
+        non-constant terms" message that prior code emitted."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            ["0.1, 0.2, 0.3"],
+        )
+        action = next(a for a in machine.actions if a.name == "query_concept")
+        action.effect = (
+            "Ry(qs[2], -c); CNOT(qs[1], qs[2]); Ry(qs[1], 2*3); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], -a)"
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        assert exc_info.value.kind == "unrecognized_angle_expression"
+        message = str(exc_info.value)
+        assert "no parameter reference" in message
+
+    def test_inverse_form_linear_combination_matches_prep_form(self):
+        """The inverse form with linear-combination angles (`-a - b` on
+        the cross-coupled qubit) must produce a Gram whose magnitude
+        matches the prep-form Gram on the same angle tuples — the two
+        forms enumerate the same statevector family up to a global
+        sign on each row, so |gram_prep| = |gram_inverse|. Pinned as a
+        focused unit test in addition to the transitive coverage via
+        `test_examples.py::test_larql_polysemantic_hierarchical_pipeline`."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
+
+        triples = ["0.4, 1.1, 0.7", "0.3, -0.2, 0.5", "0.0, 0.5, -0.3"]
+
+        prep_machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Ry(qs[1], a + b); "
+            "CNOT(qs[1], qs[2]); Ry(qs[2], b + c)",
+            triples,
+            action_name="prepare_concept",
+        )
+        prep_gram = compute_concept_gram_mps(
+            prep_machine, concept_action_label="prepare_concept"
+        )
+
+        inverse_machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[2], -b - c); CNOT(qs[1], qs[2]); Ry(qs[1], -a - b); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], -a)",
+            triples,
+        )
+        inverse_gram = compute_concept_gram_mps(inverse_machine)
+
+        np.testing.assert_allclose(
+            np.abs(prep_gram), np.abs(inverse_gram), atol=1e-9
+        )
+
 
 class TestSharedFixtureCompilerAdapter:
     """The Qiskit compiler's effect-string adapter must agree with the

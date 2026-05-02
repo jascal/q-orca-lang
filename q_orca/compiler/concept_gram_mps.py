@@ -70,7 +70,7 @@ import re
 from typing import TYPE_CHECKING
 
 from q_orca.ast import QActionSignature, QMachineDef
-from q_orca.compiler.qasm import _infer_qubit_count
+from q_orca.compiler.util import infer_qubit_count
 
 if TYPE_CHECKING:
     import numpy as np
@@ -181,18 +181,24 @@ def _parse_linear_combination(
             walk(node.right, -sign)
         elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
             left, right = node.left, node.right
-            if (
+            left_const = (
                 isinstance(left, ast.Constant)
                 and isinstance(left.value, (int, float))
-                and isinstance(right, ast.Name)
-            ):
-                add(right.id, sign * float(left.value))
-            elif (
+            )
+            right_const = (
                 isinstance(right, ast.Constant)
                 and isinstance(right.value, (int, float))
-                and isinstance(left, ast.Name)
-            ):
-                add(left.id, sign * float(right.value))
+            )
+            if left_const and right_const:
+                raise _NonLinearExpr(
+                    f"product {left.value!r} * {right.value!r} has no "
+                    f"parameter reference and is not a linear combination "
+                    f"of bound parameters"
+                )
+            if left_const:
+                walk(right, sign * float(left.value))
+            elif right_const:
+                walk(left, sign * float(right.value))
             else:
                 raise _NonLinearExpr(
                     "product of two non-constant terms is not a "
@@ -575,7 +581,7 @@ def compute_concept_gram_mps(
             f"steps and a more general transfer-matrix contraction)"
         )
 
-    n_qubits = _infer_qubit_count(machine)
+    n_qubits = infer_qubit_count(machine)
     if n_qubits <= 0:
         raise MpsGramConfigurationError(
             f"machine {machine.name!r}: could not infer a qubit register "
@@ -600,7 +606,8 @@ def compute_concept_gram_mps(
         )
 
     n_params = len(action.parameters)
-    for t in call_sites:
+    angle_rows: list[list[float]] = []
+    for site_idx, t in enumerate(call_sites):
         if len(t.bound_arguments) != n_params:
             raise MpsGramConfigurationError(
                 f"machine {machine.name!r}: call site to "
@@ -608,11 +615,21 @@ def compute_concept_gram_mps(
                 f"arguments; expected exactly {n_params} angle literals "
                 f"(one per parameter of the action's signature)"
             )
+        row: list[float] = []
+        for arg_idx, b in enumerate(t.bound_arguments):
+            try:
+                row.append(float(b.value))
+            except (TypeError, ValueError) as exc:
+                raise MpsGramConfigurationError(
+                    f"machine {machine.name!r}: call site #{site_idx} to "
+                    f"action {concept_action_label!r} has non-numeric bound "
+                    f"argument at position {arg_idx} (value={b.value!r}); "
+                    f"mps concept-gram requires every bound argument to "
+                    f"coerce to a float angle literal"
+                ) from exc
+        angle_rows.append(row)
 
-    angles = np.array(
-        [[float(b.value) for b in t.bound_arguments] for t in call_sites],
-        dtype=float,
-    )
+    angles = np.array(angle_rows, dtype=float)
     n_calls = len(angles)
 
     # TODO(deferred): replace this 2^n statevector simulation with an
