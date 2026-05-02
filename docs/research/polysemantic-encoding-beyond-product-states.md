@@ -127,6 +127,25 @@ per-axis independent. The moment you leave, that factorization
 dies. Inner products become contractions, amplitudes become
 correlated, and the analytic helper needs more machinery.
 
+> **Caveat: Schmidt rank > 1 ≠ non-factorized overlap.** "Leaving
+> the product-state manifold" is *necessary* for non-factorized
+> overlap but *not sufficient*. The bare Ry-CNOT staircase
+> `Ry(q0,α)·CNOT·Ry(q1,β)·CNOT·Ry(q2,γ)·|000>` produces a state
+> with Schmidt rank 2 across both bipartitions (it is genuinely
+> entangled), yet its Gram still factorizes as
+> `∏_k cos((θ_{i,k} − θ_{j,k})/2)` — exactly the rung-0 inner-
+> product map. Entanglement of the *state* and factorization of
+> the *inner-product map* are independent properties; the latter
+> depends on whether each angle parameter affects only one
+> qubit's amplitude (factorizes) or leaks across qubits
+> (doesn't). The bare staircase happens to keep each parameter
+> on its primary qubit, so the leak is zero. The fix used by the
+> canonical rung-1 example below is to bind *linear combinations*
+> of the angle parameters to the q1 and q2 rotations (e.g.,
+> `Ry(q1, α + β)`, `Ry(q2, β + γ)`), forcing each parameter to
+> leak into more than one qubit's amplitude. Detailed proof in
+> `openspec/changes/fix-mps-encoding-non-factorizing/design.md`.
+
 ### The unification analogy
 
 The transition from product states to entangled states maps cleanly
@@ -161,9 +180,10 @@ more expressive than rung 0, but still polynomial in all parameters.
 
 #### Rung 1 — MPS with bond dimension 2
 
-- **Effect**: `Ry(qs[0], a); CNOT(qs[0], qs[1]); Ry(qs[1], b); CNOT(qs[1], qs[2]); Ry(qs[2], c)`
+- **Effect (canonical, cross-coupled)**: `Ry(qs[0], a); CNOT(qs[0], qs[1]); Ry(qs[1], a + b); CNOT(qs[1], qs[2]); Ry(qs[2], b + c)`
 - **Parameters per concept**: `n` (same as rung 0, but they now
-  couple)
+  couple — and **must couple across qubits** for the Gram to
+  leave the rung-0 factorized form)
 - **Overlap**: `O(n · χ⁶)` transfer-matrix contraction at χ=2 —
   polynomial, closed-form-ish
 - **Capacity at clean tiers**: `N = O(n³)` by available hierarchy
@@ -173,8 +193,18 @@ more expressive than rung 0, but still polynomial in all parameters.
 - **What it cannot**: non-local correlations across the qubit line,
   arbitrary 2-designs
 - **Q-orca surface**: already-parsed gates (CNOT, Ry), multi-gate
-  effect string, same parametric-expansion path as rung 0
-- **Proposed in**: `openspec/changes/add-mps-concept-encoding/`
+  effect string, linear-combination angle expressions, same
+  parametric-expansion path as rung 0
+- **Note on the bare staircase.** The single-parameter variant
+  `Ry(qs[0], a); CNOT(qs[0], qs[1]); Ry(qs[1], b); CNOT(qs[1], qs[2]); Ry(qs[2], c)`
+  *factorizes* as `∏_k cos((θ_{i,k} − θ_{j,k})/2)` — its Gram is
+  identical to rung 0's despite the state having Schmidt rank 2
+  (see caveat box above). The cross-coupled-by-sum variant breaks
+  the factorization while staying within the bond-2 MPS family.
+  Both variants are accepted by `compute_concept_gram_mps`; the
+  canonical hierarchical example uses the cross-coupled variant.
+- **Shipped in**: `examples/larql-polysemantic-hierarchical.q.orca.md`
+  (post-`fix-mps-encoding-non-factorizing`)
 
 #### Rung 2 — hardware-efficient ansatz, depth L
 

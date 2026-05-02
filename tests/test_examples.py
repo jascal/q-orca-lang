@@ -316,32 +316,58 @@ class TestExamples:
         cr_min, cr_max = min(cross_pairs), max(cross_pairs)
 
         # Sub-cluster-mate tier: tight band around 0.882 (analytic
-        # cos²(0.35) for the γ-only difference).
-        assert 0.85 <= sub_min <= sub_max <= 0.90, (
-            f"sub-cluster-mate tier outside [0.85, 0.90]: "
+        # cos²(0.35) for the γ-only difference under cross-coupled angles).
+        assert 0.87 <= sub_min <= sub_max <= 0.90, (
+            f"sub-cluster-mate tier outside [0.87, 0.90]: "
             f"min={sub_min:.4f} max={sub_max:.4f}"
         )
 
-        # Super-group-sibling tier: band around [0.47, 0.54].
-        assert 0.45 <= sup_min <= sup_max <= 0.56, (
-            f"super-group-sibling tier outside [0.45, 0.56]: "
+        # Super-group-sibling tier: three discrete values
+        # {0.335, 0.593, 0.753} per super-group block under cross-coupling.
+        assert 0.32 <= sup_min and sup_max <= 0.77, (
+            f"super-group-sibling tier outside [0.32, 0.77]: "
             f"min={sup_min:.4f} max={sup_max:.4f}"
         )
 
-        # Cross-group tier: wider band [0.11, 0.26]. Higher than rung-0
-        # because cyclic α at 2π/3 spacing gives a cos²(π/3)=0.25 floor on
-        # cross-group α factor; β/γ alignment determines the rest.
-        assert 0.10 <= cr_min and cr_max <= 0.26, (
-            f"cross-group tier outside [0.10, 0.26]: "
-            f"min={cr_min:.4f} max={cr_max:.4f}"
+        # Cross-group tier: range [0.000, 0.178] under cross-coupled
+        # encoding with cyclic α at 2π/3 spacing.
+        assert cr_max <= 0.20, (
+            f"cross-group tier max above 0.20: max={cr_max:.4f}"
         )
 
-        # Tier ordering: sub > super > cross (strict separation).
-        assert sub_min > sup_max + 0.20, (
+        # Tier ordering: sub > super > cross (strict separation, ≥ 0.05
+        # margin between adjacent bands per the spec).
+        assert sub_min - sup_max >= 0.05, (
             f"insufficient sub→super gap: "
             f"sub_min={sub_min:.4f} super_max={sup_max:.4f}"
         )
-        assert sup_min > cr_max + 0.15, (
+        assert sup_min - cr_max >= 0.05, (
             f"insufficient super→cross gap: "
             f"super_min={sup_min:.4f} cross_max={cr_max:.4f}"
+        )
+
+        # Non-factorization criterion: the cross-coupled MPS Gram differs
+        # measurably from the same-angle product-state Gram. The bare
+        # staircase (single-bound-param Ry rotations) factorizes as
+        # ∏_k cos((θ_{i,k} − θ_{j,k})/2); the cross-coupled variant must
+        # break that factorization on at least one off-diagonal entry.
+        triples = [
+            tuple(b.value for b in t.bound_arguments) for t in query_call_sites
+        ]
+        gram_prod = np.zeros((12, 12))
+        for i in range(12):
+            ai, bi, ci = triples[i]
+            for j in range(12):
+                aj, bj, cj = triples[j]
+                gram_prod[i, j] = (
+                    np.cos((ai - aj) / 2)
+                    * np.cos((bi - bj) / 2)
+                    * np.cos((ci - cj) / 2)
+                )
+        diff = np.abs(gsq - gram_prod ** 2)
+        # Zero out the diagonal (both Grams give 1 there).
+        np.fill_diagonal(diff, 0.0)
+        assert diff.max() >= 0.05, (
+            "cross-coupled Gram unexpectedly factorizes: "
+            f"max |gram_mps^2 − gram_prod^2| = {diff.max():.6f} < 0.05"
         )

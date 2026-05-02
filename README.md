@@ -597,12 +597,18 @@ sparse-autoencoder dictionaries report *graded* within-cluster similarity
 and **sub-cluster structure** that flat block tiers cannot express.
 [`examples/larql-polysemantic-hierarchical.q.orca.md`](examples/larql-polysemantic-hierarchical.q.orca.md)
 lifts the encoding to **bond-dimension-2 matrix product states** via a
-`Ry(q0,α); CNOT(q0,q1); Ry(q1,β); CNOT(q1,q2); Ry(q2,γ)` staircase. The
-12 concepts are organized as a two-level hierarchy — 3 super-groups
-(`animals`, `fruits`, `vehicles`) × 2 sub-clusters × 2 concepts — and the
-Gram matrix splits into **four** ordered tiers: self 1.000 /
-sub-cluster-mate 0.882 / super-group-sibling [0.47, 0.54] / cross-group
-[0.12, 0.25].
+`Ry(q0,α); CNOT(q0,q1); Ry(q1,α+β); CNOT(q1,q2); Ry(q2,β+γ)` staircase
+with **cross-coupled angle expressions** — the q1 and q2 rotations bind
+linear combinations of the bound parameters rather than single
+parameters. The cross-coupling is what produces a non-factorized Gram:
+the bare staircase `Ry(q0,α)·CNOT·Ry(q1,β)·CNOT·Ry(q2,γ)·|000>`
+*factorizes* as `∏_k cos((θ_{i,k} − θ_{j,k})/2)` across qubits despite
+having Schmidt rank 2 — a surprising mathematical fact documented in the
+`fix-mps-encoding-non-factorizing` change. The 12 concepts are organized
+as a two-level hierarchy — 3 super-groups (`animals`, `fruits`,
+`vehicles`) × 2 sub-clusters × 2 concepts — and the Gram matrix splits
+into **four** ordered tiers: self 1.000 / sub-cluster-mate 0.882 /
+super-group-sibling {0.335, 0.593, 0.753} / cross-group [0.000, 0.178].
 
 The optional `q_orca.compiler.concept_gram_mps.compute_concept_gram_mps(machine)`
 helper produces the Gram matrix for machines following the CNOT-staircase

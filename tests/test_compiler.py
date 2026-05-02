@@ -1394,39 +1394,136 @@ class TestComputeConceptGramMps:
         assert "Hadamard(qs[1])" in message
         assert "CNOT(qs[i], qs[j])" in message
 
-    def test_mixed_signs_raises(self):
-        """A mix of positive and negative angle signs is neither a clean
-        prep nor a clean inverse — reject."""
-        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+    def test_cross_coupled_angles_happy_path(self):
+        """The canonical cross-coupled-by-sum encoding parses and produces a
+        Gram that differs measurably from the same-angle product-state Gram
+        (i.e., does NOT factorize)."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
 
         machine = self._make_machine(
             "(qs, a: angle, b: angle, c: angle) -> qs",
-            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Ry(qs[1], -b); "
-            "CNOT(qs[1], qs[2]); Ry(qs[2], c)",
-            ["0.1, 0.2, 0.3"],
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Ry(qs[1], a + b); "
+            "CNOT(qs[1], qs[2]); Ry(qs[2], b + c)",
+            ["0.0, -0.5, -0.35", "0.0, -0.5, 0.35", "0.0, 0.5, -0.35"],
+            action_name="prepare_concept",
         )
-        with pytest.raises(MpsGramConfigurationError) as exc_info:
-            compute_concept_gram_mps(machine)
-        message = str(exc_info.value)
-        assert "mixes positive and negated" in message
+        gram = compute_concept_gram_mps(
+            machine, concept_action_label="prepare_concept"
+        )
+        assert gram.shape == (3, 3)
+        gsq = np.abs(gram) ** 2
+        np.testing.assert_allclose(np.diag(gsq), np.ones(3), atol=1e-9)
 
-    def test_param_position_mismatch_raises(self):
-        """Swapping which parameter drives which qubit is a numerically
-        wrong shape — reject."""
-        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+        # Build the same-angle product-state Gram and confirm the cross-
+        # coupled variant is structurally distinct on at least one entry.
+        triples = [(0.0, -0.5, -0.35), (0.0, -0.5, 0.35), (0.0, 0.5, -0.35)]
+        prod = np.zeros((3, 3))
+        for i, (ai, bi, ci) in enumerate(triples):
+            for j, (aj, bj, cj) in enumerate(triples):
+                prod[i, j] = (
+                    np.cos((ai - aj) / 2)
+                    * np.cos((bi - bj) / 2)
+                    * np.cos((ci - cj) / 2)
+                )
+        diff = np.abs(gsq - prod ** 2)
+        np.fill_diagonal(diff, 0.0)
+        assert diff.max() >= 0.05
+
+    def test_single_bound_param_degenerate_linear_combination(self):
+        """The strict single-bound-param staircase (the archived shape) must
+        still parse — it is the degenerate one-term linear combination
+        ``1·p`` and the helper SHALL produce the same Gram it produced
+        before generalization."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
 
         machine = self._make_machine(
             "(qs, a: angle, b: angle, c: angle) -> qs",
-            # Position 0 should drive `a`, but here it drives `b`.
+            self._staircase_prep(3),
+            ["0.1, 0.2, 0.3", "0.4, 0.5, 0.6"],
+            action_name="prepare_concept",
+        )
+        gram = compute_concept_gram_mps(
+            machine, concept_action_label="prepare_concept"
+        )
+        assert gram.shape == (2, 2)
+        np.testing.assert_allclose(np.abs(np.diag(gram)), np.ones(2), atol=1e-9)
+        # Bare staircase factorizes — the off-diagonal must equal the
+        # product-state Gram for this same set of angle triples.
+        triples = [(0.1, 0.2, 0.3), (0.4, 0.5, 0.6)]
+        ai, bi, ci = triples[0]
+        aj, bj, cj = triples[1]
+        expected = (
+            np.cos((ai - aj) / 2)
+            * np.cos((bi - bj) / 2)
+            * np.cos((ci - cj) / 2)
+        )
+        np.testing.assert_allclose(abs(gram[0, 1]), abs(expected), atol=1e-9)
+
+    def test_swapped_param_position_accepted(self):
+        """A linear-combination Ry need not bind its `positionally aligned`
+        parameter — `Ry(qs[0], b)` is a valid one-term linear combination
+        and the helper accepts it (this was rejected pre-generalization)."""
+        from q_orca import compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
             "Ry(qs[0], b); CNOT(qs[0], qs[1]); Ry(qs[1], a); "
             "CNOT(qs[1], qs[2]); Ry(qs[2], c)",
             ["0.1, 0.2, 0.3"],
         )
+        gram = compute_concept_gram_mps(machine)
+        assert gram.shape == (1, 1)
+
+    def test_unrecognized_angle_expression_product_raises(self):
+        """A non-linear angle expression (multiplication of two parameters)
+        must raise `unrecognized_angle_expression`. The parser's parametric-
+        template validator already rejects such expressions, so the helper
+        only sees them when a caller builds a machine programmatically;
+        this test mutates a parsed action's effect string to mimic that
+        bypass and exercises the helper's own structural error path."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            ["0.1, 0.2, 0.3"],
+        )
+        action = next(a for a in machine.actions if a.name == "query_concept")
+        action.effect = (
+            "Ry(qs[2], -c); CNOT(qs[1], qs[2]); Ry(qs[1], a * b); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], -a)"
+        )
         with pytest.raises(MpsGramConfigurationError) as exc_info:
             compute_concept_gram_mps(machine)
+        assert exc_info.value.kind == "unrecognized_angle_expression"
         message = str(exc_info.value)
-        assert "qs[0]" in message and "'b'" in message and "'a'" in message
-        assert "positional alignment" in message
+        assert "a * b" in message
+        assert "linear combination" in message
+
+    def test_unrecognized_angle_expression_function_call_raises(self):
+        """A non-linear angle expression with a function call (e.g.,
+        ``sin(a)``) is also rejected with `unrecognized_angle_expression`.
+        Same parser-bypass approach as the multiplication test."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            ["0.1, 0.2, 0.3"],
+        )
+        action = next(a for a in machine.actions if a.name == "query_concept")
+        action.effect = (
+            "Ry(qs[2], -c); CNOT(qs[1], qs[2]); Ry(qs[1], sin(a)); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], -a)"
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        assert exc_info.value.kind == "unrecognized_angle_expression"
+        assert "sin(a)" in str(exc_info.value)
 
     def test_unsupported_bond_dim_raises(self):
         from q_orca import MpsGramConfigurationError, compute_concept_gram_mps

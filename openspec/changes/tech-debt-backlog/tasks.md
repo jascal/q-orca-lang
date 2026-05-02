@@ -580,6 +580,34 @@ remaining findings.
   explicitly partial (annotated by the user). Pairs naturally with
   the compound-condition parser work in §5.1.
   (Source: 2026-05-01 example library QA, bug 2 root cause.)
+  See §5.7 for an analogous "structural property the verifier
+  cannot see" gap on the quantum-encoding side.
+
+- [ ] 5.7 **Verifier blind spot — Gram factorization vs. encoding
+  entanglement.** A future verifier rule should flag any
+  hierarchical-polysemantic encoding whose Gram matches the same-
+  angle product-state Gram
+  (`gram[i,j] == ∏_k cos((θ_{i,k} − θ_{j,k})/2)`), so the class of
+  bug behind `fix-mps-encoding-non-factorizing` (a CNOT-staircase
+  encoding with Schmidt rank 2 but a Gram identical to rung 0's
+  product-state Gram) is caught at verify time rather than at
+  example-library QA time. Spec sketch: add a rule
+  `gram_factorization_distinct_from_product_state` (gated on a
+  machine declaring an `mps_bond_2_*_encoding` verification rule
+  or a sibling marker) that builds the per-call-site product-state
+  Gram and asserts at least one off-diagonal entry differs by ≥ 0.05
+  in `|gram|²`. Companion to §5.6: both are cases where a structural
+  property the user cares about isn't directly observable in the
+  AST and has to be derived from running the encoding's contraction
+  side-by-side with a reference. Motivating incident:
+  `add-mps-concept-encoding` shipped a four-tier example whose
+  Gram silently factorized as the rung-0 product-state map; the
+  fix is in `openspec/changes/fix-mps-encoding-non-factorizing/`
+  (and that change's `design.md` post-mortem section). Gated behind
+  a separate proposal once a second concrete example exists where
+  the factorization status is non-obvious — out of scope for the
+  immediate fix.
+  (Source: 2026-05-01 `fix-mps-encoding-non-factorizing` post-mortem.)
 
 ## 6. How to use this file
 
