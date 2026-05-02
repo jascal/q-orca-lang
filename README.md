@@ -1103,6 +1103,7 @@ Proposals with an OpenSpec folder and agreed scope, awaiting code.
 Ideas we've sketched but not yet turned into an OpenSpec proposal.
 
 - 📝 **Quantum predictive coder** — 3-register (model / data / ancilla) predictive-coding architecture with classical feedback. Research proposal at [`docs/research/spec-quantum-predictive-coder.md`](docs/research/spec-quantum-predictive-coder.md); drives several of the specced items above.
+- 📝 **LARQL → Q-Orca polysemantic pipeline** — automated bridge from real-model feature dictionaries (extracted via [LARQL](https://github.com/chrishayuk/larql) vindex + LQL queries) to verifiable rung-1 MPS / rung-2 HEA quantum encodings; aimed at mechanistic-interpretability experiments on production LLM weights. Research proposal at [`docs/research/proposal-larql-q-orca-polysemantic-pipeline.md`](docs/research/proposal-larql-q-orca-polysemantic-pipeline.md).
 - 💡 **Composed-machine runtime** — the Python dispatcher that actually walks a composed machine, batches shots, and wires child returns back into parent context. Parked as a follow-up under `add-parameterized-invoke`.
 - 💡 **QASM 3.0 import** — lift existing `.qasm` files into Q-Orca state machines.
 - 💡 **VS Code extension** — syntax highlighting, inline verification on save, Mermaid preview.
