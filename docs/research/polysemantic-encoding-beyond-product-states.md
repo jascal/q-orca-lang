@@ -371,9 +371,13 @@ confirmed in KB — see `mcp__q-orca-kb__batch_index`):
 
 - **`add-polysemantic-clusters`** (shipped, PR #31): the rung-0
   example this note builds on. Status: merged to main.
-- **`add-mps-concept-encoding`** (drafted alongside this note): the
-  rung-1 proposal. Adds example + demo + `compute_concept_gram_mps`
-  helper. No grammar changes.
+- **`add-mps-concept-encoding`** (shipped, [PR #46](../../pull/46)) +
+  **`fix-mps-encoding-non-factorizing`** (shipped, [PR #48](../../pull/48),
+  merged 2026-05-01): the rung-1 proposal and its same-cycle correction
+  to the cross-coupled-by-sum encoding (per the caveat box above and
+  the post-mortem in `add-mps-concept-encoding/design.md`). Adds
+  example + demo + `compute_concept_gram_mps` helper supporting
+  linear-combination angles. No grammar changes.
 - **`concept-encoding-efficiency.md`** (companion research note):
   language-extension questions A/B/C. Question A becomes
   load-bearing for rung 2; this note does not require it.

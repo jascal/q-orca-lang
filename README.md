@@ -1087,6 +1087,7 @@ Each of these entered main with a full OpenSpec proposal → implementation → 
 - ✅ **Completeness-check hardening** — measurement-bearing transitions are detected by action effect, not just event name *(`harden-completeness-detection`)*
 - ✅ **Bell-pair compiler fixture** — per-backend regression tests against the canonical two-qubit circuit *(`bell-pair-example`)*
 - ✅ **LARQL polysemantic clusters** — block-structured 12-concept polysemy on a 3-qubit register, matching the empirical signature reported by sparse-autoencoder studies of real transformer FFNs *(`add-polysemantic-clusters`)*
+- ✅ **MPS concept encoding (rung 1)** — hierarchical 12-concept polysemy on a bond-2 matrix product state via a cross-coupled CNOT-staircase preparation `Ry(q0,a); CNOT(q0,q1); Ry(q1,a+b); CNOT(q1,q2); Ry(q2,b+c)`; produces a four-tier Gram matrix (self / sub-cluster-mate / super-group-sibling / cross-group). *(`add-mps-concept-encoding` + `fix-mps-encoding-non-factorizing`, [PR #46](../../pull/46) / [PR #48](../../pull/48))*
 
 See each folder under [`openspec/changes/archive/`](openspec/changes/archive/) for the proposal, design, and scenarios that shipped.
 
@@ -1096,7 +1097,6 @@ Proposals with an OpenSpec folder and agreed scope, awaiting code.
 
 - 🧾 **Cross-machine composition** — `[invoke: Child(args) shots=N]` state-level delegation with static arg/return type-checking and a `## returns` section. Mermaid renders composed machines; QASM/Qiskit refuse until a runtime lands. *([`add-parameterized-invoke`](openspec/changes/add-parameterized-invoke/))*
 - 🧾 **Per-state runtime assertions** — `[assert: classical(qs[0]); entangled(qs[0], qs[1])]` annotations backed by statistical sampling on Stage 4b, with a `## assertion policy` section for shots/confidence/on-failure. *([`add-runtime-state-assertions`](openspec/changes/add-runtime-state-assertions/))*
-- 🧾 **MPS concept encoding** — hierarchical polysemantic concept registers encoded as matrix-product states, extending the LARQL polysemantic family beyond the dense-statevector regime. *([`add-mps-concept-encoding`](openspec/changes/add-mps-concept-encoding/))*
 
 ### Longer-term — research / not yet specced
 

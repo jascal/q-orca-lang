@@ -609,6 +609,133 @@ remaining findings.
   immediate fix.
   (Source: 2026-05-01 `fix-mps-encoding-non-factorizing` post-mortem.)
 
+The §5.8–§5.15 entries below come from a post-merge self-review of
+PR #48 (`fix-mps-encoding-non-factorizing` implementation). They are
+not example-library QA findings but the numbering continues §5 to
+keep the 2026-05-01 cluster contiguous.
+
+- [ ] 5.8 **`evaluate_angle` regression on scientific-notation
+  literals.** Severity: HIGH. `q_orca/angle.py:127-164`. The new
+  top-level `+`/`-` splitter (`_split_linear_combination`) walks
+  character-by-character and treats any non-operator preceding char
+  as a license to split. The `e` in `1e-5` is non-operator, so the
+  splitter splits `1e-5` into `[1e, -5]` and `evaluate_angle("1e-5")`
+  raises `Unrecognized angle expression '1e'` where it returned
+  `1e-5` before this commit. Reproducer:
+  `evaluate_angle("1e-5*a", {"a": 0.1})` and
+  `evaluate_angle("1e-5 + a", ...)` both fail. Fix: in the look-back
+  at `angle.py:154`, also exclude `+`/`-` that follow `e`/`E`
+  preceded by a digit (treat as exponent sign). No example in the
+  repo uses scientific notation today, so this is latent but real;
+  add a regression test alongside the fix.
+  (Source: 2026-05-01 PR #48 self-review.)
+
+- [ ] 5.9 **Inverse-form `Ry(qs[k], -(a + b))` does not parse end-
+  to-end.** Severity: HIGH. The language spec at
+  `openspec/changes/fix-mps-encoding-non-factorizing/specs/language/spec.md:64-66`
+  explicitly says `Ry(qs[k], -(a + b))` is "equivalently" valid
+  alongside `-a - b`. Two parser-side defects block it:
+    1. `_ROTATION_GATE_ANGLE_RE` in
+       `q_orca/parser/markdown_parser.py:1170-1175` uses `[^)]+` to
+       capture the angle, which truncates `-(a+b)` to `-(a+b` at
+       the inner `)`.
+    2. Even if captured, `_split_linear_combination` does not recurse
+       into parens, so `evaluate_angle("-(a + b)", ctx)` raises.
+  Reproducer: parsing an effect with `Ry(qs[2], -(b + c))` gives
+  parser error `unrecognized angle expression '-(b + c'`. The
+  helper's own AST walk handles `-(a+b)` fine, so the asymmetry is
+  purely on the parser. Fix: balance parens in the angle regex, and
+  have the splitter return `None` (delegate to a paren-stripping
+  retry) when the whole text is a parenthesized expression. The
+  shipped example sidesteps this by writing `-a - b`/`-b - c` — but
+  the spec promises both forms.
+  (Source: 2026-05-01 PR #48 self-review.)
+
+- [ ] 5.10 **Test gap — bare-literal sad path uncovered.**
+  Severity: MEDIUM. The compiler spec scenario at
+  `openspec/changes/fix-mps-encoding-non-factorizing/specs/compiler/spec.md:90-101`
+  enumerates four trigger forms for `unrecognized_angle_expression`:
+  `a * b`, `sin(a)`, `a^2`, and **`Ry(qs[1], 2.5)`** (bare numeric
+  literal with no parameter reference). `tests/test_compiler.py`
+  (`TestComputeConceptGramMps`) covers `a * b` and `sin(a)` only —
+  bare-literal and `a^2` have no test. Manually verified that
+  `Ry(qs[1], 2.5)` does in fact raise with kind
+  `unrecognized_angle_expression`, but this is an untested behavior
+  the spec explicitly calls out. Fix: add
+  `test_unrecognized_angle_expression_bare_literal_raises` and
+  `test_unrecognized_angle_expression_power_raises` to
+  `TestComputeConceptGramMps`.
+  (Source: 2026-05-01 PR #48 self-review.)
+
+- [ ] 5.11 **Test gap — inverse-form linear combination uncovered
+  by focused unit test.** Severity: MEDIUM. All happy-path tests
+  for cross-coupled angles in `tests/test_compiler.py` use the prep
+  form (`prepare_concept`, `Ry(qs[0], a); ...; Ry(qs[2], b + c)`).
+  No unit test exercises the inverse form (`Ry(qs[2], -b - c); ...;
+  Ry(qs[0], -a)`) with a linear-combination angle. The helper's
+  `is_inverse=True` branch with cross-coupled angles is only
+  covered transitively via
+  `test_examples.py::test_larql_polysemantic_hierarchical_pipeline`.
+  Fix: add a focused unit test in `TestComputeConceptGramMps` that
+  constructs an inverse-form effect with `-a - b` and asserts the
+  Gram matches the inverse of a prep-form Gram on the same angles.
+  (Source: 2026-05-01 PR #48 self-review.)
+
+- [ ] 5.12 **`_parse_linear_combination` rejects `2*-a`.**
+  Severity: LOW. `q_orca/compiler/concept_gram_mps.py:147-165` only
+  matches `Constant * Name` and `Name * Constant` for `Mult`; the
+  AST shape `Constant * UnaryOp(USub, Name)` (i.e., `2*-a`) is
+  rejected as "product of two non-constant terms". This is a
+  syntactically valid linear combination. Unlikely in practice —
+  users would write `-2*a` — but the matching is incomplete. Fix:
+  when one operand is `Constant` and the other is a `UnaryOp` over
+  a `Name`, multiply the constant into the sign and recurse, or
+  permit `walk(other_operand, sign * float(const))`.
+  (Source: 2026-05-01 PR #48 self-review.)
+
+- [ ] 5.13 **Misleading `_parse_linear_combination` error message
+  for all-constant products.** Severity: LOW. Same site as §5.12:
+  `2*3` is rejected with `"product of two non-constant terms"` even
+  though both terms *are* constants. The intent is to reject
+  expressions with no parameter reference, and a separate branch
+  already handles bare `Constant`. Fix: tighten the `Mult` fall-
+  through message to say "no parameter reference" when both sides
+  are constants, or short-circuit the case earlier with a clearer
+  diagnostic.
+  (Source: 2026-05-01 PR #48 self-review.)
+
+- [ ] 5.14 **Polysemy column tabulates `0.000` for entries that
+  compute as ~`1e-4`.** Severity: LOW.
+  `examples/larql-polysemantic-hierarchical.q.orca.md:138-139`
+  claims `mango (6) → 0.000` and `papaya (7) → 0.000`. Actual
+  computed values are `~0.00012` (rounding to `0.000` at 3-decimal
+  display; ASCII heatmap correctly shows blank). Not numerically
+  wrong, but a reader running `compute_concept_gram_mps` and seeing
+  `9.5e-5` may read the rounded display as misleadingly "exactly
+  zero". Fix optional — add a "≈" prefix on near-zero rows or
+  document the rounding convention in the surrounding paragraph.
+  (Source: 2026-05-01 PR #48 self-review.)
+
+- [ ] 5.15 **Documentation/contract polish on
+  `MpsGramConfigurationError` and the compiler spec example.**
+  Severity: NIT. Two minor doc-vs-code mismatches:
+    - `q_orca/compiler/concept_gram_mps.py:66-78`: the
+      `MpsGramConfigurationError` class docstring lists only
+      `unrecognized_angle_expression` as a possible `kind`. All
+      other configuration errors in the module raise without a
+      `kind` (correct), but the docstring could note that
+      explicitly so callers know to fall through to message
+      inspection for non-angle errors.
+    - `openspec/changes/fix-mps-encoding-non-factorizing/specs/compiler/spec.md:107-109`
+      says "the second and third `qc.ry(` calls receiving the
+      *evaluated* linear combination (e.g., `qc.ry(a_value +
+      b_value, 1)` rather than a single bound parameter)". The
+      actual Qiskit compiler emits a *fully-evaluated* float
+      (e.g., `qc.ry(-1.594, 1)`), not the symbolic
+      `a_value + b_value` form. Both satisfy the contract, but
+      the spec example is misleading.
+  (Source: 2026-05-01 PR #48 self-review.)
+
 ## 6. How to use this file
 
 - [x] 6.1 **Meta**: when an item is fixed, leave the task checked
