@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.1 (2026-05-02)
+
+### Added
+
+- **Safe `Rz` phase knobs in rung-1 MPS** ([PR #51](../../pull/51)) — `compute_concept_gram_mps` now accepts optional `Rz(qs[i], <expr>)` rotations anywhere in the rung-1 staircase as 1-qubit interference knobs that preserve χ=2 (Schmidt rank unchanged). The matcher relaxes its signature check from "exactly `n_qubits` angle params" to "≥ 1 angle params, all type `angle`", letting machines declare a separate `phi` knob alongside `(α, β, γ)`. New example `examples/larql-animals-interference.q.orca.md` walks 4 concepts with `α = γ = 0`, `β ∈ {-0.5, +0.5}`, `φ ∈ {0, π/2}` and reproduces a strictly-ordered three-tier off-diagonal Gram (0.8851 / 0.6816 / 0.5931) where the φ-matched cross-cluster value coincides with the rung-1 product-state cosine.
+- **Companion example `examples/larql-animals-hierarchy.q.orca.md`** — 4-concept γ-axis sibling distinction (real-rotation knob), included as the no-phase counterpart to the interference example.
+
+### Fixed
+
+- **Inverse-form `Rz` symmetry-break guardrail** — `compute_concept_gram_mps` previously accepted inverse-form (`U_prep^†`) effects with non-trivial `Rz` and silently returned an unphysical "all-1.0" Gram on the φ-only axis (because `|0⟩` is a fixed point of `Rz`). The matcher now raises `MpsGramConfigurationError(kind="rz_in_inverse_form")` with a message pointing the user to the preparation form and to `larql-animals-interference.q.orca.md`. The deeper symbolic-inversion fix remains tracked in `tech-debt-backlog/tasks.md` §5.16.
+
+---
+
 ## 0.7.0 (2026-05-01)
 
 ### Added
