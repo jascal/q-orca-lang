@@ -18,6 +18,8 @@ EXAMPLE_FILES = {
     "larql-polysemantic-12": "larql-polysemantic-12.q.orca.md",
     "larql-polysemantic-clusters": "larql-polysemantic-clusters.q.orca.md",
     "larql-polysemantic-hierarchical": "larql-polysemantic-hierarchical.q.orca.md",
+    "larql-animals-hierarchy": "larql-animals-hierarchy.q.orca.md",
+    "larql-animals-interference": "larql-animals-interference.q.orca.md",
 }
 
 

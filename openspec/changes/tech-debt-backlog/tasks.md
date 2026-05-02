@@ -736,6 +736,34 @@ keep the 2026-05-01 cluster contiguous.
       the spec example is misleading.
   (Source: 2026-05-01 PR #48 self-review.)
 
+- [ ] 5.16 **Inverse-form symmetry breaks when `Rz` enters the
+  staircase, requiring the prep form for phase-knob examples.**
+  Severity: LOW. The matcher extension shipped on
+  `extend-mps-matcher-rz-phases` accepts optional `Rz(qs[k], <expr>)`
+  rotations anywhere in the staircase, but the inverse-form
+  evaluation pattern used by `larql-polysemantic-hierarchical.q.orca.md`
+  (and `larql-animals-hierarchy.q.orca.md`) computes the right
+  preparation-form Gram only because the pure-`Ry` staircase keeps
+  ``|<0|U_prep U_prep'^†|0>|`` magnitude-equal to
+  ``|<0|U_prep^† U_prep'|0>|``. Once `Rz` enters the staircase that
+  invariance breaks: the inverse's `Rz` falls before the qubit
+  rotation that gives it bite, and the helper would return a
+  spuriously-trivial Gram on the phi axis. Examples using `Rz` knobs
+  must therefore enumerate `prepare_concept` call sites directly,
+  as `examples/larql-animals-interference.q.orca.md` does.
+
+  **Partial fix shipped (`extend-mps-matcher-rz-phases`):** the
+  matcher now detects this configuration and raises
+  ``MpsGramConfigurationError(kind="rz_in_inverse_form")`` rather
+  than silently producing a wrong Gram, so the failure mode is
+  loud. The deeper fix — generalize the helper to construct the
+  prep-form Gram by symbolically inverting the inverse-form effect
+  before contraction — remains open and is module-level scope (~1
+  day). Justified mostly if a hand-written `Rz` example needs the
+  inverse-form ergonomics; codegen will emit prep form anyway, so
+  the loud-error guard is likely sufficient.
+  (Source: 2026-05-01 `extend-mps-matcher-rz-phases` PR.)
+
 ## 6. How to use this file
 
 - [x] 6.1 **Meta**: when an item is fixed, leave the task checked
