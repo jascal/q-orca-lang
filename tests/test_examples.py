@@ -413,11 +413,20 @@ class TestExamples:
         assert machine.theta is not None
         assert len(machine.theta.rows) == 3
         assert [r.concept for r in machine.theta.rows] == ["a", "b", "c"]
+        assert [r.cluster for r in machine.theta.rows] == ["s1", "s1", "s2"]
         for row in machine.theta.rows:
             assert row.tensor.shape == (2, 3, 3), (
                 f"concept {row.concept} tensor shape {row.tensor.shape} "
                 f"!= (2, 3, 3)"
             )
+
+        tier_invariants = [
+            inv for inv in machine.invariants
+            if inv.metric == "concept_gram_tier_separation"
+        ]
+        assert len(tier_invariants) == 1
+        assert tier_invariants[0].op == "ge"
+        assert tier_invariants[0].value == 0.025
 
         query_call_sites = [
             t for t in machine.transitions if t.action == "query_concept"
@@ -426,6 +435,14 @@ class TestExamples:
 
         result = verify(machine, VerifyOptions(skip_dynamic=True))
         assert result.valid, [e for e in result.errors if e.severity == "error"]
+
+        # Full Stage 4b path (no skip_dynamic): the declared
+        # tier-separation invariant SHALL evaluate clean against the
+        # analytic Gram.
+        full_result = verify(machine)
+        assert full_result.valid, [
+            e for e in full_result.errors if e.severity == "error"
+        ]
 
         gram = compute_concept_gram_hea(machine)
         assert gram.shape == (3, 3)

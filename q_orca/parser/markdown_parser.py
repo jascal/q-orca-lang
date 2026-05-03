@@ -911,6 +911,27 @@ def _parse_invariants(list_el: MdBulletList, errors: list[str] | None = None) ->
             op = _parse_comparison_op(m.group(2))
             value = float(m.group(3))
             invariants.append(Invariant(kind="resource", qubits=[], op=op, value=value, metric=metric))
+            continue
+        # decimal-valued resource invariants: concept_gram_tier_separation <op> <decimal in [0, 1]>
+        m = re.match(
+            r"concept_gram_tier_separation\s*(>=|<=|==|=|<|>)\s*([0-9]*\.?[0-9]+)\s*$",
+            item,
+        )
+        if m:
+            op = _parse_comparison_op(m.group(1))
+            value = float(m.group(2))
+            if value < 0.0 or value > 1.0:
+                if errors is not None:
+                    errors.append(
+                        f"invariant_value_out_of_range: "
+                        f"concept_gram_tier_separation value {value} "
+                        f"is outside [0, 1]"
+                    )
+                continue
+            invariants.append(Invariant(
+                kind="resource", qubits=[], op=op,
+                value=value, metric="concept_gram_tier_separation",
+            ))
     return invariants
 
 
@@ -1133,6 +1154,7 @@ def _parse_theta_table(
 
     concept_idx = _find_column_index(table.headers, "concept")
     tensor_idx = _find_column_index(table.headers, "tensor")
+    cluster_idx = _find_column_index(table.headers, "cluster")
     if concept_idx < 0 or tensor_idx < 0:
         if errors is not None:
             errors.append(
@@ -1159,6 +1181,25 @@ def _parse_theta_table(
             return None
         seen[concept] = row_pos
 
+        if cluster_idx >= 0:
+            if cluster_idx >= len(row):
+                if errors is not None:
+                    errors.append(
+                        f"theta_missing_cluster: concept '{concept}' "
+                        f"row {row_pos} has no cluster cell"
+                    )
+                return None
+            cluster = _strip_backticks(row[cluster_idx]).strip()
+            if not cluster:
+                if errors is not None:
+                    errors.append(
+                        f"theta_empty_cluster: concept '{concept}' "
+                        f"row {row_pos} has an empty cluster value"
+                    )
+                return None
+        else:
+            cluster = "_default"
+
         try:
             literal = _py_ast.literal_eval(tensor_src)
         except (ValueError, SyntaxError) as exc:
@@ -1184,7 +1225,7 @@ def _parse_theta_table(
                     f"shape {tensor.shape}, expected {expected_shape}"
                 )
             return None
-        rows.append(ThetaRow(concept=concept, tensor=tensor))
+        rows.append(ThetaRow(concept=concept, tensor=tensor, cluster=cluster))
 
     return ThetaBlock(rows=rows)
 

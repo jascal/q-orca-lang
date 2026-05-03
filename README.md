@@ -242,7 +242,10 @@ For precise dynamic checks, add an `## invariants` section to your machine. This
 ## invariants
 - entanglement(q0,q1) = True
 - schmidt_rank(q0,q1) >= 2
+- concept_gram_tier_separation >= 0.025
 ```
+
+The `concept_gram_tier_separation` form pins the tier-ordering metric of an HEA-encoded dictionary (`min_intra_cluster_mean − max_cross_cluster_overlap`, computed from `compute_concept_gram_hea`) to a declared bound — a violation surfaces as `HEA_TIER_INVARIANT_VIOLATED` with cluster-pair attribution. Cluster labels live in the optional 3rd `cluster` column of `## theta` (see `examples/larql-hea-minimal.q.orca.md`).
 
 ---
 
@@ -1089,7 +1092,8 @@ Each of these entered main with a full OpenSpec proposal → implementation → 
 - ✅ **Bell-pair compiler fixture** — per-backend regression tests against the canonical two-qubit circuit *(`bell-pair-example`)*
 - ✅ **LARQL polysemantic clusters** — block-structured 12-concept polysemy on a 3-qubit register, matching the empirical signature reported by sparse-autoencoder studies of real transformer FFNs *(`add-polysemantic-clusters`)*
 - ✅ **MPS concept encoding (rung 1)** — hierarchical 12-concept polysemy on a bond-2 matrix product state via a cross-coupled CNOT-staircase preparation `Ry(q0,a); CNOT(q0,q1); Ry(q1,a+b); CNOT(q1,q2); Ry(q2,b+c)`; produces a four-tier Gram matrix (self / sub-cluster-mate / super-group-sibling / cross-group). *(`add-mps-concept-encoding` + `fix-mps-encoding-non-factorizing`, [PR #46](../../pull/46) / [PR #48](../../pull/48))*
-- ✅ **HEA concept encoding (rung 2)** — explicit `## encoding` + `## theta` grammar declares a hardware-efficient ansatz (kind/depth/entangler/rotations + per-concept θ tensor of shape `(|rotations|, depth, n)`); `compute_concept_gram_hea` builds each concept state and returns the analytic N×N overlap matrix, gated at Stage 4b by a consistency check that surfaces shape / call-site mismatches as `HEA_GRAM_INVALID`. Tier-ordering invariant grammar deferred to a follow-up. *(`add-rung2-hea-encoding`)*
+- ✅ **HEA concept encoding (rung 2)** — explicit `## encoding` + `## theta` grammar declares a hardware-efficient ansatz (kind/depth/entangler/rotations + per-concept θ tensor of shape `(|rotations|, depth, n)`); `compute_concept_gram_hea` builds each concept state and returns the analytic N×N overlap matrix, gated at Stage 4b by a consistency check that surfaces shape / call-site mismatches as `HEA_GRAM_INVALID`. *(`add-rung2-hea-encoding`)*
+- ✅ **HEA tier-ordering invariant** — optional `cluster` column in `## theta` plus the new `concept_gram_tier_separation <op> <decimal>` form in `## invariants` let an HEA machine pin its sub-cluster-cohesion-vs-cross-cluster-overlap gap as a verifier-checked bound; Stage 4b emits `HEA_TIER_INVARIANT_VIOLATED` (with cluster-pair attribution), `HEA_TIER_UNDEFINED`, or `HEA_TIER_INVARIANT_NOT_APPLICABLE`. *(`add-hea-tier-ordering-invariant`)*
 
 See each folder under [`openspec/changes/archive/`](openspec/changes/archive/) for the proposal, design, and scenarios that shipped.
 

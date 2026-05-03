@@ -210,3 +210,74 @@ def compute_concept_gram_hea(
         for i in range(len(call_sites))
     ])
     return states.conj() @ states.T
+
+
+def compute_tier_separation(
+    gram: "np.ndarray",
+    clusters: list[str],
+) -> float | None:
+    """Tier-ordering metric for an HEA-encoded dictionary.
+
+    ``gram`` is the ``N x N`` complex Gram matrix returned by
+    ``compute_concept_gram_hea`` (or any compatible helper).
+    ``clusters[i]`` is the cluster label for concept ``i``.
+
+    Returns ``min_intra_cluster_mean − max_cross_cluster_overlap``,
+    where intra-cluster mean is taken over the squared off-diagonal
+    overlaps within each cluster of size ≥ 2. Singleton clusters are
+    ignored. Returns ``None`` when no cluster has at least two
+    members (the metric is undefined — there is no intra-cluster
+    overlap to compare against).
+
+    Sensitivity caveat
+    ------------------
+    Both reductions are min/max over a small number of pairs, so the
+    metric is sensitive to outliers when clusters are small. A
+    2-concept cluster has only one intra-cluster pair, so its "mean"
+    is just that single overlap; ``min`` over cluster means then
+    penalizes the worst-cohesion cluster regardless of cluster size.
+    Symmetrically, ``max_cross_cluster_overlap`` is dominated by a
+    single outlier pair. For noisy θ tensors or dictionaries with
+    many small clusters, prefer larger clusters (size ≥ 4) before
+    treating the metric as tight; if a more robust alternative is
+    needed (e.g. quantile-trimmed reductions or weighted means), that
+    belongs in a follow-up rather than as a silent change here.
+    """
+    import numpy as np
+
+    n = len(clusters)
+    if gram.shape != (n, n):
+        raise ValueError(
+            f"compute_tier_separation: gram.shape {gram.shape} does "
+            f"not match cluster count {n}"
+        )
+
+    overlap = np.abs(gram) ** 2
+
+    intra_means: list[float] = []
+    cross_max = 0.0
+    for i in range(n):
+        for j in range(i + 1, n):
+            v = float(overlap[i, j])
+            if clusters[i] == clusters[j]:
+                pass  # collected below
+            else:
+                if v > cross_max:
+                    cross_max = v
+
+    by_cluster: dict[str, list[float]] = {}
+    for i in range(n):
+        for j in range(i + 1, n):
+            if clusters[i] == clusters[j]:
+                by_cluster.setdefault(clusters[i], []).append(
+                    float(overlap[i, j])
+                )
+
+    for cluster, vals in by_cluster.items():
+        if vals:
+            intra_means.append(sum(vals) / len(vals))
+
+    if not intra_means:
+        return None
+
+    return min(intra_means) - cross_max

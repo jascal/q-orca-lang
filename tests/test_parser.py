@@ -1495,3 +1495,128 @@ class TestHeaEncodingTheta:
             "theta_duplicate_concept" in e and "'a'" in e
             for e in result.errors
         )
+
+
+class TestThetaClusterColumn:
+    """`## theta` accepts an optional 3rd `cluster` column carrying
+    a tier label per concept — see `add-hea-tier-ordering-invariant`."""
+
+    BASE = TestHeaEncodingTheta.BASE
+    HAPPY_ENCODING = TestHeaEncodingTheta.HAPPY_ENCODING
+
+    def _parse(self, encoding: str, theta: str):
+        return parse_q_orca_markdown(self.BASE + encoding + theta)
+
+    def test_two_column_form_assigns_default_cluster(self):
+        theta = """
+## theta
+| concept | tensor |
+| a | [[[0.1, 0.2], [0.3, 0.4]], [[0.5, 0.6], [0.7, 0.8]]] |
+| b | [[[1.1, 1.2], [1.3, 1.4]], [[1.5, 1.6], [1.7, 1.8]]] |
+"""
+        result = self._parse(self.HAPPY_ENCODING, theta)
+        assert result.errors == []
+        rows = result.file.machines[0].theta.rows
+        assert [r.cluster for r in rows] == ["_default", "_default"]
+
+    def test_three_column_form_carries_cluster_labels(self):
+        theta = """
+## theta
+| concept | tensor | cluster |
+| a | [[[0.1, 0.2], [0.3, 0.4]], [[0.5, 0.6], [0.7, 0.8]]] | s1 |
+| b | [[[1.1, 1.2], [1.3, 1.4]], [[1.5, 1.6], [1.7, 1.8]]] | s2 |
+"""
+        result = self._parse(self.HAPPY_ENCODING, theta)
+        assert result.errors == []
+        rows = result.file.machines[0].theta.rows
+        assert [(r.concept, r.cluster) for r in rows] == [
+            ("a", "s1"),
+            ("b", "s2"),
+        ]
+
+    def test_empty_cluster_cell_rejected(self):
+        theta = """
+## theta
+| concept | tensor | cluster |
+| a | [[[0.1, 0.2], [0.3, 0.4]], [[0.5, 0.6], [0.7, 0.8]]] | s1 |
+| b | [[[1.1, 1.2], [1.3, 1.4]], [[1.5, 1.6], [1.7, 1.8]]] |    |
+"""
+        result = self._parse(self.HAPPY_ENCODING, theta)
+        assert any(
+            "theta_empty_cluster" in e and "'b'" in e
+            for e in result.errors
+        )
+
+    def test_whitespace_cluster_cell_rejected(self):
+        theta = """
+## theta
+| concept | tensor | cluster |
+| a | [[[0.1, 0.2], [0.3, 0.4]], [[0.5, 0.6], [0.7, 0.8]]] |   |
+"""
+        result = self._parse(self.HAPPY_ENCODING, theta)
+        assert any("theta_empty_cluster" in e for e in result.errors)
+
+
+class TestTierSeparationInvariant:
+    """`## invariants` accepts
+    `concept_gram_tier_separation <op> <decimal in [0,1]>`."""
+
+    BASE = """\
+# machine Foo
+
+## state |0> [initial]
+
+## state |1> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+| |0> | go | | |1> | a |
+
+## actions
+| Name | Signature |
+| a | (qs) -> qs |
+"""
+
+    @pytest.mark.parametrize(
+        "op_text,op_canonical",
+        [(">=", "ge"), (">", "gt"), ("<=", "le"), ("<", "lt"),
+         ("==", "eq"), ("=", "eq")],
+    )
+    def test_each_operator(self, op_text, op_canonical):
+        src = (
+            self.BASE
+            + f"\n## invariants\n- concept_gram_tier_separation {op_text} 0.025\n"
+        )
+        result = parse_q_orca_markdown(src)
+        assert result.errors == []
+        invs = result.file.machines[0].invariants
+        assert len(invs) == 1
+        inv = invs[0]
+        assert inv.kind == "resource"
+        assert inv.metric == "concept_gram_tier_separation"
+        assert inv.op == op_canonical
+        assert inv.value == 0.025
+
+    @pytest.mark.parametrize("value", ["0.0", "0.5", "1.0", ".5"])
+    def test_decimal_values_in_range(self, value):
+        src = (
+            self.BASE
+            + f"\n## invariants\n- concept_gram_tier_separation >= {value}\n"
+        )
+        result = parse_q_orca_markdown(src)
+        assert result.errors == []
+        invs = result.file.machines[0].invariants
+        assert len(invs) == 1
+        assert invs[0].value == float(value)
+
+    @pytest.mark.parametrize("value", ["1.5", "2.0"])
+    def test_value_above_one_rejected(self, value):
+        src = (
+            self.BASE
+            + f"\n## invariants\n- concept_gram_tier_separation >= {value}\n"
+        )
+        result = parse_q_orca_markdown(src)
+        assert any(
+            "invariant_value_out_of_range" in e and value in e
+            for e in result.errors
+        )

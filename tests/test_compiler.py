@@ -1900,6 +1900,98 @@ class TestComputeConceptGramHea:
         assert "'a'" in msg and "(1, 2, 2)" in msg
 
 
+class TestComputeTierSeparation:
+    """Covers `compute_tier_separation(gram, clusters)` — the helper
+    behind the `concept_gram_tier_separation` invariant."""
+
+    def test_happy_path_two_cluster_animals_style(self):
+        """Animals-style fixture: two concepts in cluster `s1` with
+        |overlap|² ≈ 0.99, one outsider in `s2` with cross overlap
+        ≈ 0.30. Separation = 0.99 - 0.30 = 0.69."""
+        import numpy as np
+
+        from q_orca import compute_tier_separation
+
+        # Build a Gram with prescribed |gram[i,j]|² values; using
+        # sqrt of the squared overlaps as real entries is sufficient
+        # because the helper takes |·|².
+        gram = np.array(
+            [
+                [1.0, np.sqrt(0.99), np.sqrt(0.30)],
+                [np.sqrt(0.99), 1.0, np.sqrt(0.28)],
+                [np.sqrt(0.30), np.sqrt(0.28), 1.0],
+            ],
+            dtype=complex,
+        )
+        clusters = ["s1", "s1", "s2"]
+        sep = compute_tier_separation(gram, clusters)
+        # min intra-mean = 0.99 (single pair in s1); cross max = 0.30
+        assert sep == pytest.approx(0.99 - 0.30, abs=1e-9)
+
+    def test_min_over_intra_means_when_multiple_clusters(self):
+        """Two non-singleton clusters: separation uses the *min* of
+        intra-cluster means, so the worse-cohesion cluster drives the
+        bound."""
+        import numpy as np
+
+        from q_orca import compute_tier_separation
+
+        gram = np.array(
+            [
+                [1.0, np.sqrt(0.95), np.sqrt(0.20), np.sqrt(0.21)],
+                [np.sqrt(0.95), 1.0, np.sqrt(0.19), np.sqrt(0.22)],
+                [np.sqrt(0.20), np.sqrt(0.19), 1.0, np.sqrt(0.60)],
+                [np.sqrt(0.21), np.sqrt(0.22), np.sqrt(0.60), 1.0],
+            ],
+            dtype=complex,
+        )
+        clusters = ["s1", "s1", "s2", "s2"]
+        sep = compute_tier_separation(gram, clusters)
+        # intra-means: s1=0.95, s2=0.60; min=0.60. cross max=0.22.
+        assert sep == pytest.approx(0.60 - 0.22, abs=1e-9)
+
+    def test_all_singleton_clusters_returns_none(self):
+        """Every concept in its own cluster → no intra-cluster pairs
+        → metric undefined → returns None."""
+        import numpy as np
+
+        from q_orca import compute_tier_separation
+
+        gram = np.eye(3, dtype=complex)
+        sep = compute_tier_separation(gram, ["s1", "s2", "s3"])
+        assert sep is None
+
+    def test_single_cluster_with_all_concepts_no_cross(self):
+        """Every concept in *one* cluster: there are intra-cluster
+        pairs but no cross pairs. Separation = min_intra_mean − 0."""
+        import numpy as np
+
+        from q_orca import compute_tier_separation
+
+        gram = np.array(
+            [
+                [1.0, np.sqrt(0.40), np.sqrt(0.50)],
+                [np.sqrt(0.40), 1.0, np.sqrt(0.60)],
+                [np.sqrt(0.50), np.sqrt(0.60), 1.0],
+            ],
+            dtype=complex,
+        )
+        sep = compute_tier_separation(gram, ["s1", "s1", "s1"])
+        # mean of (0.40, 0.50, 0.60) = 0.50; cross_max = 0.0
+        assert sep == pytest.approx(0.50, abs=1e-9)
+
+    def test_shape_mismatch_raises_value_error(self):
+        import numpy as np
+
+        from q_orca import compute_tier_separation
+
+        gram = np.eye(3, dtype=complex)
+        with pytest.raises(ValueError) as exc_info:
+            compute_tier_separation(gram, ["s1", "s2"])
+        assert "(3, 3)" in str(exc_info.value)
+        assert "2" in str(exc_info.value)
+
+
 class TestSharedFixtureCompilerAdapter:
     """The Qiskit compiler's effect-string adapter must agree with the
     shared parser fixture on AST gate shape for every supported gate kind.
