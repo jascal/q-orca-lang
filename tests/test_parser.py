@@ -1434,6 +1434,26 @@ class TestHeaEncodingTheta:
             for e in result.errors
         )
 
+    def test_register_size_resolves_non_q_digit_qubit_names(self):
+        """The qubits-list default value can use any identifier, not
+        just `q0`/`q1`/... — register size SHALL come from comma-
+        counting, not from a `q\\d+` regex."""
+        custom = self.BASE.replace(
+            "| qubits | list<qubit> | [q0, q1]     |",
+            "| qubits | list<qubit> | [alice, bob] |",
+        )
+        result = parse_q_orca_markdown(
+            custom + self.HAPPY_ENCODING + self.HAPPY_THETA
+        )
+        # Theta tensors in HAPPY_THETA are shape (2, 2, 2) — same as
+        # the 2-qubit register — so the parser should accept them.
+        assert result.errors == [], result.errors
+        machine = result.file.machines[0]
+        assert machine.theta is not None
+        assert len(machine.theta.rows) == 2
+        for row in machine.theta.rows:
+            assert row.tensor.shape == (2, 2, 2)
+
     def test_theta_duplicate_concept(self):
         dup = """
 ## theta

@@ -1341,7 +1341,7 @@ class TestHeaEncodingVerifier:
 
     def test_hea_consistency_check_passes_on_valid_machine(self):
         machine = _machine(self.BASE)
-        result = verify(machine, VerifyOptions(skip_dynamic=True))
+        result = verify(machine)
         codes = [e.code for e in result.errors if e.severity == "error"]
         assert "HEA_GRAM_INVALID" not in codes, codes
 
@@ -1354,7 +1354,7 @@ class TestHeaEncodingVerifier:
             "| c | [[[2.1, 2.2], [2.3, 2.4]], [[2.5, 2.6], [2.7, 2.8]]] |",
         )
         machine = _machine(three_row_machine)
-        result = verify(machine, VerifyOptions(skip_dynamic=True))
+        result = verify(machine)
         errors = [e for e in result.errors if e.code == "HEA_GRAM_INVALID"]
         assert len(errors) == 1
         assert errors[0].severity == "error"
@@ -1369,7 +1369,7 @@ class TestHeaEncodingVerifier:
 
         machine = _machine(self.BASE)
         machine.theta.rows[0].tensor = np.zeros((1, 2, 2))
-        result = verify(machine, VerifyOptions(skip_dynamic=True))
+        result = verify(machine)
         errors = [e for e in result.errors if e.code == "HEA_GRAM_INVALID"]
         assert len(errors) == 1
         assert errors[0].severity == "error"
@@ -1386,5 +1386,24 @@ class TestHeaEncodingVerifier:
         with patch(
             "q_orca.compiler.concept_gram_hea.compute_concept_gram_hea"
         ) as spy:
-            verify(machine, VerifyOptions(skip_dynamic=True))
+            verify(machine)
             assert spy.call_count == 0
+
+    def test_hea_check_skipped_under_skip_dynamic(self):
+        """The HEA check builds quantum statevectors via numpy, so it
+        SHALL be gated by `skip_dynamic` like the rest of Stage 4b.
+        With a programmatically broken theta, the check would normally
+        emit `HEA_GRAM_INVALID` — under `skip_dynamic=True` it must
+        not fire at all."""
+        import numpy as np
+        from unittest.mock import patch
+
+        machine = _machine(self.BASE)
+        machine.theta.rows[0].tensor = np.zeros((1, 2, 2))
+        with patch(
+            "q_orca.compiler.concept_gram_hea.compute_concept_gram_hea"
+        ) as spy:
+            result = verify(machine, VerifyOptions(skip_dynamic=True))
+            assert spy.call_count == 0
+        codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "HEA_GRAM_INVALID" not in codes

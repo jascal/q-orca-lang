@@ -62,8 +62,11 @@ def verify(machine: QMachineDef, options: Optional[VerifyOptions] = None) -> QVe
         dynamic_errors, _ = _run_dynamic_backend(machine, opts.backend)
         all_errors.extend(dynamic_errors)
 
-    # Stage 4b (HEA): consistency check for explicit-grammar HEA machines
-    all_errors.extend(check_hea_encoding(machine))
+        # Stage 4b (HEA): consistency check for explicit-grammar HEA
+        # machines. Builds per-concept statevectors via numpy
+        # simulation, so it lives under the same `skip_dynamic` gate
+        # as the backend dispatch above.
+        all_errors.extend(check_hea_encoding(machine))
 
     # Stage 4c: Resource-bound invariants (opt-in, gated by presence)
     if not opts.skip_resource_bounds:

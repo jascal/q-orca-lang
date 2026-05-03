@@ -29,6 +29,15 @@
 > Qiskit emit for HEA-encoded machines is out of scope for
 > `add-rung2-hea-encoding`; the analytic Gram is built directly via
 > `compute_concept_gram_hea`.
+>
+> **Pairing convention** — `compute_concept_gram_hea` pairs the
+> `query_concept` call sites in the `## transitions` table with the
+> rows of `## theta` *positionally, in declaration order*. Call site
+> `i` is built from `theta.rows[i]`. The `concept` column in the
+> theta block is a human-readable label only — it is **not** matched
+> against transition events. Reordering the theta rows without also
+> reordering the matching transitions silently changes the produced
+> Gram, so keep the two tables aligned by row order.
 
 ## context
 | Field  | Type        | Default          |

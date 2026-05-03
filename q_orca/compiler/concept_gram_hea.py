@@ -205,15 +205,8 @@ def compute_concept_gram_hea(
             f"row(s) ({concept_names!r}); the two SHALL match"
         )
 
-    states = [
-        _build_hea_state(np, tensors[i], encoding, n_qubits)
+    states = np.stack([
+        _build_hea_state(np, tensors[i], encoding, n_qubits).reshape(-1)
         for i in range(len(call_sites))
-    ]
-
-    flat_states = [s.reshape(-1) for s in states]
-    n_calls = len(flat_states)
-    gram = np.zeros((n_calls, n_calls), dtype=complex)
-    for i in range(n_calls):
-        for j in range(n_calls):
-            gram[i, j] = np.vdot(flat_states[i], flat_states[j])
-    return gram
+    ])
+    return states.conj() @ states.T

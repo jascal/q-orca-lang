@@ -1071,16 +1071,28 @@ def _resolve_register_size(
 ) -> Optional[int]:
     """Find the size of the qubits register declared by `encoding`.
 
-    Returns None if the field is absent or its default value cannot be
-    parsed as a list of qubit names.
+    The default value is a list literal like ``[q0, q1, q2]``; the
+    register size is the count of comma-separated items inside the
+    brackets after stripping whitespace. Qubit names are not
+    constrained to the ``q\\d+`` shape — any non-empty identifier
+    counts as one qubit, so registers like ``[qubit_a, qubit_b]``
+    resolve correctly.
+
+    Returns None if the field is absent or the default value isn't a
+    bracketed list with at least one non-empty entry.
     """
     target = encoding.qubits or "qubits"
     for f in context:
-        if f.name == target and isinstance(f.type, QTypeList):
-            if f.default_value:
-                items = re.findall(r"q\d+", f.default_value)
-                if items:
-                    return len(items)
+        if f.name != target or not isinstance(f.type, QTypeList):
+            continue
+        if not f.default_value:
+            continue
+        body = f.default_value.strip()
+        if body.startswith("[") and body.endswith("]"):
+            body = body[1:-1]
+        items = [tok.strip() for tok in body.split(",") if tok.strip()]
+        if items:
+            return len(items)
     return None
 
 

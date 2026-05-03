@@ -22,7 +22,10 @@ that the encoding declaration and the `## theta` block are
 consistent and that the per-concept HEA states can be
 constructed. Any `HeaGramConfigurationError` raised by the helper
 SHALL be surfaced as a Stage 4b verifier error with code
-`HEA_GRAM_INVALID`.
+`HEA_GRAM_INVALID`. Because the check builds per-concept
+statevectors via numpy simulation, it SHALL be gated by the same
+`VerifyOptions.skip_dynamic` flag as the backend dispatch and
+SHALL NOT run when `skip_dynamic=True`.
 
 This change introduces only the *consistency* check; enforcement
 of tier-ordering bands (e.g. "sub-cluster mean exceeds
@@ -102,3 +105,13 @@ call).
 - **THEN** the verifier does NOT call
   `compute_concept_gram_hea`
 - **AND** existing rung-0 / rung-1 dispatch behavior is preserved
+
+#### Scenario: HEA check honors skip_dynamic
+
+- **GIVEN** an HEA machine that would otherwise raise
+  `HEA_GRAM_INVALID` (e.g., a programmatically shape-mismatched
+  theta tensor that survived initial parsing)
+- **WHEN** `verify(machine, VerifyOptions(skip_dynamic=True))`
+  runs
+- **THEN** `compute_concept_gram_hea` is NOT invoked
+- **AND** no `HEA_GRAM_INVALID` error is emitted
