@@ -228,6 +228,20 @@ def compute_tier_separation(
     ignored. Returns ``None`` when no cluster has at least two
     members (the metric is undefined — there is no intra-cluster
     overlap to compare against).
+
+    Sensitivity caveat
+    ------------------
+    Both reductions are min/max over a small number of pairs, so the
+    metric is sensitive to outliers when clusters are small. A
+    2-concept cluster has only one intra-cluster pair, so its "mean"
+    is just that single overlap; ``min`` over cluster means then
+    penalizes the worst-cohesion cluster regardless of cluster size.
+    Symmetrically, ``max_cross_cluster_overlap`` is dominated by a
+    single outlier pair. For noisy θ tensors or dictionaries with
+    many small clusters, prefer larger clusters (size ≥ 4) before
+    treating the metric as tight; if a more robust alternative is
+    needed (e.g. quantile-trimmed reductions or weighted means), that
+    belongs in a follow-up rather than as a silent change here.
     """
     import numpy as np
 
