@@ -356,6 +356,35 @@ class TestEvaluateAngle:
         with pytest.raises(ValueError):
             evaluate_angle("gamma")
 
+    @pytest.mark.parametrize("text,expected", [
+        ("1e-5", 1e-5),
+        ("1E-5", 1e-5),
+        ("1e+5", 1e5),
+        ("1e5", 1e5),
+        ("1.5e-5", 1.5e-5),
+        ("-1e-5", -1e-5),
+        ("1.0e-10", 1e-10),
+    ])
+    def test_scientific_notation_literals(self, text, expected):
+        # Regression: the linear-combination splitter must not misread the
+        # `+`/`-` of an exponent as a top-level operator (would split
+        # `1e-5` into `[1e, -5]`). See tech-debt-backlog §5.8.
+        assert evaluate_angle(text) == pytest.approx(expected, rel=1e-9)
+
+    @pytest.mark.parametrize("text,ctx,expected", [
+        ("1e-5 + a", {"a": 0.1}, 1e-5 + 0.1),
+        ("a + 1e-3", {"a": 0.1}, 0.1 + 1e-3),
+        ("1e-5 - a", {"a": 0.1}, 1e-5 - 0.1),
+        ("1.0e-5 + 2e-3", None, 1e-5 + 2e-3),
+    ])
+    def test_scientific_notation_in_linear_combination(self, text, ctx, expected):
+        assert evaluate_angle(text, ctx) == pytest.approx(expected, rel=1e-9)
+
+    def test_non_exponent_e_still_splits(self):
+        # `e` not preceded by a digit (here it's an identifier) should not
+        # suppress the top-level split.
+        assert evaluate_angle("e + a", {"e": 0.2, "a": 0.3}) == pytest.approx(0.5, rel=1e-9)
+
 
 _ROTATION_MACHINE = """\
 # machine RotationTest
