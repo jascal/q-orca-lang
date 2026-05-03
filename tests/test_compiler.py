@@ -1749,6 +1749,157 @@ class TestComputeConceptGramMps:
         assert "phi * a" in str(exc_info.value)
 
 
+class TestComputeConceptGramHea:
+    """Covers the `compute_concept_gram_hea` analysis helper (Section 2 of
+    add-rung2-hea-encoding)."""
+
+    BASE = """\
+# machine HeaUnit
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0, q1]     |
+
+## events
+- prep_a
+- prep_b
+
+## state idle [initial]
+## state queried_a [final]
+## state queried_b [final]
+
+## transitions
+| Source | Event  | Guard | Target    | Action        |
+| idle   | prep_a |       | queried_a | query_concept |
+| idle   | prep_b |       | queried_b | query_concept |
+
+## actions
+| Name          | Signature  |
+| query_concept | (qs) -> qs |
+"""
+
+    ENCODING = """
+## encoding
+| key       | value  |
+| kind      | hea    |
+| depth     | 2      |
+| entangler | ring   |
+| rotations | Ry, Rz |
+"""
+
+    THETA = """
+## theta
+| concept | tensor |
+| a | [[[0.1, 0.2], [0.3, 0.4]], [[0.5, 0.6], [0.7, 0.8]]] |
+| b | [[[1.1, 1.2], [1.3, 1.4]], [[1.5, 1.6], [1.7, 1.8]]] |
+"""
+
+    def _parse(self, encoding: str = "", theta: str = ""):
+        result = parse_q_orca_markdown(self.BASE + encoding + theta)
+        assert result.errors == [], result.errors
+        return result.file.machines[0]
+
+    def test_happy_path_returns_hermitian_gram(self):
+        import numpy as np
+
+        from q_orca import compute_concept_gram_hea
+
+        machine = self._parse(self.ENCODING, self.THETA)
+        gram = compute_concept_gram_hea(machine)
+        assert gram.shape == (2, 2)
+        assert gram.dtype == np.complex128
+        # Diagonal == 1; off-diagonal entries are conjugate-symmetric.
+        np.testing.assert_allclose(np.diag(gram), np.ones(2), atol=1e-9)
+        np.testing.assert_allclose(gram[0, 1], np.conj(gram[1, 0]), atol=1e-12)
+
+    def test_zero_theta_yields_all_ones_gram(self):
+        """All-zero θ → every rotation is identity → CNOTs see |0⟩
+        controls → final state stays |0...0⟩ on every concept → all-ones
+        Gram. Mirrors the MPS sanity check."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_hea
+
+        zero_theta = """
+## theta
+| concept | tensor |
+| a | [[[0.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [0.0, 0.0]]] |
+| b | [[[0.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [0.0, 0.0]]] |
+"""
+        machine = self._parse(self.ENCODING, zero_theta)
+        gram = compute_concept_gram_hea(machine)
+        np.testing.assert_allclose(gram, np.ones((2, 2)), atol=1e-9)
+
+    def test_missing_encoding_raises(self):
+        from q_orca import HeaGramConfigurationError, compute_concept_gram_hea
+
+        machine = self._parse("", "")  # no encoding, no theta
+        with pytest.raises(HeaGramConfigurationError) as exc_info:
+            compute_concept_gram_hea(machine)
+        assert "no `## encoding`" in str(exc_info.value)
+
+    def test_wrong_kind_raises(self):
+        from q_orca import HeaGramConfigurationError, compute_concept_gram_hea
+        from q_orca.ast import EncodingDecl
+
+        machine = self._parse(self.ENCODING, self.THETA)
+        # Mutate the encoding kind post-parse — the helper SHOULD reject
+        # any non-`hea` kind even when the rest of the surface is valid.
+        machine.encoding = EncodingDecl(
+            kind="mps",
+            depth=machine.encoding.depth,
+            entangler=machine.encoding.entangler,
+            rotations=machine.encoding.rotations,
+            qubits=machine.encoding.qubits,
+        )
+        with pytest.raises(HeaGramConfigurationError) as exc_info:
+            compute_concept_gram_hea(machine)
+        assert "encoding kind is" in str(exc_info.value)
+        assert "'mps'" in str(exc_info.value)
+
+    def test_missing_theta_raises(self):
+        from q_orca import HeaGramConfigurationError, compute_concept_gram_hea
+
+        machine = self._parse(self.ENCODING, "")  # encoding without theta
+        with pytest.raises(HeaGramConfigurationError) as exc_info:
+            compute_concept_gram_hea(machine)
+        assert "no `## theta`" in str(exc_info.value)
+
+    def test_call_site_theta_row_count_mismatch_raises(self):
+        """3 theta rows but only 2 query_concept call sites — the parser
+        accepts both independently; the helper surfaces the mismatch."""
+        from q_orca import HeaGramConfigurationError, compute_concept_gram_hea
+
+        three_rows = """
+## theta
+| concept | tensor |
+| a | [[[0.1, 0.2], [0.3, 0.4]], [[0.5, 0.6], [0.7, 0.8]]] |
+| b | [[[1.1, 1.2], [1.3, 1.4]], [[1.5, 1.6], [1.7, 1.8]]] |
+| c | [[[2.1, 2.2], [2.3, 2.4]], [[2.5, 2.6], [2.7, 2.8]]] |
+"""
+        machine = self._parse(self.ENCODING, three_rows)
+        with pytest.raises(HeaGramConfigurationError) as exc_info:
+            compute_concept_gram_hea(machine)
+        msg = str(exc_info.value)
+        assert "2 call site" in msg and "3 concept row" in msg
+
+    def test_post_parse_theta_shape_mismatch_raises(self):
+        """The parser rejects shape-mismatched tensors at parse time, so
+        we mutate one row post-parse to exercise the helper's own shape
+        check (mirrors the spec's 'survived initial parsing' scenario)."""
+        import numpy as np
+
+        from q_orca import HeaGramConfigurationError, compute_concept_gram_hea
+
+        machine = self._parse(self.ENCODING, self.THETA)
+        machine.theta.rows[0].tensor = np.zeros((1, 2, 2))  # wrong rotations dim
+        with pytest.raises(HeaGramConfigurationError) as exc_info:
+            compute_concept_gram_hea(machine)
+        msg = str(exc_info.value)
+        assert "'a'" in msg and "(1, 2, 2)" in msg
+
+
 class TestSharedFixtureCompilerAdapter:
     """The Qiskit compiler's effect-string adapter must agree with the
     shared parser fixture on AST gate shape for every supported gate kind.

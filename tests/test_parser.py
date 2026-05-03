@@ -1294,3 +1294,155 @@ class TestResourceInvariants:
         src = self.BASE + "\n## invariants\n- nonexistent_metric <= 5\n"
         result = parse_q_orca_markdown(src)
         assert result.file.machines[0].invariants == []
+
+
+class TestHeaEncodingTheta:
+    """`## encoding` (kind: hea) and `## theta` parser surface — see the
+    `add-rung2-hea-encoding` spec delta for the grammar."""
+
+    BASE = """\
+# machine HeaFoo
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0, q1]     |
+
+## events
+- prep_a
+- prep_b
+
+## state idle [initial]
+## state queried_a [final]
+## state queried_b [final]
+
+## transitions
+| Source | Event  | Guard | Target    | Action        |
+| idle   | prep_a |       | queried_a | query_concept |
+| idle   | prep_b |       | queried_b | query_concept |
+
+## actions
+| Name          | Signature  |
+| query_concept | (qs) -> qs |
+"""
+
+    HAPPY_ENCODING = """
+## encoding
+| key       | value  |
+|-----------|--------|
+| kind      | hea    |
+| depth     | 2      |
+| entangler | ring   |
+| rotations | Ry, Rz |
+"""
+
+    HAPPY_THETA = """
+## theta
+| concept | tensor |
+| a | [[[0.1, 0.2], [0.3, 0.4]], [[0.5, 0.6], [0.7, 0.8]]] |
+| b | [[[1.1, 1.2], [1.3, 1.4]], [[1.5, 1.6], [1.7, 1.8]]] |
+"""
+
+    def _parse(self, encoding: str = "", theta: str = ""):
+        return parse_q_orca_markdown(self.BASE + encoding + theta)
+
+    def test_encoding_and_theta_happy_path(self):
+        result = self._parse(self.HAPPY_ENCODING, self.HAPPY_THETA)
+        assert result.errors == []
+        machine = result.file.machines[0]
+        assert machine.encoding is not None
+        assert machine.encoding.kind == "hea"
+        assert machine.encoding.depth == 2
+        assert machine.encoding.entangler == "ring"
+        assert machine.encoding.rotations == ("Ry", "Rz")
+        assert machine.theta is not None
+        assert [r.concept for r in machine.theta.rows] == ["a", "b"]
+        for row in machine.theta.rows:
+            assert row.tensor.shape == (2, 2, 2)
+
+    def test_theta_without_encoding_rejected(self):
+        result = self._parse("", self.HAPPY_THETA)
+        assert any("theta_no_encoding" in e for e in result.errors)
+        assert result.file.machines[0].theta is None
+
+    def test_unknown_encoding_key(self):
+        bad = """
+## encoding
+| key        | value  |
+| kind       | hea    |
+| depth      | 2      |
+| entangler  | ring   |
+| rotations  | Ry, Rz |
+| nonsense   | 42     |
+"""
+        result = self._parse(bad, self.HAPPY_THETA)
+        assert any(
+            "encoding_unknown_key" in e and "nonsense" in e
+            for e in result.errors
+        )
+
+    def test_unknown_rotation_kind(self):
+        bad = """
+## encoding
+| key       | value  |
+| kind      | hea    |
+| depth     | 2      |
+| entangler | ring   |
+| rotations | Ry, Rq |
+"""
+        result = self._parse(bad)
+        assert any(
+            "encoding_bad_rotations" in e and "Rq" in e
+            for e in result.errors
+        )
+
+    def test_bad_depth_non_positive(self):
+        bad = """
+## encoding
+| key       | value  |
+| kind      | hea    |
+| depth     | 0      |
+| entangler | ring   |
+| rotations | Ry, Rz |
+"""
+        result = self._parse(bad)
+        assert any("encoding_bad_depth" in e for e in result.errors)
+
+    def test_theta_malformed_literal(self):
+        bad = """
+## theta
+| concept | tensor |
+| a | not-a-tensor |
+"""
+        result = self._parse(self.HAPPY_ENCODING, bad)
+        assert any(
+            "theta_malformed_literal" in e and "'a'" in e
+            for e in result.errors
+        )
+
+    def test_theta_shape_mismatch(self):
+        # Encoding declares (|rotations|, depth, n) = (2, 2, 2); supply
+        # the wrong shape.
+        bad = """
+## theta
+| concept | tensor |
+| a | [[1.0, 2.0], [3.0, 4.0]] |
+"""
+        result = self._parse(self.HAPPY_ENCODING, bad)
+        assert any(
+            "theta_shape_mismatch" in e and "'a'" in e
+            for e in result.errors
+        )
+
+    def test_theta_duplicate_concept(self):
+        dup = """
+## theta
+| concept | tensor |
+| a | [[[0.1, 0.2], [0.3, 0.4]], [[0.5, 0.6], [0.7, 0.8]]] |
+| a | [[[1.1, 1.2], [1.3, 1.4]], [[1.5, 1.6], [1.7, 1.8]]] |
+"""
+        result = self._parse(self.HAPPY_ENCODING, dup)
+        assert any(
+            "theta_duplicate_concept" in e and "'a'" in e
+            for e in result.errors
+        )
