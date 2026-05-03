@@ -319,6 +319,7 @@ class ThetaRow:
     """One concept's HEA parameter tensor, shape (|rotations|, depth, n)."""
     concept: str
     tensor: object  # numpy.ndarray; not type-imported here to keep ast.py numpy-free
+    cluster: str = "_default"  # tier label; `_default` when no cluster column is declared
 
 
 @dataclass

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.0 (2026-05-03)
+
+### Added
+
+- **HEA tier-ordering invariant** (`add-hea-tier-ordering-invariant`) — declarative grammar lets HEA-encoded machines pin their concept-Gram tier separation as a verifier-checked bound. The `## theta` block accepts an optional 3rd `cluster` column carrying a tier label per concept; rows without a cluster column default to `_default`. The `## invariants` block accepts a new `concept_gram_tier_separation <op> <decimal in [0, 1]>` form (operators `>=`, `>`, `<=`, `<`, `==`/`=`). New helper `q_orca.compute_tier_separation(gram, clusters)` returns `min_intra_cluster_mean − max_cross_cluster_overlap` (or `None` when every cluster is a singleton). Stage 4b verifier now evaluates the declared inequality against the analytic Gram of HEA-encoded machines and surfaces `HEA_TIER_INVARIANT_VIOLATED` (with cluster-pair attribution), `HEA_TIER_UNDEFINED` (all-singleton), or `HEA_TIER_INVARIANT_NOT_APPLICABLE` (warning, on non-HEA machines). The whole evaluation is gated by `VerifyOptions.skip_dynamic` like the rest of Stage 4b. The `HEA_TIER_TOLERANCE = 0.025` constant is preserved as the recommended default; the verifier reads the value the machine declares.
+
+### Changed
+
+- `examples/larql-hea-minimal.q.orca.md` updated to declare `cluster` labels (`a, b → s1`, `c → s2`) and a `## invariants - concept_gram_tier_separation >= 0.025` bound, exercising the new grammar end-to-end.
+- Backwards-compatible: HEA machines that do not declare a tier-separation invariant retain prior Stage 4b behavior (consistency check only). Machines without any `## encoding` section are unaffected.
+
+---
+
 ## 0.8.0 (2026-05-02)
 
 ### Added

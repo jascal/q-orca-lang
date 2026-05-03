@@ -22,8 +22,18 @@
 > Tier separation:
 > - sub-cluster (a–b): 0.9999
 > - cross max (a–c, b–c): 0.3837
-> - sub→cross gap: 0.6162  (well above the Stage 4b consistency
->   tolerance `HEA_TIER_TOLERANCE = 0.025`).
+> - sub→cross gap: 0.6162  (well above the declared Stage 4b
+>   tier-separation bound `>= 0.025` — see `## invariants` below).
+>
+> The `## theta` block declares a third `cluster` column carrying
+> the tier label per concept; `## invariants` declares
+> `concept_gram_tier_separation >= 0.025`. Together they let the
+> Stage 4b verifier compute the analytic Gram, evaluate the
+> declared inequality, and surface
+> `HEA_TIER_INVARIANT_VIOLATED` if the bound is breached. The
+> recommended-default tolerance is exposed as
+> `HEA_TIER_TOLERANCE = 0.025`; the verifier reads the value the
+> machine declares.
 >
 > The example compiles via the standard parse → verify path. QASM /
 > Qiskit emit for HEA-encoded machines is out of scope for
@@ -82,8 +92,11 @@
 | rotations | Ry, Rz |
 
 ## theta
-| concept | tensor |
-|---------|--------|
-| a | [[[0.0457, -0.156, 0.1126], [0.1411, -0.2927, -0.1953], [0.0192, -0.0474, -0.0025]], [[-0.128, 0.1319, 0.1167], [0.0099, 0.1691, 0.0701], [-0.1289, 0.0553, -0.1438]]] |
-| b | [[[0.0371, -0.1427, 0.1124], [0.1371, -0.2968, -0.2004], [0.0205, -0.0395, -0.0065]], [[-0.1315, 0.1363, 0.117], [0.0191, 0.1578, 0.0783], [-0.1294, 0.0523, -0.1584]]] |
-| c | [[[1.2682, 1.0909, 1.0102], [0.8841, 1.1853, 0.9248], [0.7295, 0.9307, 0.6622]], [[1.1194, 0.9863, 1.2396], [0.9105, 1.0324, 1.1632], [1.243, 0.9765, 0.9332]]] |
+| concept | tensor | cluster |
+|---------|--------|---------|
+| a | [[[0.0457, -0.156, 0.1126], [0.1411, -0.2927, -0.1953], [0.0192, -0.0474, -0.0025]], [[-0.128, 0.1319, 0.1167], [0.0099, 0.1691, 0.0701], [-0.1289, 0.0553, -0.1438]]] | s1 |
+| b | [[[0.0371, -0.1427, 0.1124], [0.1371, -0.2968, -0.2004], [0.0205, -0.0395, -0.0065]], [[-0.1315, 0.1363, 0.117], [0.0191, 0.1578, 0.0783], [-0.1294, 0.0523, -0.1584]]] | s1 |
+| c | [[[1.2682, 1.0909, 1.0102], [0.8841, 1.1853, 0.9248], [0.7295, 0.9307, 0.6622]], [[1.1194, 0.9863, 1.2396], [0.9105, 1.0324, 1.1632], [1.243, 0.9765, 0.9332]]] | s2 |
+
+## invariants
+- concept_gram_tier_separation >= 0.025

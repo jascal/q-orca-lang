@@ -20,6 +20,7 @@ from q_orca.compiler.concept_gram_mps import (
 )
 from q_orca.compiler.concept_gram_hea import (
     compute_concept_gram_hea,
+    compute_tier_separation,
     HeaGramConfigurationError,
 )
 from q_orca.skills import (
@@ -32,7 +33,7 @@ from q_orca.skills import (
 from q_orca.config import load_config, QOrcaConfig
 from q_orca.llm import create_provider, LLMProvider
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 __all__ = [
     # Parser
@@ -54,6 +55,7 @@ __all__ = [
     "compute_concept_gram_mps",
     "MpsGramConfigurationError",
     "compute_concept_gram_hea",
+    "compute_tier_separation",
     "HeaGramConfigurationError",
     # Skills
     "parse_skill",

@@ -1407,3 +1407,166 @@ class TestHeaEncodingVerifier:
             assert spy.call_count == 0
         codes = [e.code for e in result.errors if e.severity == "error"]
         assert "HEA_GRAM_INVALID" not in codes
+
+
+class TestHeaTierOrderingInvariant:
+    """Stage 4b enforcement of `concept_gram_tier_separation` against
+    the analytic Gram of an HEA-encoded machine. See
+    `add-hea-tier-ordering-invariant`."""
+
+    BASE = """\
+# machine HeaTier
+
+## context
+| Field  | Type        | Default          |
+|--------|-------------|------------------|
+| qubits | list<qubit> | [q0, q1, q2]     |
+
+## events
+- prep_a
+- prep_b
+- prep_c
+
+## state idle [initial]
+## state queried_a [final]
+## state queried_b [final]
+## state queried_c [final]
+
+## transitions
+| Source | Event  | Guard | Target    | Action        |
+| idle   | prep_a |       | queried_a | query_concept |
+| idle   | prep_b |       | queried_b | query_concept |
+| idle   | prep_c |       | queried_c | query_concept |
+
+## actions
+| Name          | Signature  |
+| query_concept | (qs) -> qs |
+
+## encoding
+| key       | value  |
+| kind      | hea    |
+| depth     | 3      |
+| entangler | ring   |
+| rotations | Ry, Rz |
+
+## theta
+| concept | tensor | cluster |
+| a | [[[0.0457, -0.156, 0.1126], [0.1411, -0.2927, -0.1953], [0.0192, -0.0474, -0.0025]], [[-0.128, 0.1319, 0.1167], [0.0099, 0.1691, 0.0701], [-0.1289, 0.0553, -0.1438]]] | s1 |
+| b | [[[0.0371, -0.1427, 0.1124], [0.1371, -0.2968, -0.2004], [0.0205, -0.0395, -0.0065]], [[-0.1315, 0.1363, 0.117], [0.0191, 0.1578, 0.0783], [-0.1294, 0.0523, -0.1584]]] | s1 |
+| c | [[[1.2682, 1.0909, 1.0102], [0.8841, 1.1853, 0.9248], [0.7295, 0.9307, 0.6622]], [[1.1194, 0.9863, 1.2396], [0.9105, 1.0324, 1.1632], [1.243, 0.9765, 0.9332]]] | s2 |
+"""
+
+    BELL_BASE = """\
+# machine BellNoEncoding
+
+## context
+| Field  | Type        | Default  |
+|--------|-------------|----------|
+| qubits | list<qubit> | [q0, q1] |
+
+## events
+- prepare
+- entangle
+
+## state |00> [initial]
+## state |+0>
+## state |ψ> [final]
+
+## transitions
+| Source | Event    | Guard | Target | Action     |
+| |00>   | prepare  |       | |+0>   | apply_h    |
+| |+0>   | entangle |       | |ψ>    | apply_cnot |
+
+## actions
+| Name       | Signature  | Effect             |
+| apply_h    | (qs) -> qs | Hadamard(qs[0])    |
+| apply_cnot | (qs) -> qs | CNOT(qs[0], qs[1]) |
+"""
+
+    def test_satisfied_invariant_no_errors(self):
+        """The spike-validated example yields tier_separation ≈ 0.6162.
+        Declaring `>= 0.025` SHALL pass without error."""
+        src = self.BASE + "\n## invariants\n- concept_gram_tier_separation >= 0.025\n"
+        machine = _machine(src)
+        result = verify(machine)
+        codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "HEA_TIER_INVARIANT_VIOLATED" not in codes
+        assert "HEA_TIER_UNDEFINED" not in codes
+        assert "HEA_TIER_INVARIANT_NOT_APPLICABLE" not in codes
+
+    def test_violated_invariant_emits_error_with_pair_attribution(self):
+        """Declare an unrealistically tight bound — actual ≈ 0.6162,
+        bound 0.99 → violated, with cluster pair attribution."""
+        src = self.BASE + "\n## invariants\n- concept_gram_tier_separation >= 0.99\n"
+        machine = _machine(src)
+        result = verify(machine)
+        violations = [
+            e for e in result.errors
+            if e.code == "HEA_TIER_INVARIANT_VIOLATED"
+        ]
+        assert len(violations) == 1
+        msg = violations[0].message
+        assert violations[0].severity == "error"
+        # Cross-cluster pair = (s1, s2), sorted alphabetically.
+        assert "('s1', 's2')" in msg
+        assert ">= 0.99" in msg
+
+    def test_all_singleton_clusters_emit_undefined(self):
+        """If every concept is in its own cluster, no intra-cluster
+        pairs exist → metric undefined → HEA_TIER_UNDEFINED."""
+        # Replace `s1, s1, s2` with three distinct singletons.
+        singleton_base = self.BASE.replace(
+            "| s1 |", "| sA |", 1
+        ).replace(
+            "| s1 |", "| sB |", 1
+        ).replace(
+            "| s2 |", "| sC |", 1
+        )
+        src = (
+            singleton_base
+            + "\n## invariants\n- concept_gram_tier_separation >= 0.025\n"
+        )
+        machine = _machine(src)
+        result = verify(machine)
+        undefined = [
+            e for e in result.errors if e.code == "HEA_TIER_UNDEFINED"
+        ]
+        assert len(undefined) == 1
+        assert undefined[0].severity == "error"
+        assert "singleton" in undefined[0].message
+
+    def test_skip_dynamic_gates_tier_check(self):
+        """Tier-invariant evaluation builds the analytic Gram, so it
+        SHALL be gated by `skip_dynamic` along with the rest of
+        Stage 4b. With a clearly violated bound, `skip_dynamic=True`
+        must suppress `HEA_TIER_INVARIANT_VIOLATED`."""
+        src = self.BASE + "\n## invariants\n- concept_gram_tier_separation >= 0.99\n"
+        machine = _machine(src)
+        result = verify(machine, VerifyOptions(skip_dynamic=True))
+        codes = [e.code for e in result.errors]
+        assert "HEA_TIER_INVARIANT_VIOLATED" not in codes
+        assert "HEA_TIER_UNDEFINED" not in codes
+
+    def test_non_hea_machine_with_invariant_emits_warning(self):
+        """A machine with no `## encoding` section but a declared
+        tier-separation invariant SHALL emit
+        HEA_TIER_INVARIANT_NOT_APPLICABLE at warning severity, and
+        verification SHALL still pass."""
+        src = (
+            self.BELL_BASE
+            + "\n## invariants\n- concept_gram_tier_separation >= 0.025\n"
+        )
+        machine = _machine(src)
+        result = verify(machine)
+        warnings = [
+            e for e in result.errors
+            if e.code == "HEA_TIER_INVARIANT_NOT_APPLICABLE"
+        ]
+        assert len(warnings) == 1
+        assert warnings[0].severity == "warning"
+        # No `error`-severity tier codes.
+        error_codes = [
+            e.code for e in result.errors if e.severity == "error"
+        ]
+        assert "HEA_TIER_INVARIANT_VIOLATED" not in error_codes
+        assert "HEA_TIER_UNDEFINED" not in error_codes
