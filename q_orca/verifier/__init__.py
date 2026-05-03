@@ -11,6 +11,7 @@ from q_orca.verifier.classical_context import check_classical_context
 from q_orca.verifier.quantum import verify_quantum
 from q_orca.verifier.resources import check_resource_invariants
 from q_orca.verifier.superposition import check_superposition_leaks
+from q_orca.verifier.hea_encoding import check_hea_encoding
 from q_orca.verifier.types import QVerificationResult, QVerificationError
 
 
@@ -60,6 +61,12 @@ def verify(machine: QMachineDef, options: Optional[VerifyOptions] = None) -> QVe
     if not opts.skip_dynamic:
         dynamic_errors, _ = _run_dynamic_backend(machine, opts.backend)
         all_errors.extend(dynamic_errors)
+
+        # Stage 4b (HEA): consistency check for explicit-grammar HEA
+        # machines. Builds per-concept statevectors via numpy
+        # simulation, so it lives under the same `skip_dynamic` gate
+        # as the backend dispatch above.
+        all_errors.extend(check_hea_encoding(machine))
 
     # Stage 4c: Resource-bound invariants (opt-in, gated by presence)
     if not opts.skip_resource_bounds:

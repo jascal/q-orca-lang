@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0 (2026-05-02)
+
+### Added
+
+- **Rung-2 HEA concept encoding** (`add-rung2-hea-encoding`) — new explicit grammar for hardware-efficient ansatz machines. Two new sections, `## encoding` and `## theta`, declare the ansatz shape (`kind: hea`, `depth`, `entangler ∈ {ring, chain}`, `rotations` ⊆ `{Rx, Ry, Rz}`) and the per-concept parameter tensor of shape `(|rotations|, depth, n)`. New compiler helper `q_orca.compute_concept_gram_hea(machine, concept_action_label="query_concept")` builds each concept state by applying the declared rotation layers + entangler block in order and returns the analytic N×N overlap matrix. Verifier Stage 4b now invokes the helper for HEA machines and surfaces any `HeaGramConfigurationError` as a `HEA_GRAM_INVALID` error (shape mismatch, call-site / theta-row count mismatch, missing or wrong-kind encoding). Tier-ordering enforcement is *not* part of this change — the spike-validated constant `HEA_TIER_TOLERANCE = 0.025` is exposed from `q_orca.verifier.hea_encoding` for downstream use, but the matching invariant grammar is deferred to a follow-up proposal.
+- **New example `examples/larql-hea-minimal.q.orca.md`** — 3-qubit depth-3 ring-entangler ansatz with rotations `(Ry, Rz)` and three concepts (`a`, `b`, `c`); `a–b` share a sub-cluster (overlap ≈ 0.9999) and `c` is the cross-cluster outsider (≈ 0.38), giving a sub→cross gap of ~0.6162 — well above `HEA_TIER_TOLERANCE`. Pipeline test in `tests/test_examples.py::TestExamples::test_larql_hea_minimal_pipeline` covers parse → AST surface (encoding/theta) → verify → analytic Gram tier separation.
+
+### Changed
+
+- Backwards-compatible: machines without an `## encoding` section preserve all rung-0 / rung-1 dispatch behavior. `compute_concept_gram_hea` is opt-in and only invoked when `machine.encoding.kind == "hea"`.
+
+---
+
 ## 0.7.1 (2026-05-02)
 
 ### Added

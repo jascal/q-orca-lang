@@ -301,6 +301,32 @@ class QTransition:
 
 
 @dataclass
+class EncodingDecl:
+    """Explicit ansatz declaration from a `## encoding` section.
+
+    `kind == "hea"` is the only kind supported as of `add-rung2-hea-encoding`;
+    `rotations` preserves declaration order (e.g. ("Ry", "Rz")).
+    """
+    kind: str
+    depth: int
+    entangler: str          # "ring" | "chain"
+    rotations: tuple[str, ...]
+    qubits: Optional[str] = None  # name of the context register; None → "qubits"
+
+
+@dataclass
+class ThetaRow:
+    """One concept's HEA parameter tensor, shape (|rotations|, depth, n)."""
+    concept: str
+    tensor: object  # numpy.ndarray; not type-imported here to keep ast.py numpy-free
+
+
+@dataclass
+class ThetaBlock:
+    rows: list[ThetaRow] = field(default_factory=list)
+
+
+@dataclass
 class QMachineDef:
     name: str
     context: list[ContextField] = field(default_factory=list)
@@ -313,6 +339,8 @@ class QMachineDef:
     verification_rules: list[VerificationRule] = field(default_factory=list)
     invariants: list[Invariant] = field(default_factory=list)
     resource_metrics: list[str] = field(default_factory=list)
+    encoding: Optional[EncodingDecl] = None
+    theta: Optional[ThetaBlock] = None
 
 
 @dataclass

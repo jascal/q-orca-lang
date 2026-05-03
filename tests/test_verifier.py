@@ -1265,3 +1265,145 @@ class TestResourceInvariantVerification:
         with patch("q_orca.verifier.resources.estimate_resources") as spy:
             verify(machine, VerifyOptions(skip_dynamic=True))
             assert spy.call_count == 0
+
+
+class TestHeaEncodingVerifier:
+    """Stage 4b HEA dispatch: the verifier invokes
+    `compute_concept_gram_hea` for HEA-encoded machines and surfaces any
+    `HeaGramConfigurationError` as `HEA_GRAM_INVALID`. Non-HEA machines
+    bypass the dispatch entirely. See the `add-rung2-hea-encoding` spec
+    delta."""
+
+    BASE = """\
+# machine HeaVerifier
+
+## context
+| Field  | Type        | Default      |
+|--------|-------------|--------------|
+| qubits | list<qubit> | [q0, q1]     |
+
+## events
+- prep_a
+- prep_b
+
+## state idle [initial]
+## state queried_a [final]
+## state queried_b [final]
+
+## transitions
+| Source | Event  | Guard | Target    | Action        |
+| idle   | prep_a |       | queried_a | query_concept |
+| idle   | prep_b |       | queried_b | query_concept |
+
+## actions
+| Name          | Signature  |
+| query_concept | (qs) -> qs |
+
+## encoding
+| key       | value  |
+| kind      | hea    |
+| depth     | 2      |
+| entangler | ring   |
+| rotations | Ry, Rz |
+
+## theta
+| concept | tensor |
+| a | [[[0.1, 0.2], [0.3, 0.4]], [[0.5, 0.6], [0.7, 0.8]]] |
+| b | [[[1.1, 1.2], [1.3, 1.4]], [[1.5, 1.6], [1.7, 1.8]]] |
+"""
+
+    BELL = """\
+# machine BellEntangler
+
+## context
+| Field  | Type        | Default  |
+|--------|-------------|----------|
+| qubits | list<qubit> | [q0, q1] |
+
+## events
+- prepare
+- entangle
+
+## state |00> [initial]
+## state |+0>
+## state |ψ> [final]
+
+## transitions
+| Source | Event    | Guard | Target | Action     |
+| |00>   | prepare  |       | |+0>   | apply_h    |
+| |+0>   | entangle |       | |ψ>    | apply_cnot |
+
+## actions
+| Name       | Signature  | Effect           |
+| apply_h    | (qs) -> qs | Hadamard(qs[0])  |
+| apply_cnot | (qs) -> qs | CNOT(qs[0], qs[1]) |
+"""
+
+    def test_hea_consistency_check_passes_on_valid_machine(self):
+        machine = _machine(self.BASE)
+        result = verify(machine)
+        codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "HEA_GRAM_INVALID" not in codes, codes
+
+    def test_hea_call_site_theta_row_count_mismatch_emits_error(self):
+        """3 theta rows but only 2 query_concept call sites in
+        transitions — Stage 4b SHALL emit `HEA_GRAM_INVALID`."""
+        three_row_machine = self.BASE.replace(
+            "| b | [[[1.1, 1.2], [1.3, 1.4]], [[1.5, 1.6], [1.7, 1.8]]] |",
+            "| b | [[[1.1, 1.2], [1.3, 1.4]], [[1.5, 1.6], [1.7, 1.8]]] |\n"
+            "| c | [[[2.1, 2.2], [2.3, 2.4]], [[2.5, 2.6], [2.7, 2.8]]] |",
+        )
+        machine = _machine(three_row_machine)
+        result = verify(machine)
+        errors = [e for e in result.errors if e.code == "HEA_GRAM_INVALID"]
+        assert len(errors) == 1
+        assert errors[0].severity == "error"
+        assert "2 call site" in errors[0].message
+        assert "3 concept row" in errors[0].message
+
+    def test_hea_post_parse_shape_mismatch_emits_error(self):
+        """Programmatic shape mismatch (the parser would reject this at
+        parse time) — exercises the verifier's own surface for the
+        'survived initial parsing' scenario in the spec."""
+        import numpy as np
+
+        machine = _machine(self.BASE)
+        machine.theta.rows[0].tensor = np.zeros((1, 2, 2))
+        result = verify(machine)
+        errors = [e for e in result.errors if e.code == "HEA_GRAM_INVALID"]
+        assert len(errors) == 1
+        assert errors[0].severity == "error"
+        assert "'a'" in errors[0].message
+
+    def test_non_hea_machine_bypasses_hea_dispatch(self):
+        """Bell-entangler has no `## encoding` section — Stage 4b SHALL
+        NOT invoke `compute_concept_gram_hea`."""
+        from unittest.mock import patch
+
+        machine = _machine(self.BELL)
+        # The HEA module imports the helper lazily inside the function,
+        # so patch the source module rather than the importer.
+        with patch(
+            "q_orca.compiler.concept_gram_hea.compute_concept_gram_hea"
+        ) as spy:
+            verify(machine)
+            assert spy.call_count == 0
+
+    def test_hea_check_skipped_under_skip_dynamic(self):
+        """The HEA check builds quantum statevectors via numpy, so it
+        SHALL be gated by `skip_dynamic` like the rest of Stage 4b.
+        With a programmatically broken theta, the check would normally
+        emit `HEA_GRAM_INVALID` — under `skip_dynamic=True` it must
+        not fire at all."""
+        import numpy as np
+        from unittest.mock import patch
+
+        machine = _machine(self.BASE)
+        machine.theta.rows[0].tensor = np.zeros((1, 2, 2))
+        with patch(
+            "q_orca.compiler.concept_gram_hea.compute_concept_gram_hea"
+        ) as spy:
+            result = verify(machine, VerifyOptions(skip_dynamic=True))
+            assert spy.call_count == 0
+        codes = [e.code for e in result.errors if e.severity == "error"]
+        assert "HEA_GRAM_INVALID" not in codes

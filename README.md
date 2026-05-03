@@ -9,7 +9,7 @@
 
 Q-Orca is a quantum-aware dialect of [Orca](https://github.com/orca-lang/orca-lang), a state machine language written in Markdown. It extends Orca with Dirac ket notation for quantum states, unitary gate actions, entanglement verification, and simulation via Qiskit.
 
-All 15 bundled example machines — from the original Bell / GHZ / Deutsch-Jozsa / Teleportation / VQE set through QAOA, predictive-coder, and LARQL polysemantic circuits — pass the full 5-stage verification pipeline on every commit, across Python 3.10–3.13.
+All 19 bundled example machines — from the original Bell / GHZ / Deutsch-Jozsa / Teleportation / VQE set through QAOA, predictive-coder, and LARQL polysemantic / HEA circuits — pass the full 5-stage verification pipeline on every commit, across Python 3.10–3.13.
 
 ---
 
@@ -342,6 +342,7 @@ q-orca simulate examples/bell-entangler.q.orca.md --run --json
 | `larql-polysemantic-12.q.orca.md` | 12-call-site parametric concept projection with uniform-overlap dictionary |
 | `larql-polysemantic-clusters.q.orca.md` | Block-structured 12-concept polysemy on a 3-qubit register (3 clusters of 4) |
 | `larql-polysemantic-hierarchical.q.orca.md` | Hierarchical 12-concept polysemy via bond-2 MPS encoding (3 super-groups × 2 sub-clusters × 2) |
+| `larql-hea-minimal.q.orca.md` | Rung-2 HEA encoding — 3-qubit depth-3 ring-entangler ansatz with explicit `## encoding` + `## theta` grammar (sub-cluster a–b vs outsider c) |
 | `larql-gate-knn-grover.q.orca.md` | Grover-amplified gate-KNN lookup (per-layer kernel of LARQL inference) |
 
 ### Hybrid Classical + Quantum Demo
@@ -1088,6 +1089,7 @@ Each of these entered main with a full OpenSpec proposal → implementation → 
 - ✅ **Bell-pair compiler fixture** — per-backend regression tests against the canonical two-qubit circuit *(`bell-pair-example`)*
 - ✅ **LARQL polysemantic clusters** — block-structured 12-concept polysemy on a 3-qubit register, matching the empirical signature reported by sparse-autoencoder studies of real transformer FFNs *(`add-polysemantic-clusters`)*
 - ✅ **MPS concept encoding (rung 1)** — hierarchical 12-concept polysemy on a bond-2 matrix product state via a cross-coupled CNOT-staircase preparation `Ry(q0,a); CNOT(q0,q1); Ry(q1,a+b); CNOT(q1,q2); Ry(q2,b+c)`; produces a four-tier Gram matrix (self / sub-cluster-mate / super-group-sibling / cross-group). *(`add-mps-concept-encoding` + `fix-mps-encoding-non-factorizing`, [PR #46](../../pull/46) / [PR #48](../../pull/48))*
+- ✅ **HEA concept encoding (rung 2)** — explicit `## encoding` + `## theta` grammar declares a hardware-efficient ansatz (kind/depth/entangler/rotations + per-concept θ tensor of shape `(|rotations|, depth, n)`); `compute_concept_gram_hea` builds each concept state and returns the analytic N×N overlap matrix, gated at Stage 4b by a consistency check that surfaces shape / call-site mismatches as `HEA_GRAM_INVALID`. Tier-ordering invariant grammar deferred to a follow-up. *(`add-rung2-hea-encoding`)*
 
 See each folder under [`openspec/changes/archive/`](openspec/changes/archive/) for the proposal, design, and scenarios that shipped.
 
