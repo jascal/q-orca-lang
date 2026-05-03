@@ -614,7 +614,7 @@ PR #48 (`fix-mps-encoding-non-factorizing` implementation). They are
 not example-library QA findings but the numbering continues §5 to
 keep the 2026-05-01 cluster contiguous.
 
-- [ ] 5.8 **`evaluate_angle` regression on scientific-notation
+- [x] 5.8 **`evaluate_angle` regression on scientific-notation
   literals.** Severity: HIGH. `q_orca/angle.py:127-164`. The new
   top-level `+`/`-` splitter (`_split_linear_combination`) walks
   character-by-character and treats any non-operator preceding char
@@ -629,6 +629,21 @@ keep the 2026-05-01 cluster contiguous.
   repo uses scientific notation today, so this is latent but real;
   add a regression test alongside the fix.
   (Source: 2026-05-01 PR #48 self-review.)
+  Added `_is_exponent_marker(text, j)` in `q_orca/angle.py` that
+  walks back through digits and at most one `.` to confirm `e`/`E`
+  sits on a numeric mantissa, and gated the splitter's split
+  decision on it. `1e-5` and `1e-5 + a` now evaluate cleanly;
+  `1e5-a` still splits correctly (the `5` before `-` is not an
+  exponent marker). Tests in
+  `tests/test_parser.py::TestEvaluateAngle::test_scientific_notation_literals`
+  (7 cases incl. `1E-5`, `1.5e-5`, `-1e-5`),
+  `test_scientific_notation_in_linear_combination` (4 cases),
+  and `test_non_exponent_e_still_splits` (a context field literally
+  named `e` does not suppress the split). Note: the
+  `evaluate_angle("1e-5*a", ...)` reproducer in the original task
+  body remains unsupported because `<float>*name` was never a
+  recognized form in `evaluate_angle` (only `<int>*name`); that is
+  a pre-existing limitation, not the regression — out of scope here.
 
 - [ ] 5.9 **Inverse-form `Ry(qs[k], -(a + b))` does not parse end-
   to-end.** Severity: HIGH. The language spec at

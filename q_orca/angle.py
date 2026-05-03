@@ -147,11 +147,12 @@ def _split_linear_combination(text: str) -> Optional[list[str]]:
             paren_depth -= 1
         elif paren_depth == 0 and c in "+-":
             # Distinguish a top-level operator from a unary sign attached
-            # to a preceding operator (e.g., ``2*-a`` shouldn't split here).
+            # to a preceding operator (e.g., ``2*-a`` shouldn't split here)
+            # or a scientific-notation exponent sign (e.g., ``1e-5``).
             j = i - 1
             while j >= 0 and text[j] == " ":
                 j -= 1
-            if j >= 0 and text[j] not in "+-*/(":
+            if j >= 0 and text[j] not in "+-*/(" and not _is_exponent_marker(text, j):
                 terms.append(text[start:i].strip())
                 start = i  # include the sign as part of the next term
                 i += 1
@@ -162,3 +163,27 @@ def _split_linear_combination(text: str) -> Optional[list[str]]:
         return None
     terms.append(text[start:].strip())
     return terms
+
+
+def _is_exponent_marker(text: str, j: int) -> bool:
+    """True if ``text[j]`` is an ``e``/``E`` acting as a scientific-notation
+    exponent marker, i.e., it is preceded by a numeric mantissa (digits with
+    at most one ``.``). Used by the linear-combination splitter to keep
+    ``1e-5`` from being split into ``[1e, -5]``.
+    """
+    if j < 0 or text[j] not in "eE":
+        return False
+    k = j - 1
+    saw_digit = False
+    saw_dot = False
+    while k >= 0:
+        c = text[k]
+        if c.isdigit():
+            saw_digit = True
+            k -= 1
+        elif c == "." and not saw_dot:
+            saw_dot = True
+            k -= 1
+        else:
+            break
+    return saw_digit
