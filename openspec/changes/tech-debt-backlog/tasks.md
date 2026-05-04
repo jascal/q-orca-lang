@@ -347,7 +347,7 @@
   parameters, no more, no less" so the requirement reads as
   intentional rather than illustrative.
 
-- [ ] 3.11 Wrap `float(b.value)` coercion in
+- [x] 3.11 Wrap `float(b.value)` coercion in
   `compute_concept_gram_mps` (`concept_gram_mps.py`, the per-call-site
   arity-validation block + the angle-matrix build a few lines below)
   with a `try/except ValueError` that re-raises as
@@ -361,6 +361,16 @@
   `QMachineDef`s programmatically, mirroring the rationale for the
   per-call-site arity guard added in PR #45.
   (Source: Claude Sonnet 4.6 code review on PR #45, suggestion 2.)
+  Folded the angle-matrix build into the existing per-call-site loop
+  so the arity guard and the float coercion share the same iteration
+  context. Each `float(b.value)` is now wrapped in
+  `try/except (TypeError, ValueError)`; on failure we raise
+  `MpsGramConfigurationError` naming the machine, the action, the call-
+  site index, the argument index, and the offending repr. Pinned by
+  `test_call_site_non_numeric_bound_argument_raises` in
+  `TestComputeConceptGramMps`, which mutates a parsed
+  `BoundArg.value` to a string and asserts the contextful error replaces
+  the bare `ValueError`.
 
 - [ ] 3.12 Vectorize the Gram double-loop in
   `compute_concept_gram_mps` (`concept_gram_mps.py:392-395`). The
@@ -490,7 +500,7 @@ remaining findings.
   AST + parser + two compilers + verifier.
   (Source: 2026-05-01 example library QA, bug 2.)
 
-- [ ] 5.2 **README example count is stale (15 → 16).** `README.md:12`
+- [x] 5.2 **README example count is stale (15 → 16).** `README.md:12`
   ("All 15 bundled example machines …") and `README.md:274` ("All
   bundled examples …") both reflect the pre-`larql-gate-knn-grover`
   count; `docs/compute-needs.md:155` has the same drift. There are 16
@@ -499,6 +509,14 @@ remaining findings.
   to derive the count from the directory rather than hardcoding it,
   or replace with "all bundled example machines" without a number.
   (Source: 2026-05-01 example library QA, overall verdict.)
+  Audit at fix time (2026-05-04, 19 examples in `examples/`):
+  `README.md:12` had already drifted forward to "All 19 bundled …"
+  via an interim PR; `README.md:274` was already number-free
+  ("All bundled examples …"); only `docs/compute-needs.md:155`
+  remained at "All 15 example machines" and was bumped to 19. No
+  derive-from-directory note added — the two surviving references are
+  in marketing/landing-page paragraphs where a concrete number reads
+  better than a generic one.
 
 - [ ] 5.3 **Stale syntax in `vqe-heisenberg.q.orca.md` and
   `predictive-coder-learning.q.orca.md` — they don't parse on the
@@ -666,7 +684,7 @@ keep the 2026-05-01 cluster contiguous.
   the spec promises both forms.
   (Source: 2026-05-01 PR #48 self-review.)
 
-- [ ] 5.10 **Test gap — bare-literal sad path uncovered.**
+- [x] 5.10 **Test gap — bare-literal sad path uncovered.**
   Severity: MEDIUM. The compiler spec scenario at
   `openspec/changes/fix-mps-encoding-non-factorizing/specs/compiler/spec.md:90-101`
   enumerates four trigger forms for `unrecognized_angle_expression`:
@@ -681,8 +699,14 @@ keep the 2026-05-01 cluster contiguous.
   `test_unrecognized_angle_expression_power_raises` to
   `TestComputeConceptGramMps`.
   (Source: 2026-05-01 PR #48 self-review.)
+  Added both tests in `TestComputeConceptGramMps`. The power test uses
+  `a**2` rather than `a^2` because the helper parses angle expressions
+  as Python AST and `a^2` becomes `BitXor(Name(a), Constant(2))` while
+  `a**2` becomes `BinOp(Pow, …)`; either trips the unsupported-node
+  branch with the same `unrecognized_angle_expression` kind, but the
+  test pins the more user-likely shape (`**` is exponentiation).
 
-- [ ] 5.11 **Test gap — inverse-form linear combination uncovered
+- [x] 5.11 **Test gap — inverse-form linear combination uncovered
   by focused unit test.** Severity: MEDIUM. All happy-path tests
   for cross-coupled angles in `tests/test_compiler.py` use the prep
   form (`prepare_concept`, `Ry(qs[0], a); ...; Ry(qs[2], b + c)`).
@@ -695,8 +719,16 @@ keep the 2026-05-01 cluster contiguous.
   constructs an inverse-form effect with `-a - b` and asserts the
   Gram matches the inverse of a prep-form Gram on the same angles.
   (Source: 2026-05-01 PR #48 self-review.)
+  Added `test_inverse_form_linear_combination_matches_prep_form` in
+  `TestComputeConceptGramMps`. It builds two machines on the same three
+  angle triples — preparation form `Ry(qs[0], a); …; Ry(qs[1], a + b);
+  …; Ry(qs[2], b + c)` versus inverse form `Ry(qs[2], -b - c); …;
+  Ry(qs[1], -a - b); …; Ry(qs[0], -a)` — and asserts
+  `|gram_inverse| == |gram_prep|` to 1e-12. Pins the helper's
+  cross-coupled inverse-form path against silent regressions in
+  `_parse_linear_combination` and the contraction path.
 
-- [ ] 5.12 **`_parse_linear_combination` rejects `2*-a`.**
+- [x] 5.12 **`_parse_linear_combination` rejects `2*-a`.**
   Severity: LOW. `q_orca/compiler/concept_gram_mps.py:147-165` only
   matches `Constant * Name` and `Name * Constant` for `Mult`; the
   AST shape `Constant * UnaryOp(USub, Name)` (i.e., `2*-a`) is
@@ -707,8 +739,21 @@ keep the 2026-05-01 cluster contiguous.
   a `Name`, multiply the constant into the sign and recurse, or
   permit `walk(other_operand, sign * float(const))`.
   (Source: 2026-05-01 PR #48 self-review.)
+  Refactored the Mult branch to extract a `_as_numeric_const` helper
+  that recognizes both bare `Constant` and `UnaryOp(USub|UAdd,
+  Constant)` shapes — so on top of `2*-a`, the canonical `-2*a` form
+  (which is `BinOp(Mult, UnaryOp(USub, Constant(2)), Name)` at the
+  AST level and was previously also rejected by the same fall-through)
+  now parses cleanly. Either side may carry the constant; if the
+  constant lives on the right (`a*-2`) the recursion lands on the
+  Name with the negated coefficient. Pinned by
+  `test_constant_times_negated_param_accepted`, which feeds both
+  shapes via the parser-bypass pattern (the user-facing template
+  validator still rejects either form upstream — this is a defense-in-
+  depth fix for programmatically-built machines and post-parse
+  effect mutation).
 
-- [ ] 5.13 **Misleading `_parse_linear_combination` error message
+- [x] 5.13 **Misleading `_parse_linear_combination` error message
   for all-constant products.** Severity: LOW. Same site as §5.12:
   `2*3` is rejected with `"product of two non-constant terms"` even
   though both terms *are* constants. The intent is to reject
@@ -718,6 +763,15 @@ keep the 2026-05-01 cluster contiguous.
   are constants, or short-circuit the case earlier with a clearer
   diagnostic.
   (Source: 2026-05-01 PR #48 self-review.)
+  Folded into the same Mult-branch refactor as §5.12. When both
+  operands resolve via `_as_numeric_const`, the helper now raises
+  `_NonLinearExpr("product of two numeric constants has no parameter
+  reference")` before falling through to the "two non-constant terms"
+  case (which only fires when at least one operand is genuinely non-
+  numeric). Pinned by
+  `test_constant_times_constant_error_mentions_no_parameter`, which
+  asserts the new wording lands and the misleading "non-constant"
+  phrase no longer appears for the all-constants case.
 
 - [ ] 5.14 **Polysemy column tabulates `0.000` for entries that
   compute as ~`1e-4`.** Severity: LOW.
@@ -731,7 +785,7 @@ keep the 2026-05-01 cluster contiguous.
   document the rounding convention in the surrounding paragraph.
   (Source: 2026-05-01 PR #48 self-review.)
 
-- [ ] 5.15 **Documentation/contract polish on
+- [x] 5.15 **Documentation/contract polish on
   `MpsGramConfigurationError` and the compiler spec example.**
   Severity: NIT. Two minor doc-vs-code mismatches:
     - `q_orca/compiler/concept_gram_mps.py:66-78`: the
@@ -750,6 +804,19 @@ keep the 2026-05-01 cluster contiguous.
       `a_value + b_value` form. Both satisfy the contract, but
       the spec example is misleading.
   (Source: 2026-05-01 PR #48 self-review.)
+  Bullet 1 was already addressed by an interim PR
+  (`extend-mps-matcher-rz-phases`): the docstring now lists both
+  `unrecognized_angle_expression` and `rz_in_inverse_form` and
+  explicitly notes that other configuration errors raise without a
+  `kind` and require message inspection. Bullet 2: updated the live
+  spec at `openspec/specs/language/spec.md:676-682` (the canonical
+  copy; the spec was promoted from the change directory into
+  `openspec/specs/` when `fix-mps-encoding-non-factorizing` was
+  archived). The spec now says the linear combination is "fully
+  evaluated to a numeric float at compile time" and uses
+  `qc.ry(-0.85, 2)` (verified against the live qiskit compiler output
+  for the canonical example) instead of the misleading symbolic
+  `qc.ry(a_value + b_value, 1)` form.
 
 - [ ] 5.16 **Inverse-form symmetry breaks when `Rz` enters the
   staircase, requiring the prep form for phase-knob examples.**
