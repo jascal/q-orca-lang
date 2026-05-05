@@ -645,7 +645,7 @@ keep the 2026-05-01 cluster contiguous.
   recognized form in `evaluate_angle` (only `<int>*name`); that is
   a pre-existing limitation, not the regression — out of scope here.
 
-- [ ] 5.9 **Inverse-form `Ry(qs[k], -(a + b))` does not parse end-
+- [x] 5.9 **Inverse-form `Ry(qs[k], -(a + b))` does not parse end-
   to-end.** Severity: HIGH. The language spec at
   `openspec/changes/fix-mps-encoding-non-factorizing/specs/language/spec.md:64-66`
   explicitly says `Ry(qs[k], -(a + b))` is "equivalently" valid
@@ -665,6 +665,21 @@ keep the 2026-05-01 cluster contiguous.
   shipped example sidesteps this by writing `-a - b`/`-b - c` — but
   the spec promises both forms.
   (Source: 2026-05-01 PR #48 self-review.)
+  Widened the angle capture in `_ROTATION_GATE_ANGLE_RE` to
+  `(?:[^()]|\([^()]*\))+` so a single level of nested parens is
+  matched whole rather than truncated at the inner `)`. Added a
+  `_strip_matched_outer_parens` helper in `q_orca/angle.py` and
+  called it from `evaluate_angle` immediately after sign extraction,
+  so `-(a + b)` becomes `sign * evaluate_angle("a + b", ctx)` and
+  the existing top-level `+`/`-` splitter handles the inner
+  combination. Tests in
+  `TestEvaluateAngle::test_parenthesized_expression` (8 cases incl.
+  `-(a + b)`, `(a) + (b)`, `(a + b) + c`, `-(pi/4)`) and
+  `TestEvaluateAngle::test_unbalanced_or_empty_parens_rejected`
+  (3 cases: `(a + b`, `a + b)`, `()`); end-to-end parse pinned by
+  `TestParametricTemplateBinding::test_inverse_form_paren_negation_parses_clean`
+  and `…_full_inverse_staircase`. Deeper nesting (e.g.
+  `-((a + b))`) is still unsupported — no shipped example needs it.
 
 - [ ] 5.10 **Test gap — bare-literal sad path uncovered.**
   Severity: MEDIUM. The compiler spec scenario at

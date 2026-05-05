@@ -30,6 +30,12 @@ def evaluate_angle(
     using ``+`` and ``-`` operators (e.g., ``a + b``, ``-a - b``,
     ``2*pi + gamma``). Terms are evaluated recursively and summed.
 
+    A whole expression may also be wrapped in matched outer parens
+    (e.g., ``(a + b)``, ``-(a + b)``); the parens are stripped and the inner
+    expression is evaluated recursively. This makes inverse-form angle
+    expressions like ``Ry(qs[k], -(a + b))`` (the negation of a linear
+    combination) evaluate equivalently to ``-a - b``.
+
     Literal forms are tried first, so a context field literally named ``pi``
     cannot shadow the ``pi`` literal.
 
@@ -48,6 +54,13 @@ def evaluate_angle(
         text = text[1:].strip()
     elif text.startswith("+"):
         text = text[1:].strip()
+
+    # Parenthesized expression: strip a single matched outer ``(...)`` and
+    # recurse on the inner. Handles ``-(a + b)`` (sign already pulled off
+    # above) and ``(a + b)`` uniformly.
+    inner = _strip_matched_outer_parens(text)
+    if inner is not None:
+        return sign * evaluate_angle(inner, context)
 
     # Decimal literal
     try:
@@ -163,6 +176,28 @@ def _split_linear_combination(text: str) -> Optional[list[str]]:
         return None
     terms.append(text[start:].strip())
     return terms
+
+
+def _strip_matched_outer_parens(text: str) -> Optional[str]:
+    """If ``text`` is wrapped in a single matched pair of outer parens,
+    return the inner text; otherwise return ``None``.
+
+    ``"(a + b)"`` -> ``"a + b"``. ``"(a) + (b)"`` -> ``None`` (the outer
+    parens close before the end). ``"(a + b"`` -> ``None`` (unbalanced).
+    """
+    if not (text.startswith("(") and text.endswith(")")):
+        return None
+    depth = 0
+    for k, c in enumerate(text):
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0 and k != len(text) - 1:
+                return None
+    if depth != 0:
+        return None
+    return text[1:-1]
 
 
 def _is_exponent_marker(text: str, j: int) -> bool:
