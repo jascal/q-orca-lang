@@ -155,3 +155,73 @@ def test_format_resource_report_pass_and_fail():
     report = format_resource_report(m, r)
     assert "cx_count" in report and "<= 2" in report and "✓" in report
     assert "gate_count" in report and "<= 0" in report and "✗" in report
+
+
+def test_compound_conditional_counts_as_single_gate():
+    """A compound `if bits[0]==1 and bits[1]==0 and bits[2]==1: X(qs[3])`
+    must contribute 1 to gate_count (the top-level if_else op), and 0 to
+    cx_count / t_count — the conjunction is classical control flow and
+    SHALL NOT inflate gate counts past the gate inside the conditional.
+    """
+    src = """\
+# machine ThreeClauseConditional
+
+## context
+| Field | Type | Default |
+|-------|------|---------|
+| qubits | list<qubit> | [q0, q1, q2, q3] |
+| bits | list<bit> | [b0, b1, b2] |
+
+## events
+- seed
+- m0
+- m1
+- m2
+- correct
+
+## state |a> [initial]
+## state |b>
+## state |c>
+## state |d>
+## state |e>
+## state |f> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |a> | seed | | |b> | seed |
+| |b> | m0 | | |c> | meas0 |
+| |c> | m1 | | |d> | meas1 |
+| |d> | m2 | | |e> | meas2 |
+| |e> | correct | | |f> | corr_compound |
+
+## actions
+| Name | Signature | Effect |
+|------|-----------|--------|
+| seed | (qs) -> qs | H(qs[0]) |
+| meas0 | (qs) -> qs | measure(qs[0]) -> bits[0] |
+| meas1 | (qs) -> qs | measure(qs[1]) -> bits[1] |
+| meas2 | (qs) -> qs | measure(qs[2]) -> bits[2] |
+| corr_compound | (qs) -> qs | if bits[0] == 1 and bits[1] == 0 and bits[2] == 1: X(qs[3]) |
+"""
+    m = parse_q_orca_markdown(src).file.machines[0]
+    r = estimate_resources(m)
+    # 1 H + 3 measures + 1 outer if_else (compound nests fold into one
+    # top-level op) = 5. Critically, the 3 clauses do not inflate this
+    # to 7 (which would happen if every nested if_test were a separate
+    # top-level op).
+    assert r["gate_count"] == 5
+    assert r["cx_count"] == 0
+    assert r["t_count"] == 0
+
+
+def test_bit_flip_syndrome_resources():
+    m = _load("bit-flip-syndrome.q.orca.md")
+    r = estimate_resources(m)
+    # 4 CNOT (entangle) + 2 measure + 3 if_else (one per compound
+    # correction) = 9. If compound conditionals were unrolled per
+    # clause, this would jump to 13.
+    assert r["gate_count"] == 9
+    assert r["cx_count"] == 4
+    assert r["t_count"] == 0
+    assert r["logical_qubits"] == 5

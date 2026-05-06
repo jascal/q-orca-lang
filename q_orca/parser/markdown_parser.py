@@ -1625,28 +1625,63 @@ def _parse_mid_circuit_measure_from_effect(effect_str: str) -> Optional[QEffectM
     return None
 
 
+_CONDITIONAL_HEAD_RE = re.compile(
+    r"if\s+bits\[(\d+)\]\s*==\s*(\d+)", re.IGNORECASE,
+)
+_CONDITIONAL_AND_RE = re.compile(
+    r"\s+and\s+bits\[(\d+)\]\s*==\s*(\d+)", re.IGNORECASE,
+)
+
+
 def _parse_conditional_gate_from_effect(
     effect_str: str,
     errors: list[str] | None = None,
     action_name: str = "",
     angle_context: dict[str, float] | None = None,
 ) -> Optional[QEffectConditional]:
-    """Parse 'if bits[M] == val: Gate(qs[K])' into QEffectConditional."""
+    """Parse 'if bits[M] == val [and bits[N] == val ...]: Gate(...)'.
+
+    The condition list is short-circuit AND across `(bit_idx, value)`
+    clauses; the gate fires only when every clause holds.
+    """
     if not effect_str:
         return None
-    m = re.match(
-        r"if\s+bits\[(\d+)\]\s*==\s*(\d+)\s*:\s*(.+)$",
-        effect_str.strip(), re.IGNORECASE,
-    )
-    if not m:
+    text = effect_str.strip()
+    head = _CONDITIONAL_HEAD_RE.match(text)
+    if not head:
         return None
-    bit_idx = int(m.group(1))
-    value = int(m.group(2))
-    gate_str = m.group(3).strip()
+    conditions: list[tuple[int, int]] = [(int(head.group(1)), int(head.group(2)))]
+    pos = head.end()
+    while True:
+        tail = _CONDITIONAL_AND_RE.match(text, pos)
+        if not tail:
+            break
+        conditions.append((int(tail.group(1)), int(tail.group(2))))
+        pos = tail.end()
+    rest = text[pos:].lstrip()
+    if not rest.startswith(":"):
+        return None
+    gate_str = rest[1:].strip()
+
+    seen: dict[int, int] = {}
+    for bit_idx, value in conditions:
+        if bit_idx in seen and seen[bit_idx] != value:
+            if errors is not None:
+                errors.append(
+                    f"action {action_name!r}: conditional gate has conflicting "
+                    f"clauses for bits[{bit_idx}] (declared both =={seen[bit_idx]} "
+                    f"and =={value}); the gate would never fire."
+                )
+            return None
+        seen[bit_idx] = value
+
     gate = _parse_gate_from_effect(gate_str, errors=errors, action_name=action_name, angle_context=angle_context)
     if gate is None:
         return None
-    return QEffectConditional(bit_idx=bit_idx, value=value, gate=gate)
+    head_bit, head_val = conditions[0]
+    return QEffectConditional(
+        bit_idx=head_bit, value=head_val, gate=gate, conditions=conditions
+    )
 
 
 # ============================================================

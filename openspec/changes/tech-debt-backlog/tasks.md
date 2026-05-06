@@ -457,7 +457,7 @@ in-place (qs[0] → qs[2] on `apply_Z` / `apply_X` / `apply_XZ` in
 `examples/quantum-teleportation.q.orca.md`); items below are the
 remaining findings.
 
-- [ ] 5.1 **bit-flip-syndrome.q.orca.md: missing (1,1) syndrome
+- [x] 5.1 **bit-flip-syndrome.q.orca.md: missing (1,1) syndrome
   produces wrong corrections.** Today the example has two correction
   actions — `correct_q0: if bits[0] == 1: X(qs[0])` and `correct_q2:
   if bits[1] == 1: X(qs[2])`. Under syndrome (1,1) the error sits on
@@ -499,6 +499,16 @@ remaining findings.
   (`extend-conditional-gate-compound-bits`) per §5.1 since it touches
   AST + parser + two compilers + verifier.
   (Source: 2026-05-01 example library QA, bug 2.)
+  Closed via the dedicated
+  `extend-conditional-gate-compound-bits` OpenSpec change: AST gained
+  `QEffectConditional.conditions: list[tuple[int, int]]`, the parser
+  recognises `and`-joined clauses (rejecting same-bit conflicts), both
+  compilers emit compound conditionals (QASM `&&`, Qiskit nested
+  `if_test`), the verifier registers every clause bit as fed-forward,
+  the example now ships three compound-condition corrections covering
+  all four syndrome patterns, and `tests/test_bit_flip_syndrome.py`
+  pins the round-trip via aer-gated behavior tests for (0,0), (1,0),
+  (1,1), and (0,1).
 
 - [x] 5.2 **README example count is stale (15 → 16).** `README.md:12`
   ("All 15 bundled example machines …") and `README.md:274` ("All

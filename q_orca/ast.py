@@ -203,10 +203,25 @@ class QEffectMeasure:
 
 @dataclass
 class QEffectConditional:
-    """Classical feedforward: if bits[M] == val, apply gate to qubit K."""
+    """Classical feedforward: if every (bits[i] == v) holds, apply gate.
+
+    `conditions` is the ordered list of `(bit_idx, value)` clauses joined
+    by short-circuit AND. The legacy single-condition form parses to a
+    length-1 list. `bit_idx` and `value` mirror `conditions[0]` for
+    read-only consumers that haven't migrated yet.
+    """
     bit_idx: int
     value: int  # 0 or 1
     gate: QuantumGate
+    conditions: list[tuple[int, int]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.conditions:
+            self.conditions = [(self.bit_idx, self.value)]
+        else:
+            head_bit, head_val = self.conditions[0]
+            self.bit_idx = head_bit
+            self.value = head_val
 
 
 @dataclass
