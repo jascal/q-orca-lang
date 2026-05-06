@@ -390,7 +390,7 @@
   Related to the N ≈ 1K statevector-path wall discussed in
   `docs/research/polysemantic-encoding-beyond-product-states.md`.)
 
-- [ ] 3.13 Promote `_infer_qubit_count` from
+- [x] 3.13 Promote `_infer_qubit_count` from
   `q_orca/compiler/qasm.py` to a public helper in a shared module
   (e.g. `q_orca/compiler/util.py`). Both `compute_concept_gram` and
   `compute_concept_gram_mps` reach into the qasm module's underscored
@@ -401,6 +401,24 @@
   concept-gram helpers (and any future caller) to import from the
   new location.
   (Source: Claude Sonnet 4.6 code review on PR #45, suggestion 6.)
+  Created `q_orca/compiler/util.py` and moved the helper there as
+  the public `infer_qubit_count`. `q_orca/compiler/qasm.py` now
+  imports it as `_infer_qubit_count = infer_qubit_count` so internal
+  qasm callers and the existing `tests/test_bug_fixes.py` parity
+  tests (`TestQubitCountInferenceQasmParity`) keep working without
+  churn. Updated `q_orca/compiler/concept_gram_mps.py` and
+  `q_orca/compiler/concept_gram_hea.py` to import the public name
+  from the new location instead of reaching into qasm's underscored
+  surface. (`concept_gram.py` is fixed at 3 qubits and never imported
+  the helper, contrary to the original task body — only the MPS and
+  HEA helpers needed updating.) The other three peer copies in
+  `q_orca/compiler/qiskit.py`, `q_orca/compiler/cudaq.py`, and
+  `q_orca/verifier/dynamic.py` remain in place; consolidating those
+  is out of scope for this entry, which targeted the specific
+  cross-module reach that PR #45's review flagged. Pinned by
+  `TestInferQubitCountPublicHelper` in `tests/test_compiler.py`,
+  including a `qasm_alias is infer_qubit_count` identity assertion
+  so a future accidental re-shadowing in qasm fails loudly.
 
 ## 4. MCP server / skills
 

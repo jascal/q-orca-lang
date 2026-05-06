@@ -46,7 +46,7 @@ from q_orca.compiler.concept_gram_mps import (
     _ry_matrix,
     _rz_matrix,
 )
-from q_orca.compiler.qasm import _infer_qubit_count
+from q_orca.compiler.util import infer_qubit_count
 
 if TYPE_CHECKING:
     import numpy as np
@@ -165,7 +165,7 @@ def compute_concept_gram_hea(
             f"declaring per-concept tensors"
         )
 
-    n_qubits = _infer_qubit_count(machine)
+    n_qubits = infer_qubit_count(machine)
     if n_qubits <= 0:
         raise HeaGramConfigurationError(
             f"machine {machine.name!r}: could not infer a qubit "
