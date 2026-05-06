@@ -1476,11 +1476,17 @@ def _looks_like_gate_call(effect_str: str) -> bool:
 # rotation (e.g. `MCRx(qs[0], qs[1], qs[2], theta)`) would not match here and
 # must either extend this regex or land with its own template-time validation
 # path; missing the match silently skips the angle-binding check.
+#
+# The angle slot accepts one level of nested parens so inverse-form linear
+# combinations like ``Ry(qs[k], -(a + b))`` (spec'd in
+# ``fix-mps-encoding-non-factorizing``) capture the full ``-(a + b)``
+# expression rather than truncating at the inner ``)``. Deeper nesting is
+# not currently required by any shipped example.
 _ROTATION_GATE_ANGLE_RE = re.compile(
     r"(?P<name>CRx|CRy|CRz|RXX|RYY|RZZ|Rx|Ry|Rz)"
     r"\(\s*\w+\[[^\]]+\]\s*"
     r"(?:,\s*\w+\[[^\]]+\]\s*)?"
-    r",\s*(?P<angle>[^)]+)\)",
+    r",\s*(?P<angle>(?:[^()]|\([^()]*\))+)\)",
     re.IGNORECASE,
 )
 

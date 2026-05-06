@@ -385,6 +385,41 @@ class TestEvaluateAngle:
         # suppress the top-level split.
         assert evaluate_angle("e + a", {"e": 0.2, "a": 0.3}) == pytest.approx(0.5, rel=1e-9)
 
+    @pytest.mark.parametrize("text,ctx,expected", [
+        # Bare parenthesized linear combination matches the inner sum.
+        ("(a + b)", {"a": 0.1, "b": 0.2}, 0.3),
+        # Negated parenthesized linear combination — the inverse-form shape
+        # `-(a + b)` spec'd in fix-mps-encoding-non-factorizing.
+        ("-(a + b)", {"a": 0.1, "b": 0.2}, -0.3),
+        ("-(a+b)", {"a": 0.1, "b": 0.2}, -0.3),
+        ("-(b + c)", {"b": 0.2, "c": 0.3}, -0.5),
+        # Single-term wrapped in parens is still a valid expression.
+        ("(a)", {"a": 0.1}, 0.1),
+        # Negated paren with a literal expression inside.
+        ("-(pi/4)", None, -math.pi / 4),
+        # Two adjacent paren groups joined by `+` — splitter must split at
+        # the top-level `+` even though both terms are wrapped.
+        ("(a) + (b)", {"a": 0.1, "b": 0.2}, 0.3),
+        # Paren group + bare term.
+        ("(a + b) + c", {"a": 0.1, "b": 0.2, "c": 0.3}, 0.6),
+    ])
+    def test_parenthesized_expression(self, text, ctx, expected):
+        # tech-debt-backlog §5.9: `Ry(qs[k], -(a + b))` is spec'd as
+        # equivalent to `Ry(qs[k], -a - b)`. The evaluator must strip a
+        # single matched outer paren pair and recurse on the inner.
+        assert evaluate_angle(text, ctx) == pytest.approx(expected, rel=1e-9)
+
+    @pytest.mark.parametrize("text", [
+        # Mismatched / unbalanced parens.
+        "(a + b",
+        "a + b)",
+        # Empty parens are not a valid expression.
+        "()",
+    ])
+    def test_unbalanced_or_empty_parens_rejected(self, text):
+        with pytest.raises(ValueError):
+            evaluate_angle(text, {"a": 0.1, "b": 0.2})
+
 
 _ROTATION_MACHINE = """\
 # machine RotationTest
@@ -1101,6 +1136,40 @@ class TestParametricTemplateBinding:
         result = self._parse_action("(qs, c: int) -> qs", "Hadamard(qs[c+1])")
         assert any(
             "invalid subscript" in e for e in result.errors
+        ), result.errors
+
+    def test_inverse_form_paren_negation_parses_clean(self):
+        # tech-debt-backlog §5.9 / fix-mps-encoding-non-factorizing language
+        # spec lines 64-66: `Ry(qs[k], -(a + b))` is equivalent to
+        # `Ry(qs[k], -a - b)`. Two parser-side defects used to block this:
+        # (a) the rotation-gate angle regex captured `[^)]+` and truncated
+        #     `-(a + b)` to `-(a+b` at the inner `)`;
+        # (b) the angle evaluator did not recurse into outer parens, so
+        #     even with a balanced capture `-(a + b)` raised.
+        # This test pins both fixes by parsing an inverse-form parametric
+        # template end-to-end.
+        result = self._parse_action(
+            "(qs, a: angle, b: angle) -> qs",
+            "Ry(qs[0], -(a + b))",
+        )
+        assert not any(
+            "unbound identifier" in e or "unrecognized angle" in e
+            for e in result.errors
+        ), result.errors
+
+    def test_inverse_form_paren_negation_full_inverse_staircase(self):
+        # The shipped inverse staircase shape from
+        # `larql-polysemantic-hierarchical.q.orca.md` (after the §5.9 fix
+        # also accepts `-(b + c)` in the head slot in addition to the
+        # `-b - c` form).
+        result = self._parse_action(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[2], -(b + c)); CNOT(qs[1], qs[2]); "
+            "Ry(qs[1], -b); CNOT(qs[0], qs[1]); Ry(qs[0], -a)",
+        )
+        assert not any(
+            "unbound identifier" in e or "unrecognized angle" in e
+            for e in result.errors
         ), result.errors
 
 
