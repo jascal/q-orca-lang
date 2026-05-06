@@ -900,6 +900,32 @@ keep the 2026-05-01 cluster contiguous.
   the loud-error guard is likely sufficient.
   (Source: 2026-05-01 `extend-mps-matcher-rz-phases` PR.)
 
+- [ ] 5.17 **`estimate_resources` raises `TranspilerError` on circuits
+  with `if_else` blocks under qiskit ≥ 2.4.** Severity: MEDIUM. Surface:
+  `q_orca/compiler/resources.py:42-46` calls `transpile(qc,
+  basis_gates=['u3', 'cx'], optimization_level=1)` and a sibling call
+  with the Clifford+T basis. Qiskit 2.4.1's `BasisTranslator` rejects
+  control-flow ops because no equivalence rule decomposes `if_else`
+  into `u3 + cx`. Repro: `estimate_resources` on
+  `examples/bit-flip-syndrome.q.orca.md` (or any machine with a
+  conditional gate). The bug is silent on qiskit 2.3.x (the local dev
+  baseline at the time of `extend-conditional-gate-compound-bits`) but
+  surfaces on 2.4.x (CI). Fix shape: catch `TranspilerError` and fall
+  back to manual op-walking that descends into each `if_else` block's
+  inner `QuantumCircuit` and accumulates `cx` / `t` / `tdg` counts
+  there too — the conjunction is classical control flow and the inner
+  gate is what the spec wants counted. `gate_count` should keep
+  collapsing nested compound conditionals to a single top-level
+  `if_else` op (per `extend-conditional-gate-compound-bits`); only
+  `cx_count` / `t_count` need the descent. Add regression coverage in
+  `tests/test_resource_estimation.py` against a single-cond and a
+  compound-cond machine.
+  (Source: 2026-05-06 `extend-conditional-gate-compound-bits` PR #62 CI
+  fail, https://github.com/jascal/q-orca-lang/actions/runs/25450682232.
+  Worked around in PR #62 by switching the new compound-conditional
+  resource tests to `count_ops()` directly so they don't pay the
+  transpile cost.)
+
 ## 6. How to use this file
 
 - [x] 6.1 **Meta**: when an item is fixed, leave the task checked
