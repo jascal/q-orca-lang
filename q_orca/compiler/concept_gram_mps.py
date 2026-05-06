@@ -158,6 +158,20 @@ def _parse_linear_combination(
 
     coeffs: dict[str, float] = {}
 
+    def _as_numeric_const(n: ast.AST) -> float | None:
+        """Return the numeric value of a Constant, or of a unary
+        ``+``/``-`` wrapping a numeric constant (so both ``2`` and
+        ``-2`` register as numeric coefficients in a Mult node). Returns
+        ``None`` otherwise."""
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return float(n.value)
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.USub):
+            inner = _as_numeric_const(n.operand)
+            return None if inner is None else -inner
+        if isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.UAdd):
+            return _as_numeric_const(n.operand)
+        return None
+
     def add(name: str, value: float) -> None:
         if name not in param_names:
             raise _NonLinearExpr(
@@ -180,19 +194,17 @@ def _parse_linear_combination(
             walk(node.left, sign)
             walk(node.right, -sign)
         elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
-            left, right = node.left, node.right
-            if (
-                isinstance(left, ast.Constant)
-                and isinstance(left.value, (int, float))
-                and isinstance(right, ast.Name)
-            ):
-                add(right.id, sign * float(left.value))
-            elif (
-                isinstance(right, ast.Constant)
-                and isinstance(right.value, (int, float))
-                and isinstance(left, ast.Name)
-            ):
-                add(left.id, sign * float(right.value))
+            left_val = _as_numeric_const(node.left)
+            right_val = _as_numeric_const(node.right)
+            if left_val is not None and right_val is not None:
+                raise _NonLinearExpr(
+                    "product of two numeric constants has no parameter "
+                    "reference"
+                )
+            if left_val is not None:
+                walk(node.right, sign * left_val)
+            elif right_val is not None:
+                walk(node.left, sign * right_val)
             else:
                 raise _NonLinearExpr(
                     "product of two non-constant terms is not a "
@@ -600,7 +612,8 @@ def compute_concept_gram_mps(
         )
 
     n_params = len(action.parameters)
-    for t in call_sites:
+    angle_rows: list[list[float]] = []
+    for site_idx, t in enumerate(call_sites):
         if len(t.bound_arguments) != n_params:
             raise MpsGramConfigurationError(
                 f"machine {machine.name!r}: call site to "
@@ -608,11 +621,21 @@ def compute_concept_gram_mps(
                 f"arguments; expected exactly {n_params} angle literals "
                 f"(one per parameter of the action's signature)"
             )
+        row: list[float] = []
+        for arg_idx, b in enumerate(t.bound_arguments):
+            try:
+                row.append(float(b.value))
+            except (TypeError, ValueError) as e:
+                raise MpsGramConfigurationError(
+                    f"machine {machine.name!r}: call site #{site_idx} to "
+                    f"{concept_action_label!r}: argument #{arg_idx} value "
+                    f"{b.value!r} cannot be coerced to float ({e}); mps "
+                    f"concept-gram requires every bound argument to be a "
+                    f"numeric angle literal"
+                ) from e
+        angle_rows.append(row)
 
-    angles = np.array(
-        [[float(b.value) for b in t.bound_arguments] for t in call_sites],
-        dtype=float,
-    )
+    angles = np.array(angle_rows, dtype=float)
     n_calls = len(angles)
 
     # TODO(deferred): replace this 2^n statevector simulation with an

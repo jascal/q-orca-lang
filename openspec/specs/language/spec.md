@@ -675,9 +675,11 @@ polysemantic example family.
 - **AND** the Qiskit script contains `QuantumCircuit(3)`
 - **AND** the Qiskit script contains both `qc.ry(` calls and
   `qc.cx(` calls in the expected staircase pattern, with the
-  second and third `qc.ry(` calls receiving the *evaluated* linear
-  combination (e.g., `qc.ry(a_value + b_value, 1)`) rather than a
-  single bound parameter
+  second and third `qc.ry(` calls receiving the linear combination
+  *fully evaluated to a numeric float at compile time* (e.g.,
+  `qc.ry(-0.85, 2)` for the bound triple `a=0.0, b=-0.5, c=-0.35`)
+  rather than a symbolic `a_value + b_value` form or a single
+  bound parameter
 - **AND** the total number of `qc.ry(` calls matches the per-
   call-site expansion (3 for prepare + 3 × 12 = 36 for queries,
   total 39)

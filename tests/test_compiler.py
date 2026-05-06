@@ -1748,6 +1748,189 @@ class TestComputeConceptGramMps:
         assert exc_info.value.kind == "unrecognized_angle_expression"
         assert "phi * a" in str(exc_info.value)
 
+    # ------------------------------------------------------------------
+    # tech-debt-backlog §5.10 / §5.11 / §5.12 / §5.13 / §3.11 coverage:
+    # additional sad/happy paths that pin parser corner cases and the
+    # contextful float-coercion guard added in §3.11.
+    # ------------------------------------------------------------------
+
+    def test_unrecognized_angle_expression_bare_literal_raises(self):
+        """A bare numeric literal in a Ry slot (no parameter reference) is
+        rejected with `unrecognized_angle_expression`. Pinned per
+        tech-debt-backlog §5.10 — the spec scenario at
+        ``fix-mps-encoding-non-factorizing/specs/compiler/spec.md``
+        explicitly enumerates ``Ry(qs[1], 2.5)`` as a trigger form."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            ["0.1, 0.2, 0.3"],
+        )
+        action = next(a for a in machine.actions if a.name == "query_concept")
+        action.effect = (
+            "Ry(qs[2], -c); CNOT(qs[1], qs[2]); Ry(qs[1], 2.5); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], -a)"
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        assert exc_info.value.kind == "unrecognized_angle_expression"
+        message = str(exc_info.value)
+        assert "2.5" in message
+        assert "linear combination" in message
+
+    def test_unrecognized_angle_expression_power_raises(self):
+        """An `a**2` (Python `Pow`) angle expression is rejected with
+        `unrecognized_angle_expression`. The spec scenario lists ``a^2``
+        as a trigger form; the helper parses angle expressions as Python
+        AST, so `a^2` (BitXor) and `a**2` (Pow) both fall through to the
+        unsupported-node branch. Pinned per tech-debt-backlog §5.10."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            ["0.1, 0.2, 0.3"],
+        )
+        action = next(a for a in machine.actions if a.name == "query_concept")
+        action.effect = (
+            "Ry(qs[2], -c); CNOT(qs[1], qs[2]); Ry(qs[1], a**2); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], -a)"
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        assert exc_info.value.kind == "unrecognized_angle_expression"
+        assert "a**2" in str(exc_info.value)
+
+    def test_inverse_form_linear_combination_matches_prep_form(self):
+        """The inverse (query) form with a cross-coupled linear-combination
+        angle (``-a - b``) MUST produce a Gram whose magnitude equals that
+        of the equivalent prep form ``a + b``. The helper's `is_inverse`
+        path through `_parse_linear_combination` is otherwise only covered
+        transitively by the example-pipeline test; this pins it directly.
+        Pinned per tech-debt-backlog §5.11."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
+
+        triples = ["0.4, 1.1, 0.7", "0.3, -0.2, 0.5", "0.1, 0.05, -0.3"]
+
+        prep = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Ry(qs[1], a + b); "
+            "CNOT(qs[1], qs[2]); Ry(qs[2], b + c)",
+            triples,
+            action_name="prepare_concept",
+        )
+        inverse = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[2], -b - c); CNOT(qs[1], qs[2]); Ry(qs[1], -a - b); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], -a)",
+            triples,
+        )
+        g_prep = compute_concept_gram_mps(
+            prep, concept_action_label="prepare_concept"
+        )
+        g_inverse = compute_concept_gram_mps(inverse)
+        np.testing.assert_allclose(
+            np.abs(g_inverse), np.abs(g_prep), atol=1e-12
+        )
+
+    def test_constant_times_negated_param_accepted(self):
+        """The Mult branch of `_parse_linear_combination` SHALL handle
+        ``2*-a`` (i.e., ``Constant * UnaryOp(USub, Name)``) by folding
+        the constant into the sign and recursing on the unary operand.
+        The user-facing parser's parametric-template validator rejects
+        both ``2*-a`` and ``-2*a`` shapes upstream, so this defense-in-
+        depth fix only matters when callers build a `QMachineDef`
+        programmatically (or mutate an `action.effect` post-parse). Pin
+        the helper-level acceptance via the same parser-bypass approach
+        used by the other ``unrecognized_angle_expression`` tests.
+        Pinned per tech-debt-backlog §5.12."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
+
+        def _gram_from_effect(effect: str):
+            machine = self._make_machine(
+                "(qs, a: angle, b: angle, c: angle) -> qs",
+                self._staircase_inverse(3),
+                ["0.1, 0.2, 0.3", "0.4, 0.5, 0.6"],
+            )
+            action = next(
+                a for a in machine.actions if a.name == "query_concept"
+            )
+            action.effect = effect
+            return compute_concept_gram_mps(machine)
+
+        # Inverse-form staircase with -2·a on the inner Ry — feed via the
+        # ``2*-a`` shape and the canonical ``-2*a`` shape, both bypassing
+        # the parser's template validator (which rejects either form).
+        # Both must reach the helper and produce identical Grams.
+        eff_negated = (
+            "Ry(qs[2], -c); CNOT(qs[1], qs[2]); Ry(qs[1], 2*-a); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], -a)"
+        )
+        eff_canonical = (
+            "Ry(qs[2], -c); CNOT(qs[1], qs[2]); Ry(qs[1], -2*a); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], -a)"
+        )
+        g_negated = _gram_from_effect(eff_negated)
+        g_canonical = _gram_from_effect(eff_canonical)
+        np.testing.assert_allclose(g_negated, g_canonical, atol=1e-12)
+
+    def test_constant_times_constant_error_mentions_no_parameter(self):
+        """When both Mult operands are numeric constants (e.g., ``2*3``),
+        the rejection message SHALL identify the failure as "no parameter
+        reference" rather than "two non-constant terms" (which is true
+        but misleading). Pinned per tech-debt-backlog §5.13."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            ["0.1, 0.2, 0.3"],
+        )
+        action = next(a for a in machine.actions if a.name == "query_concept")
+        action.effect = (
+            "Ry(qs[2], -c); CNOT(qs[1], qs[2]); Ry(qs[1], 2*3); "
+            "CNOT(qs[0], qs[1]); Ry(qs[0], -a)"
+        )
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        assert exc_info.value.kind == "unrecognized_angle_expression"
+        message = str(exc_info.value)
+        assert "no parameter reference" in message
+        # The previous "product of two non-constant terms" wording was
+        # technically true but misleading for the all-constants case.
+        assert "non-constant" not in message
+
+    def test_call_site_non_numeric_bound_argument_raises(self):
+        """A non-numeric `BoundArg.value` at a call site (e.g., a
+        programmatically-built machine that injected a string where a
+        float literal belongs) SHALL surface a contextful
+        `MpsGramConfigurationError` naming the call site, action, and
+        offending value — not a bare `ValueError` from the float
+        coercion. Pinned per tech-debt-backlog §3.11."""
+        from q_orca import MpsGramConfigurationError, compute_concept_gram_mps
+
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            self._staircase_inverse(3),
+            ["0.1, 0.2, 0.3", "0.4, 0.5, 0.6"],
+        )
+        # Mimic a hand-built machine that bypassed parser-level numeric
+        # validation and produced a string in `bound_arguments[1].value`.
+        machine.transitions[1].bound_arguments[1].value = "not a number"
+        with pytest.raises(MpsGramConfigurationError) as exc_info:
+            compute_concept_gram_mps(machine)
+        message = str(exc_info.value)
+        assert "query_concept" in message
+        assert "call site #1" in message
+        assert "argument #1" in message
+        assert "'not a number'" in message
+        assert "cannot be coerced to float" in message
+
 
 class TestComputeConceptGramHea:
     """Covers the `compute_concept_gram_hea` analysis helper (Section 2 of
