@@ -5,6 +5,10 @@
 > angle `theta_0` from the measured error bit on each iteration and
 > terminating when `ctx.iteration >= max_iter`.
 >
+> The three rotation angles are stored as scalar fields `theta_0`,
+> `theta_1`, `theta_2` because the current parser restricts angle
+> expressions in rotation gates to bare context-field references.
+>
 > This is the machine spec from the research doc
 > `docs/research/spec-quantum-predictive-coder.md` §Next concrete steps,
 > implemented against the iterative runtime landed by
@@ -16,7 +20,9 @@
 |-----------|-------------|-------------------|
 | qubits    | list<qubit> | [q0, q1, q2]      |
 | bits      | list<bit>   | [b_err]           |
-| theta     | list<float> | [0.5, 0.3, 0.7]   |
+| theta_0   | float       | 0.5               |
+| theta_1   | float       | 0.3               |
+| theta_2   | float       | 0.7               |
 | eta       | float       | 0.05              |
 | iteration | int         | 0                 |
 | max_iter  | int         | 3                 |
@@ -38,8 +44,8 @@
 
 ## state |prior_ready>
 
-> Model qubit q0 prepared by Ry·Rz·Rx(theta[0], theta[1], theta[2])|0⟩.
-> On iterations > 0 this state is re-entered with a mutated `theta[0]`.
+> Model qubit q0 prepared by Ry·Rz·Rx(theta_0, theta_1, theta_2)|0⟩.
+> On iterations > 0 this state is re-entered with a mutated `theta_0`.
 
 ## state |joined>
 
@@ -57,13 +63,13 @@
 
 ## state |model_updated>
 
-> `gradient_step` has applied `theta[0] -= eta` (bit = 1) or
-> `theta[0] += eta` (bit = 0) to the runtime context.
+> `gradient_step` has applied `theta_0 -= eta` (bit = 1) or
+> `theta_0 += eta` (bit = 0) to the runtime context.
 
 ## state |converged> [final]
 
 > Loop exited once `ctx.iteration >= max_iter`. The final context
-> holds the learned `theta[0]`.
+> holds the learned `theta_0`.
 
 ## guards
 
@@ -88,11 +94,11 @@
 
 | Name              | Signature    | Effect                                                       |
 |-------------------|--------------|--------------------------------------------------------------|
-| apply_ansatz      | (qs) -> qs   | Ry(qs[0], theta[0]); Rz(qs[0], theta[1]); Rx(qs[0], theta[2]) |
+| apply_ansatz      | (qs) -> qs   | Ry(qs[0], theta_0); Rz(qs[0], theta_1); Rx(qs[0], theta_2) |
 | encode_datum      | (qs) -> qs   | H(qs[1])                                                     |
 | parity_to_ancilla | (qs) -> qs   | CNOT(qs[0], qs[2]); CNOT(qs[1], qs[2])                       |
 | measure_ancilla   | (qs) -> qs   | measure(qs[2]) -> bits[0]                                    |
-| gradient_step     | (ctx) -> ctx | if bits[0] == 1: theta[0] -= eta else: theta[0] += eta       |
+| gradient_step     | (ctx) -> ctx |                                                              |
 | tick              | (ctx) -> ctx | iteration += 1                                               |
 
 ## verification rules

@@ -718,3 +718,187 @@ polysemantic example family.
 - **AND** the example does NOT satisfy this requirement as the
   canonical hierarchical example
 
+### Requirement: Encoding Declaration Section
+
+The parser SHALL recognize an optional top-level `## encoding`
+section by which a `.q.orca.md` machine declares an explicit ansatz
+shape. When present, the parser SHALL parse it as a key/value table
+with the following keys:
+
+| Key | Required | Type | Allowed values |
+|-----|----------|------|----------------|
+| `kind` | yes | string | `hea` |
+| `depth` | yes | int | positive integer |
+| `entangler` | yes | string | `ring` \| `chain` |
+| `rotations` | yes | string | comma-separated subset of `{Rx, Ry, Rz}` (preserving declaration order) |
+| `qubits` | no | string | name of a `## context` register field; defaults to `qubits` |
+
+The parser SHALL produce an `EncodingDecl(kind, depth, entangler,
+rotations, qubits)` AST node whose `rotations` field is a tuple in
+the declared order.
+
+Unknown keys, missing required keys, or out-of-range values SHALL
+raise a structured parser error naming the offending row. Future
+ansatz kinds (e.g. `alternating-layered`, `brick-wall`) MAY extend
+the `kind` enumeration; this requirement covers `kind: hea` only.
+
+#### Scenario: Minimal HEA encoding declaration parses
+
+- **GIVEN** a machine containing
+  ```
+  ## encoding
+  | key | value |
+  |-----|-------|
+  | kind | hea |
+  | depth | 3 |
+  | entangler | ring |
+  | rotations | Ry, Rz |
+  ```
+- **WHEN** `parse_q_orca_markdown(...)` is invoked
+- **THEN** `parsed.errors == []`
+- **AND** `machine.encoding == EncodingDecl(kind="hea", depth=3,
+  entangler="ring", rotations=("Ry", "Rz"), qubits=None)`
+
+#### Scenario: Unknown encoding key surfaces a structured error
+
+- **GIVEN** an encoding section containing `| frob | yes |`
+- **WHEN** parsing
+- **THEN** the parser emits an error naming the unknown key
+  `frob` and the row number, and the machine's `encoding` field
+  remains unset
+
+#### Scenario: Unknown rotation kind is rejected
+
+- **GIVEN** an encoding section with `rotations: Ry, Foo`
+- **WHEN** parsing
+- **THEN** the parser emits an error naming `Foo` as an
+  unsupported rotation; supported values are `Rx`, `Ry`, `Rz`
+
+#### Scenario: Non-positive depth is rejected
+
+- **GIVEN** an encoding section with `depth: 0`
+- **WHEN** parsing
+- **THEN** the parser emits an error noting that `depth` SHALL be
+  a positive integer
+
+### Requirement: Theta Parameter Block Section
+
+The `## theta` block parser SHALL accept either a 2-column form
+`| concept | tensor |` (existing) or a 3-column form
+`| concept | cluster | tensor |` (new). Per-row, `cluster` SHALL
+be a non-empty trimmed string. When the cluster column is omitted
+on the header line, every row SHALL be assigned the implicit
+cluster label `_default`.
+
+A machine SHALL NOT mix forms within a single `## theta` block —
+either every row declares a cluster or none does. Mixed-form blocks
+SHALL be rejected as a parse error.
+
+#### Scenario: Two-column theta block parses with implicit cluster
+
+- **WHEN** a machine's `## theta` is `| concept | tensor |` with N
+  rows
+- **THEN** the parser produces N `ThetaRow` instances each with
+  `cluster == "_default"`
+
+#### Scenario: Three-column theta block carries declared clusters
+
+- **GIVEN** a machine's `## theta` block:
+  ```
+  | concept | cluster | tensor |
+  |---------|---------|--------|
+  | a | s1 | [[...]] |
+  | b | s1 | [[...]] |
+  | c | s2 | [[...]] |
+  ```
+- **WHEN** the parser runs
+- **THEN** the resulting `ThetaRow`s have
+  `cluster == "s1"`, `"s1"`, `"s2"` respectively
+
+#### Scenario: Empty cluster value is rejected
+
+- **WHEN** a 3-column theta row has an empty cluster cell
+- **THEN** the parser raises a parse error naming the offending
+  row index
+
+### Requirement: Minimal HEA Example Pattern
+
+The example library SHALL include at least one rung-2 (HEA)
+polysemantic machine demonstrating the explicit `## encoding` /
+`## theta` grammar. The canonical file is
+`examples/larql-hea-minimal.q.orca.md`.
+
+A minimal HEA example SHALL satisfy these invariants:
+
+1. **Compact concept register.** The `## context` declares a
+   fixed-size `qubits: list<qubit>` with `n` qubits. The canonical
+   example uses `n = 3` and three concepts.
+
+2. **HEA encoding.** The machine declares an `## encoding` section
+   with `kind: hea`, `depth ≥ 2`, `entangler ∈ {ring, chain}`, and
+   a `rotations` subset of `{Rx, Ry, Rz}` of size at least 1.
+
+3. **Concept-aligned theta block.** The `## theta` block declares
+   exactly one row per parametric call site referenced in the
+   transitions table. Each tensor has shape
+   `(|rotations|, depth, n)`.
+
+4. **Documented Gram matrix.** The example's leading paragraph
+   SHALL tabulate the analytic `|<c_i | c_j>|²` matrix and SHALL
+   call out at least three tiers (self, sub-cluster, cross), with
+   strict inter-tier separation greater than the Stage 4b
+   tolerance of `0.025`.
+
+#### Scenario: Canonical HEA example parses and verifies
+
+- **WHEN** `parse_q_orca_markdown(open(
+  "examples/larql-hea-minimal.q.orca.md").read())` is invoked
+- **THEN** `parsed.errors == []`
+- **AND** `verify(parsed.file.machines[0]).valid == True`
+- **AND** `machine.encoding.kind == "hea"`
+- **AND** `len(machine.theta.rows) == len(<query call sites>)`
+
+#### Scenario: HEA Gram is checkable via compute_concept_gram_hea
+
+- **GIVEN** the canonical example
+- **WHEN** `compute_concept_gram_hea(machine)` is invoked
+- **THEN** the returned matrix is `(N, N)` complex
+- **AND** `|gram[i, i]| == 1` for all diagonal entries
+- **AND** the off-diagonal `|gram[i, j]|²` entries partition into
+  the documented tiers, each tier separated from the next by at
+  least the Stage 4b tolerance of `0.025`
+
+### Requirement: concept_gram_tier_separation invariant
+
+The `## invariants` parser SHALL accept the resource-form bullet
+`concept_gram_tier_separation <op> <decimal>` where `<op>` is one
+of `<=`, `<`, `==`, `>=`, `>` and `<decimal>` is a real number in
+`[0, 1]`. The parser SHALL produce
+`Invariant(kind="resource", metric="concept_gram_tier_separation",
+op=<op>, value=<float>)`.
+
+Existing invariant forms (`entanglement`, `schmidt_rank`, and the
+integer-valued resource metrics `gate_count`, `depth`, `cx_count`,
+`t_count`, `logical_qubits`) SHALL continue to parse unchanged.
+
+#### Scenario: Tier-separation invariant parses
+
+- **WHEN** `## invariants` contains
+  `- concept_gram_tier_separation >= 0.025`
+- **THEN** the machine has an `Invariant(kind="resource",
+  metric="concept_gram_tier_separation", op="ge", value=0.025)`
+
+#### Scenario: Tier-separation invariant accepts decimal value
+
+- **WHEN** `## invariants` contains
+  `- concept_gram_tier_separation > 0.5`
+- **THEN** the machine has an `Invariant(kind="resource",
+  metric="concept_gram_tier_separation", op="gt", value=0.5)`
+
+#### Scenario: Out-of-range decimal value is rejected
+
+- **WHEN** `## invariants` contains
+  `- concept_gram_tier_separation >= 1.5`
+- **THEN** the parser raises a parse error naming the
+  out-of-range value
+

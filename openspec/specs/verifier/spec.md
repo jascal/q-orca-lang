@@ -150,6 +150,33 @@ parameterized gates (`RXX`, `RYY`, `RZZ`) and controlled rotations
 (`CRx`, `CRy`, `CRz`) — SHALL be recognized by the dynamic verifier
 without per-site code changes.
 
+When a machine declares an `## encoding` section with
+`kind == "hea"`, Stage 4b SHALL invoke
+`q_orca.compiler.compute_concept_gram_hea(machine)` to validate
+that the encoding declaration and the `## theta` block are
+consistent and that the per-concept HEA states can be
+constructed. Any `HeaGramConfigurationError` raised by the helper
+SHALL be surfaced as a Stage 4b verifier error with code
+`HEA_GRAM_INVALID`. Because the check builds per-concept
+statevectors via numpy simulation, it SHALL be gated by the same
+`VerifyOptions.skip_dynamic` flag as the backend dispatch and
+SHALL NOT run when `skip_dynamic=True`.
+
+This change introduces only the *consistency* check; enforcement
+of tier-ordering bands (e.g. "sub-cluster mean exceeds
+cross-cluster max by at least `HEA_TIER_TOLERANCE = 0.025`") is
+deferred to a follow-up proposal that defines the matching
+invariant grammar. For now `HEA_TIER_TOLERANCE` is exposed as a
+module-level constant so downstream tests and the follow-up
+proposal share a single source of truth, but the verifier does
+not yet read it.
+
+For machines without an `## encoding` section, Stage 4b dispatch
+behavior is unchanged: rung-0 product-state and rung-1
+CNOT-staircase MPS encodings continue to be detected via existing
+mechanisms (effect-string introspection / explicit rung-1 helper
+call).
+
 #### Scenario: No entanglement when expected
 
 - **WHEN** a machine declares `entanglement(q0, q1) = True` but the
@@ -175,6 +202,54 @@ without per-site code changes.
 - **THEN** `_build_gate_sequence` emits a gate-dict with
   `name="CRX"`, `controls=[0]`, `targets=[1]`,
   `params={"theta": <beta>}` — not a bare `RX` with empty `controls`
+
+#### Scenario: HEA encoding triggers consistency check
+
+- **GIVEN** a machine with `## encoding` declaring `kind: hea`
+  and a valid `## theta` block whose tensor shapes match
+  `(|rotations|, depth, n)` and whose row count matches the
+  number of `query_concept` call sites
+- **WHEN** `verify(machine)` runs Stage 4b
+- **THEN** `compute_concept_gram_hea(machine)` is invoked exactly
+  once
+- **AND** Stage 4b reports no `HEA_GRAM_INVALID` errors
+
+#### Scenario: HEA shape mismatch surfaces a Stage 4b error
+
+- **GIVEN** an HEA machine whose `## theta` block has a row
+  whose tensor shape does not equal `(|rotations|, depth, n)`,
+  but the row survived initial parsing (e.g., loaded
+  programmatically)
+- **WHEN** Stage 4b runs
+- **THEN** the verifier emits `HEA_GRAM_INVALID` at error
+  severity, naming the offending concept and the shape mismatch
+
+#### Scenario: HEA call-site / theta-row mismatch surfaces a Stage 4b error
+
+- **GIVEN** an HEA machine whose `query_concept` action has more
+  call sites than the `## theta` block has rows
+- **WHEN** Stage 4b runs
+- **THEN** the verifier emits `HEA_GRAM_INVALID` at error
+  severity, naming the call-site count and the theta-row count
+
+#### Scenario: Non-HEA machine bypasses the HEA dispatch
+
+- **GIVEN** a machine without an `## encoding` section (e.g., the
+  rung-0 `larql-polysemantic-clusters` example)
+- **WHEN** Stage 4b runs
+- **THEN** the verifier does NOT call
+  `compute_concept_gram_hea`
+- **AND** existing rung-0 / rung-1 dispatch behavior is preserved
+
+#### Scenario: HEA check honors skip_dynamic
+
+- **GIVEN** an HEA machine that would otherwise raise
+  `HEA_GRAM_INVALID` (e.g., a programmatically shape-mismatched
+  theta tensor that survived initial parsing)
+- **WHEN** `verify(machine, VerifyOptions(skip_dynamic=True))`
+  runs
+- **THEN** `compute_concept_gram_hea` is NOT invoked
+- **AND** no `HEA_GRAM_INVALID` error is emitted
 
 ### Requirement: Superposition Leak Detection
 
@@ -351,4 +426,97 @@ first, before resource accounting is attempted.
   `## verification rules` block disables `resource_bounds`
 - **THEN** `check_resource_invariants` is skipped and no
   `RESOURCE_BOUND_*` diagnostic is emitted
+
+### Requirement: HEA tier-separation invariant enforcement
+
+The verifier SHALL enforce a declared `concept_gram_tier_separation`
+invariant against the analytic Gram of any HEA-encoded machine.
+Specifically, when a machine declares an `## encoding` section with
+`kind == "hea"` AND a `concept_gram_tier_separation` invariant in
+`## invariants`, Stage 4b SHALL compute the analytic Gram via
+`compute_concept_gram_hea(machine)` and evaluate the declared
+inequality against the metric `tier_separation` defined as:
+
+```
+tier_separation =
+    min over clusters C with |C| >= 2 of
+        mean(|<c_i|c_j>|² for c_i, c_j in C, i < j)
+    − max over (i, j) cross-cluster pairs of |<c_i|c_j>|²
+```
+
+Cluster membership SHALL come from the per-row `cluster` field of
+the `## theta` block — rows sharing a `cluster` value form one
+tier; rows with distinct values form distinct tiers. Singleton
+clusters contribute no intra-cluster pairs and SHALL be ignored
+by the `min`. If every cluster is a singleton, `tier_separation`
+is undefined and Stage 4b SHALL emit `HEA_TIER_UNDEFINED` at error
+severity.
+
+On inequality violation, Stage 4b SHALL emit
+`HEA_TIER_INVARIANT_VIOLATED` at error severity, naming the
+declared bound, the actual computed `tier_separation`, and at
+least one cluster pair that drives the violation.
+
+The check SHALL be gated by the same `VerifyOptions.skip_dynamic`
+flag as the existing HEA consistency check. It SHALL NOT run when
+`skip_dynamic=True`.
+
+When a machine declares `concept_gram_tier_separation` but no HEA
+encoding (rung-0 or rung-1 machine, or a machine without any
+`## encoding` section), Stage 4b SHALL emit
+`HEA_TIER_INVARIANT_NOT_APPLICABLE` at *warning* severity — the
+invariant has no Gram to evaluate against. Verification SHALL NOT
+fail solely because of this warning.
+
+#### Scenario: Tier-separation invariant satisfied
+
+- **GIVEN** an HEA machine with three concepts grouped as `s1: a,
+  b` and `s2: c`, an analytic
+  Gram with intra-`s1` mean overlap 0.9999 and max cross-cluster
+  overlap 0.3837, and `## invariants` declaring
+  `- concept_gram_tier_separation >= 0.025`
+- **WHEN** Stage 4b runs
+- **THEN** the verifier emits no `HEA_TIER_*` errors
+- **AND** the consistency check (`HEA_GRAM_INVALID`) is unaffected
+
+#### Scenario: Tier-separation invariant violated
+
+- **GIVEN** an HEA machine with the same cluster assignment but
+  whose theta values produce intra-`s1` mean 0.50 and max
+  cross-cluster 0.55, with
+  `- concept_gram_tier_separation >= 0.025` declared
+- **WHEN** Stage 4b runs
+- **THEN** the verifier emits `HEA_TIER_INVARIANT_VIOLATED` at
+  error severity, naming the declared bound (`>= 0.025`), the
+  actual computed tier_separation (negative), and the cluster
+  pair `(s1, s2)`
+
+#### Scenario: All-singleton clusters yield HEA_TIER_UNDEFINED
+
+- **GIVEN** an HEA machine with three concepts each in a distinct
+  singleton cluster (`s1`, `s2`, `s3`) and a
+  `concept_gram_tier_separation >= 0.025` invariant
+- **WHEN** Stage 4b runs
+- **THEN** the verifier emits `HEA_TIER_UNDEFINED` at error
+  severity, explaining that no cluster has at least two members
+
+#### Scenario: Invariant honors skip_dynamic
+
+- **GIVEN** an HEA machine that would otherwise emit
+  `HEA_TIER_INVARIANT_VIOLATED`
+- **WHEN** `verify(machine, VerifyOptions(skip_dynamic=True))`
+  runs
+- **THEN** the verifier does NOT compute the Gram and does NOT
+  emit `HEA_TIER_INVARIANT_VIOLATED`
+
+#### Scenario: Invariant on non-HEA machine warns but does not fail
+
+- **GIVEN** a rung-0 product-state machine with no `## encoding`
+  section but whose `## invariants` mistakenly declares
+  `- concept_gram_tier_separation >= 0.025`
+- **WHEN** Stage 4b runs
+- **THEN** the verifier emits
+  `HEA_TIER_INVARIANT_NOT_APPLICABLE` at warning severity
+- **AND** verification SHALL NOT fail solely because of this
+  warning
 

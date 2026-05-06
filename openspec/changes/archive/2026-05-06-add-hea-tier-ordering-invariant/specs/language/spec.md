@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: Theta block grammar with optional cluster column
+### Requirement: Theta Parameter Block Section
 
 The `## theta` block parser SHALL accept either a 2-column form
 `| concept | tensor |` (existing) or a 3-column form
@@ -39,6 +39,8 @@ SHALL be rejected as a parse error.
 - **WHEN** a 3-column theta row has an empty cluster cell
 - **THEN** the parser raises a parse error naming the offending
   row index
+
+## ADDED Requirements
 
 ### Requirement: concept_gram_tier_separation invariant
 

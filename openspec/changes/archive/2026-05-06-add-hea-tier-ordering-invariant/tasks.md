@@ -106,10 +106,11 @@
 - [x] 7.1 `openspec validate add-hea-tier-ordering-invariant
       --strict` ✓
 - [x] 7.2 Full pytest suite green; ruff clean
-- [ ] 7.3 Commit + push, open PR, merge after review
+- [x] 7.3 Commit + push, open PR, merge after review.
+      (Shipped as PR #57 → `642dc1f`.)
 
 ## 8. Archive
 
-- [ ] 8.1 `openspec archive add-hea-tier-ordering-invariant`
+- [x] 8.1 `openspec archive add-hea-tier-ordering-invariant`
       after merge — populate the new requirements into
       `openspec/specs/{language,verifier}/spec.md`
