@@ -1,8 +1,6 @@
 """Q-Orca OpenQASM 3.0 compiler — compiles QMachineDef → OpenQASM 3.0."""
 
-import re
-
-from q_orca.ast import QMachineDef, QuantumGate, QTypeScalar, QTypeList, QTypeQubit
+from q_orca.ast import QMachineDef, QuantumGate
 from q_orca.compiler.qiskit import _build_angle_context, _parse_effect_string, _infer_bit_count
 from q_orca.compiler.parametric import expand_action_call
 from q_orca.compiler.util import infer_qubit_count as _infer_qubit_count
