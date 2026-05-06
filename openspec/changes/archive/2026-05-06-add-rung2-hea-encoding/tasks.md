@@ -138,6 +138,7 @@
 
 ## 7. Archive
 
-- [ ] 7.1 Run `openspec archive add-rung2-hea-encoding` after
+- [x] 7.1 Run `openspec archive add-rung2-hea-encoding` after
       merge so the deltas land in
       `openspec/specs/{language,compiler,verifier}/spec.md`.
+      (Impl shipped as PR #54 → `cb41d0f`.)

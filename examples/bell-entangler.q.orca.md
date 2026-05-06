@@ -45,8 +45,8 @@
 |---------------------|------------------------------------|----------------------------|
 | apply_H_on_q0       | (qs) -> qs                         | Hadamard(qs[0])            |
 | apply_CNOT_q0_to_q1 | (qs) -> qs                         | CNOT(qs[0], qs[1])         |
-| set_outcome_0       | (ctx, val) -> Context              | ctx.outcome = 0            |
-| set_outcome_1       | (ctx, val) -> Context              | ctx.outcome = 1            |
+| set_outcome_0       | (ctx) -> Context                   | ctx.outcome = 0            |
+| set_outcome_1       | (ctx) -> Context                   | ctx.outcome = 1            |
 
 ## effects
 | Name          | Input                  | Output            |

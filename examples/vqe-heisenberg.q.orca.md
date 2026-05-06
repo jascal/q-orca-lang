@@ -36,13 +36,13 @@
 ## transitions
 | Source          | Event             | Guard            | Target            | Action               |
 |-----------------|-------------------|-----------------|-------------------|----------------------|
-| |start>        | init              |                 | |ψ_ansatz>        | apply_ansatz         |
+| |start>        | init              |                 | |ψ_ansatz>        | apply_ansatz(theta)  |
 | |start>        | apply_ansatz      |                 | |start>            |                     |
 | |start>        | eval_energy       |                 | |start>            |                     |
 | |start>        | update_theta      |                 | |start>            |                     |
 | |start>        | check_convergence |                 | |start>            |                     |
 | |ψ_ansatz>     | init              |                 | |ψ_ansatz>          |                     |
-| |ψ_ansatz>     | apply_ansatz      |                 | |ψ_ansatz>          | apply_ansatz         |
+| |ψ_ansatz>     | apply_ansatz      |                 | |ψ_ansatz>          | apply_ansatz(theta)  |
 | |ψ_ansatz>     | eval_energy       |                 | |measured>          |                     |
 | |ψ_ansatz>     | update_theta      |                 | |ψ_ansatz>          |                     |
 | |ψ_ansatz>     | check_convergence |                 | |ψ_ansatz>          |                     |
@@ -80,9 +80,9 @@
 ## actions
 | Name            | Signature             | Effect                            |
 |-----------------|-----------------------|----------------------------------|
-| apply_ansatz    | (qs, theta) -> qs   | Ry(qs[0], theta); Ry(qs[1], theta); CNOT(qs[0], qs[1]) |
-| set_energy      | (ctx) -> ctx          | ctx.energy = ctx.theta * ctx.theta - 1.0 |
-| increment_iter  | (ctx) -> ctx          | ctx.iteration = ctx.iteration + 1 |
+| apply_ansatz    | (qs, theta: angle) -> qs   | Ry(qs[0], theta); Ry(qs[1], theta); CNOT(qs[0], qs[1]) |
+| set_energy      | (ctx) -> ctx          |                                       |
+| increment_iter  | (ctx) -> ctx          | ctx.iteration += 1 |
 
 ## effects
 | Name          | Input                    | Output              |

@@ -176,6 +176,23 @@ def verify_skill(input: SkillInput, skip_completeness: bool = False, skip_quantu
                 )],
             )
 
+        if parsed.errors:
+            machine_name = parsed.file.machines[0].name
+            return VerifySkillResult(
+                status="invalid",
+                machine=machine_name,
+                states=0,
+                events=0,
+                transitions=0,
+                errors=[SkillError(
+                    code="PARSE_ERROR",
+                    message=msg,
+                    severity="error",
+                    location=None,
+                    suggestion=None,
+                ) for msg in parsed.errors],
+            )
+
         machine = parsed.file.machines[0]
         opts = VerifyOptions(skip_completeness=skip_completeness, skip_quantum=skip_quantum, skip_dynamic=skip_dynamic)
         result = verify(machine, opts)

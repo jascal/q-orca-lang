@@ -518,7 +518,7 @@ remaining findings.
   in marketing/landing-page paragraphs where a concrete number reads
   better than a generic one.
 
-- [ ] 5.3 **Stale syntax in `vqe-heisenberg.q.orca.md` and
+- [x] 5.3 **Stale syntax in `vqe-heisenberg.q.orca.md` and
   `predictive-coder-learning.q.orca.md` — they don't parse on the
   live parser, but their tests pass via `verify_skill`.** Direct
   `parse_q_orca_markdown` against the current parser yields:
@@ -544,6 +544,35 @@ remaining findings.
   `theta_0`, `theta_1`, `theta_2`). Item (a) prevents future drift;
   item (b) clears the live divergence.
   (Source: 2026-05-01 example library QA, "Stale Examples".)
+  Done: (a) added `if parsed.errors:` early-return in
+  `verify_skill` (`q_orca/skills.py`) emitting structured
+  `PARSE_ERROR` items so the skill no longer silently passes when
+  the parser has rejected the input. (b) `vqe-heisenberg` —
+  annotated `apply_ansatz` as `(qs, theta: angle) -> qs`, dispatched
+  it via `apply_ansatz(theta)` in the two transitions that invoke
+  it (bare-name dispatch on a parametric action is now a hard
+  error), rewrote `increment_iter` to `ctx.iteration += 1`, and
+  cleared the bogus compound RHS in `set_energy` since the verifier
+  hard-restricts scalar context mutations to `int` LHSs (the
+  example's `energy` is `float`, so the original
+  `ctx.energy = ctx.theta * ctx.theta - 1.0` could never have
+  verified — it only "worked" because the parser silently dropped
+  the whole mutation; `set_energy` is now a no-op transition stamp,
+  matching the convention that energy estimates come from a
+  measurement effect at runtime, not a context update).
+  `predictive-coder-learning` — split the `theta: list<float>` slot
+  into three scalar fields `theta_0`, `theta_1`, `theta_2` so the
+  angle-expression parser can resolve them without array indexing,
+  updated `apply_ansatz` and the docstrings accordingly, and cleared
+  `gradient_step`'s body for the same scalar-float-mutation reason
+  as `set_energy` (the runtime would drive learning via an
+  out-of-band update; the example documents the loop topology).
+  Bonus: the new gate exposed two latent parse errors in
+  `bell-entangler.q.orca.md` (`set_outcome_0`/`set_outcome_1` had a
+  spurious `val` slot in their signatures with no `: type`
+  annotation); dropped the unused parameter so both actions read
+  `(ctx) -> Context`. All three examples now parse cleanly and
+  `pytest -q` is green (865 passed, 6 skipped).
 
 - [ ] 5.4 **Test coverage gaps for shipped examples.** Six of the 16
   examples have weak or no test coverage (verified by collecting
