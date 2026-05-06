@@ -457,7 +457,7 @@ in-place (qs[0] → qs[2] on `apply_Z` / `apply_X` / `apply_XZ` in
 `examples/quantum-teleportation.q.orca.md`); items below are the
 remaining findings.
 
-- [ ] 5.1 **bit-flip-syndrome.q.orca.md: missing (1,1) syndrome
+- [x] 5.1 **bit-flip-syndrome.q.orca.md: missing (1,1) syndrome
   produces wrong corrections.** Today the example has two correction
   actions — `correct_q0: if bits[0] == 1: X(qs[0])` and `correct_q2:
   if bits[1] == 1: X(qs[2])`. Under syndrome (1,1) the error sits on
@@ -499,6 +499,16 @@ remaining findings.
   (`extend-conditional-gate-compound-bits`) per §5.1 since it touches
   AST + parser + two compilers + verifier.
   (Source: 2026-05-01 example library QA, bug 2.)
+  Closed via the dedicated
+  `extend-conditional-gate-compound-bits` OpenSpec change: AST gained
+  `QEffectConditional.conditions: list[tuple[int, int]]`, the parser
+  recognises `and`-joined clauses (rejecting same-bit conflicts), both
+  compilers emit compound conditionals (QASM `&&`, Qiskit nested
+  `if_test`), the verifier registers every clause bit as fed-forward,
+  the example now ships three compound-condition corrections covering
+  all four syndrome patterns, and `tests/test_bit_flip_syndrome.py`
+  pins the round-trip via aer-gated behavior tests for (0,0), (1,0),
+  (1,1), and (0,1).
 
 - [x] 5.2 **README example count is stale (15 → 16).** `README.md:12`
   ("All 15 bundled example machines …") and `README.md:274` ("All
@@ -889,6 +899,32 @@ keep the 2026-05-01 cluster contiguous.
   inverse-form ergonomics; codegen will emit prep form anyway, so
   the loud-error guard is likely sufficient.
   (Source: 2026-05-01 `extend-mps-matcher-rz-phases` PR.)
+
+- [ ] 5.17 **`estimate_resources` raises `TranspilerError` on circuits
+  with `if_else` blocks under qiskit ≥ 2.4.** Severity: MEDIUM. Surface:
+  `q_orca/compiler/resources.py:42-46` calls `transpile(qc,
+  basis_gates=['u3', 'cx'], optimization_level=1)` and a sibling call
+  with the Clifford+T basis. Qiskit 2.4.1's `BasisTranslator` rejects
+  control-flow ops because no equivalence rule decomposes `if_else`
+  into `u3 + cx`. Repro: `estimate_resources` on
+  `examples/bit-flip-syndrome.q.orca.md` (or any machine with a
+  conditional gate). The bug is silent on qiskit 2.3.x (the local dev
+  baseline at the time of `extend-conditional-gate-compound-bits`) but
+  surfaces on 2.4.x (CI). Fix shape: catch `TranspilerError` and fall
+  back to manual op-walking that descends into each `if_else` block's
+  inner `QuantumCircuit` and accumulates `cx` / `t` / `tdg` counts
+  there too — the conjunction is classical control flow and the inner
+  gate is what the spec wants counted. `gate_count` should keep
+  collapsing nested compound conditionals to a single top-level
+  `if_else` op (per `extend-conditional-gate-compound-bits`); only
+  `cx_count` / `t_count` need the descent. Add regression coverage in
+  `tests/test_resource_estimation.py` against a single-cond and a
+  compound-cond machine.
+  (Source: 2026-05-06 `extend-conditional-gate-compound-bits` PR #62 CI
+  fail, https://github.com/jascal/q-orca-lang/actions/runs/25450682232.
+  Worked around in PR #62 by switching the new compound-conditional
+  resource tests to `count_ops()` directly so they don't pay the
+  transpile cost.)
 
 ## 6. How to use this file
 

@@ -18,6 +18,7 @@
 - measure_s0
 - measure_s1
 - correct_q0
+- correct_q1
 - correct_q2
 
 ## state |init> [initial]
@@ -38,11 +39,17 @@
 
 ## state |q0_corrected>
 
-> X correction applied to q0 if bits[0] == 1
+> X correction applied to q0 only when syndrome (1, 0) — error on q0
+
+## state |q1_corrected>
+
+> X correction applied to q1 only when syndrome (1, 1) — error on q1
 
 ## state |corrected> [final]
 
-> Both corrections applied; logical qubit restored
+> All four syndrome patterns mapped to the correct correction;
+> logical qubit restored. (0,0) → no error, (1,0) → q0,
+> (1,1) → q1, (0,1) → q2.
 
 ## transitions
 
@@ -52,7 +59,8 @@
 | |entangled>     | measure_s0 |       | |s0_measured>   | measure_s0    |
 | |s0_measured>   | measure_s1 |       | |s1_measured>   | measure_s1    |
 | |s1_measured>   | correct_q0 |       | |q0_corrected>  | correct_q0    |
-| |q0_corrected>  | correct_q2 |       | |corrected>     | correct_q2    |
+| |q0_corrected>  | correct_q1 |       | |q1_corrected>  | correct_q1    |
+| |q1_corrected>  | correct_q2 |       | |corrected>     | correct_q2    |
 
 ## actions
 
@@ -61,8 +69,9 @@
 | entangle_data | (qs) -> qs     | CNOT(qs[0], qs[3]); CNOT(qs[1], qs[3]); CNOT(qs[1], qs[4]); CNOT(qs[2], qs[4]) |
 | measure_s0    | (qs) -> qs     | measure(qs[3]) -> bits[0]                                    |
 | measure_s1    | (qs) -> qs     | measure(qs[4]) -> bits[1]                                    |
-| correct_q0    | (qs) -> qs     | if bits[0] == 1: X(qs[0])                                   |
-| correct_q2    | (qs) -> qs     | if bits[1] == 1: X(qs[2])                                   |
+| correct_q0    | (qs) -> qs     | if bits[0] == 1 and bits[1] == 0: X(qs[0])                   |
+| correct_q1    | (qs) -> qs     | if bits[0] == 1 and bits[1] == 1: X(qs[1])                   |
+| correct_q2    | (qs) -> qs     | if bits[0] == 0 and bits[1] == 1: X(qs[2])                   |
 
 ## verification rules
 

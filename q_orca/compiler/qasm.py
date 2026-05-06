@@ -59,8 +59,13 @@ def compile_to_qasm(machine: QMachineDef) -> str:
         elif action and action.conditional_gate is not None:
             cg = action.conditional_gate
             gate_str = _gate_to_qasm(cg.gate, qubit_count).rstrip(";")
-            # OpenQASM 3.0 per-bit conditional: bare bit for 1, negated for 0
-            cond = f"c[{cg.bit_idx}]" if cg.value else f"!c[{cg.bit_idx}]"
+            # OpenQASM 3.0 per-bit conditional: bare bit for 1, negated for 0.
+            # Compound conditions join clauses with `&&` (short-circuit AND).
+            clauses = [
+                (f"c[{bit_idx}]" if value else f"!c[{bit_idx}]")
+                for bit_idx, value in cg.conditions
+            ]
+            cond = " && ".join(clauses)
             lines.append(f"if ({cond}) {{ {gate_str}; }}")
         elif action and action.context_update is not None:
             raw = action.context_update.raw or action.effect or ""

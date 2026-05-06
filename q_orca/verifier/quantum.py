@@ -386,7 +386,8 @@ def check_feedforward_completeness(machine: QMachineDef) -> QVerificationResult:
         if action.mid_circuit_measure is not None:
             measured_bits.add(action.mid_circuit_measure.bit_idx)
         if action.conditional_gate is not None:
-            feedforward_bits.add(action.conditional_gate.bit_idx)
+            for bit_idx, _ in action.conditional_gate.conditions:
+                feedforward_bits.add(bit_idx)
 
     unused = measured_bits - feedforward_bits
     for bit_idx in sorted(unused):

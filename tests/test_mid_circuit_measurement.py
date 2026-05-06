@@ -11,6 +11,49 @@ from q_orca.verifier.quantum import (
 )
 
 
+def _compound_machine_source(effect: str) -> str:
+    return f"""\
+# machine CompoundMCM
+
+## context
+
+| Field  | Type        | Default          |
+|--------|-------------|------------------|
+| qubits | list<qubit> | [q0, q1, q2, q3, q4] |
+| bits   | list<bit>   | [b0, b1]         |
+
+## events
+
+- prepare
+- measure_s0
+- measure_s1
+- correct
+
+## state |ready> [initial]
+## state |s0>
+## state |s1>
+## state |done> [final]
+
+## transitions
+
+| Source     | Event       | Guard | Target | Action      |
+|------------|-------------|-------|--------|-------------|
+| |ready>    | prepare     |       | |ready>| apply_h     |
+| |ready>    | measure_s0  |       | |s0>   | meas_b0     |
+| |s0>       | measure_s1  |       | |s1>   | meas_b1     |
+| |s1>       | correct     |       | |done> | corr        |
+
+## actions
+
+| Name    | Signature  | Effect                      |
+|---------|------------|-----------------------------|
+| apply_h | (qs) -> qs | Hadamard(qs[0])             |
+| meas_b0 | (qs) -> qs | measure(qs[3]) -> bits[0]   |
+| meas_b1 | (qs) -> qs | measure(qs[4]) -> bits[1]   |
+| corr    | (qs) -> qs | {effect}                    |
+"""
+
+
 # ---------------------------------------------------------------------------
 # Minimal machine fixture used across multiple tests
 # ---------------------------------------------------------------------------
@@ -137,7 +180,13 @@ class TestParser:
         mcm_actions = [a for a in machine.actions if a.mid_circuit_measure is not None]
         cg_actions = [a for a in machine.actions if a.conditional_gate is not None]
         assert len(mcm_actions) == 2
-        assert len(cg_actions) == 2
+        # All four syndrome patterns map to distinct corrections; the
+        # example ships three compound-condition correction actions
+        # (correct_q0 / correct_q1 / correct_q2) and an implicit "no
+        # correction" path for syndrome (0, 0).
+        assert len(cg_actions) == 3
+        for a in cg_actions:
+            assert len(a.conditional_gate.conditions) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -348,3 +397,128 @@ class TestVerifier:
         vr = check_mid_circuit_coherence(machine)
         assert not vr.valid
         assert any(e.code == "MID_CIRCUIT_COHERENCE_VIOLATION" for e in vr.errors)
+
+
+# ---------------------------------------------------------------------------
+# Compound conditional gates (extend-conditional-gate-compound-bits)
+# ---------------------------------------------------------------------------
+
+class TestCompoundConditional:
+    def _conditional(self, effect: str):
+        result = parse_q_orca_markdown(_compound_machine_source(effect))
+        assert not result.errors, f"Parse errors: {result.errors}"
+        machine = result.file.machines[0]
+        action = next(a for a in machine.actions if a.name == "corr")
+        return machine, action.conditional_gate
+
+    def test_single_condition_parses_to_length_one_list(self):
+        _, cg = self._conditional("if bits[0] == 1: X(qs[1])")
+        assert cg.conditions == [(0, 1)]
+        assert cg.bit_idx == 0
+        assert cg.value == 1
+
+    def test_two_bit_and_conjunction(self):
+        _, cg = self._conditional("if bits[0] == 1 and bits[1] == 1: X(qs[1])")
+        assert cg.conditions == [(0, 1), (1, 1)]
+        assert cg.gate.kind == "X"
+        assert cg.gate.targets == [1]
+
+    def test_mixed_value_conjunction(self):
+        _, cg = self._conditional("if bits[0] == 1 and bits[1] == 0: X(qs[0])")
+        assert cg.conditions == [(0, 1), (1, 0)]
+
+    def test_three_bit_conjunction(self):
+        # Bump the bits register to 3 so bits[2] is in range; reuse the
+        # 5-qubit machine and add a third measurement.
+        source = """\
+# machine ThreeBit
+## context
+| Field  | Type        | Default                |
+|--------|-------------|------------------------|
+| qubits | list<qubit> | [q0, q1, q2, q3, q4]  |
+| bits   | list<bit>   | [b0, b1, b2]          |
+
+## events
+- m0
+- m1
+- m2
+- corr
+
+## state |s> [initial]
+## state |a>
+## state |b>
+## state |c>
+## state |done> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action  |
+|--------|-------|-------|--------|---------|
+| |s>    | m0    |       | |a>    | meas_b0 |
+| |a>    | m1    |       | |b>    | meas_b1 |
+| |b>    | m2    |       | |c>    | meas_b2 |
+| |c>    | corr  |       | |done> | corr    |
+
+## actions
+| Name    | Signature  | Effect                                                       |
+|---------|------------|--------------------------------------------------------------|
+| meas_b0 | (qs) -> qs | measure(qs[2]) -> bits[0]                                    |
+| meas_b1 | (qs) -> qs | measure(qs[3]) -> bits[1]                                    |
+| meas_b2 | (qs) -> qs | measure(qs[4]) -> bits[2]                                    |
+| corr    | (qs) -> qs | if bits[0] == 1 and bits[1] == 0 and bits[2] == 1: X(qs[3])  |
+"""
+        result = parse_q_orca_markdown(source)
+        assert not result.errors, f"Parse errors: {result.errors}"
+        machine = result.file.machines[0]
+        cg = next(a.conditional_gate for a in machine.actions if a.name == "corr")
+        assert cg.conditions == [(0, 1), (1, 0), (2, 1)]
+
+    def test_conflicting_clauses_rejected(self):
+        result = parse_q_orca_markdown(
+            _compound_machine_source("if bits[0] == 1 and bits[0] == 0: X(qs[0])")
+        )
+        assert any(
+            "conflicting clauses for bits[0]" in e for e in result.errors
+        ), f"Expected conflict error, got {result.errors}"
+
+    def test_whitespace_flexibility(self):
+        _, cg = self._conditional("if bits[0]==1  and  bits[1] == 1: X(qs[1])")
+        assert cg.conditions == [(0, 1), (1, 1)]
+
+    def test_qasm_emits_compound_with_and(self):
+        machine, _ = self._conditional("if bits[0] == 1 and bits[1] == 0: X(qs[0])")
+        code = compile_to_qasm(machine)
+        assert "if (c[0] && !c[1]) { x q[0]; }" in code
+
+    def test_qasm_single_condition_emit_unchanged(self):
+        machine, _ = self._conditional("if bits[0] == 1: X(qs[1])")
+        code = compile_to_qasm(machine)
+        # The bare-bit / negated-bit shape is preserved for length-1 lists
+        assert "if (c[0]) { x q[1]; }" in code
+
+    def test_qiskit_emits_nested_if_test(self):
+        machine, _ = self._conditional("if bits[0] == 1 and bits[1] == 1: X(qs[1])")
+        code = compile_to_qiskit(
+            machine, QSimulationOptions(analytic=True, skip_qutip=True)
+        )
+        assert "with qc.if_test((qc.clbits[0], 1)):" in code
+        assert "with qc.if_test((qc.clbits[1], 1)):" in code
+        # Nested: the inner block is indented one level past the outer one.
+        lines = code.splitlines()
+        outer_idx = next(i for i, line in enumerate(lines)
+                         if line.startswith("with qc.if_test((qc.clbits[0], 1)):"))
+        inner = lines[outer_idx + 1]
+        assert inner.startswith("    with qc.if_test((qc.clbits[1], 1)):"), inner
+
+    def test_qiskit_classical_register_sized_for_max_bit(self):
+        machine, _ = self._conditional("if bits[0] == 1 and bits[1] == 1: X(qs[1])")
+        # _infer_bit_count walks every clause, so bits[1] keeps the register
+        # sized correctly even if no measurement writes bits[1] in the
+        # action-table head condition.
+        assert _infer_bit_count(machine) == 2
+
+    def test_verifier_feedforward_registers_every_bit(self):
+        machine, _ = self._conditional("if bits[0] == 1 and bits[1] == 1: X(qs[1])")
+        # Both bits are measured and both are referenced by the conditional;
+        # feedforward_completeness should pass.
+        result = check_feedforward_completeness(machine)
+        assert result.valid, f"Expected valid feedforward, got {result.errors}"

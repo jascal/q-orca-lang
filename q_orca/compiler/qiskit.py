@@ -241,8 +241,11 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
             lines.append(f"qc.measure({mcm.qubit_idx}, {mcm.bit_idx})")
         elif action and action.conditional_gate is not None:
             cg = action.conditional_gate
-            lines.append(f"with qc.if_test((qc.clbits[{cg.bit_idx}], {cg.value})):")
-            lines.append(f"    {_gate_to_qiskit(cg.gate)}")
+            indent = ""
+            for bit_idx, value in cg.conditions:
+                lines.append(f"{indent}with qc.if_test((qc.clbits[{bit_idx}], {value})):")
+                indent += "    "
+            lines.append(f"{indent}{_gate_to_qiskit(cg.gate)}")
         elif action and action.context_update is not None:
             raw = action.context_update.raw or action.effect or ""
             lines.append(f"# context_update: {raw}")
@@ -524,7 +527,8 @@ def _infer_bit_count(machine: QMachineDef) -> int:
         if action.mid_circuit_measure is not None:
             max_bit = max(max_bit, action.mid_circuit_measure.bit_idx)
         if action.conditional_gate is not None:
-            max_bit = max(max_bit, action.conditional_gate.bit_idx)
+            for bit_idx, _ in action.conditional_gate.conditions:
+                max_bit = max(max_bit, bit_idx)
     return max_bit + 1 if max_bit >= 0 else 0
 
 
@@ -569,7 +573,10 @@ def build_circuit_for_iteration(
         # dispatch hands these off as-is.
         if action.conditional_gate is not None:
             cond = action.conditional_gate
-            with qc.if_test((qc.clbits[cond.bit_idx], cond.value)):
+            from contextlib import ExitStack
+            with ExitStack() as stack:
+                for bit_idx, value in cond.conditions:
+                    stack.enter_context(qc.if_test((qc.clbits[bit_idx], value)))
                 _apply_gate_to_circuit(qc, cond.gate)
             continue
 

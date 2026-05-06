@@ -155,3 +155,98 @@ def test_format_resource_report_pass_and_fail():
     report = format_resource_report(m, r)
     assert "cx_count" in report and "<= 2" in report and "✓" in report
     assert "gate_count" in report and "<= 0" in report and "✗" in report
+
+
+def test_compound_conditional_counts_as_single_gate():
+    """A compound `if bits[0]==1 and bits[1]==0 and bits[2]==1: X(qs[3])`
+    must contribute 1 to top-level `count_ops()` (the outer `if_else`
+    op) — the conjunction is classical control flow and SHALL NOT
+    inflate the un-transpiled op count past the gate inside the
+    conditional. We assert against `count_ops()` directly because
+    Qiskit 2.4+'s default transpile target rejects `if_else`, so
+    `estimate_resources()` is exercised separately on a clean
+    no-conditional fixture.
+    """
+    pytest.importorskip("qiskit", reason="qiskit not installed")
+
+    from q_orca.compiler.qiskit import build_circuit_for_iteration
+
+    src = """\
+# machine ThreeClauseConditional
+
+## context
+| Field | Type | Default |
+|-------|------|---------|
+| qubits | list<qubit> | [q0, q1, q2, q3] |
+| bits | list<bit> | [b0, b1, b2] |
+
+## events
+- seed
+- m0
+- m1
+- m2
+- correct
+
+## state |a> [initial]
+## state |b>
+## state |c>
+## state |d>
+## state |e>
+## state |f> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |a> | seed | | |b> | seed |
+| |b> | m0 | | |c> | meas0 |
+| |c> | m1 | | |d> | meas1 |
+| |d> | m2 | | |e> | meas2 |
+| |e> | correct | | |f> | corr_compound |
+
+## actions
+| Name | Signature | Effect |
+|------|-----------|--------|
+| seed | (qs) -> qs | H(qs[0]) |
+| meas0 | (qs) -> qs | measure(qs[0]) -> bits[0] |
+| meas1 | (qs) -> qs | measure(qs[1]) -> bits[1] |
+| meas2 | (qs) -> qs | measure(qs[2]) -> bits[2] |
+| corr_compound | (qs) -> qs | if bits[0] == 1 and bits[1] == 0 and bits[2] == 1: X(qs[3]) |
+"""
+    m = parse_q_orca_markdown(src).file.machines[0]
+    qc = build_circuit_for_iteration(m, {}, list(m.actions))
+    ops = qc.count_ops()
+    # 1 H + 3 measures + 1 outer if_else (compound nests fold into one
+    # top-level op) = 5. Critically, the 3 clauses do NOT inflate this
+    # to 7 (which would happen if every nested if_test were a separate
+    # top-level op).
+    assert sum(ops.values()) == 5
+    assert ops.get("if_else", 0) == 1
+    assert ops.get("h", 0) == 1
+    assert ops.get("measure", 0) == 3
+    # No top-level X — the X lives inside the if_else block.
+    assert ops.get("x", 0) == 0
+    assert ops.get("cx", 0) == 0
+    assert ops.get("t", 0) == 0
+
+
+def test_bit_flip_syndrome_compound_conditional_op_count():
+    """Bit-flip-syndrome has three compound conditional corrections;
+    each must collapse to a single top-level `if_else` op. If the
+    compiler unrolled clauses, the count would jump from 3 to 6.
+    """
+    pytest.importorskip("qiskit", reason="qiskit not installed")
+
+    from q_orca.compiler.qiskit import build_circuit_for_iteration
+
+    m = _load("bit-flip-syndrome.q.orca.md")
+    qc = build_circuit_for_iteration(m, {}, list(m.actions))
+    ops = qc.count_ops()
+    # 4 CNOT (entangle) + 2 measure + 3 if_else (one per compound
+    # correction) = 9. If compound conditionals were unrolled per
+    # clause, this would jump to 13.
+    assert sum(ops.values()) == 9
+    assert ops.get("cx", 0) == 4
+    assert ops.get("measure", 0) == 2
+    assert ops.get("if_else", 0) == 3
+    # No top-level X gates — they all live inside if_else blocks.
+    assert ops.get("x", 0) == 0
