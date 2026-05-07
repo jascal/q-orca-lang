@@ -602,7 +602,7 @@ remaining findings.
   `(ctx) -> Context`. All three examples now parse cleanly and
   `pytest -q` is green (865 passed, 6 skipped).
 
-- [ ] 5.4 **Test coverage gaps for shipped examples.** Six of the 16
+- [x] 5.4 **Test coverage gaps for shipped examples.** Six of the 16
   examples have weak or no test coverage (verified by collecting
   `pytest --collect-only` and grepping for each example name):
     - No tests at all: `predictive-coder-minimal`,
@@ -620,6 +620,22 @@ remaining findings.
   block on §5.1 since the underlying example is broken). Defer
   `predictive-coder-learning` until §5.3 (b) lands.
   (Source: 2026-05-01 example library QA, "Untested Examples".)
+  **Closed 2026-05-06 by `tech-debt-backlog-5-4-example-test-coverage`:**
+  added `test_bit_flip_syndrome.py` (covered transitively by §5.1,
+  PR #62), `test_active_teleportation.py`, `test_qaoa_maxcut.py`,
+  `test_predictive_coder_minimal.py`,
+  `test_predictive_coder_learning.py`, and
+  `test_larql_gate_knn_grover.py` — 71 new tests (parse / verify /
+  compile / snapshot for all 5 + behavior tests for the three
+  examples whose semantics admit them: active-teleportation
+  round-trip, qaoa-maxcut Z₂-symmetry, predictive-coder parity
+  truth table). predictive-coder-learning gets structural-only
+  coverage (its iterative runtime is exercised by
+  `test_run_context_updates*.py`); larql-gate-knn-grover behavior
+  is already covered by
+  `test_regression.py::test_grover_compiles_and_recovers_marked_state`.
+  Full suite: 956 passed, 18 skipped (aer-gated + `if_else`
+  simulator gap from §5.17).
 
 - [ ] 5.5 **Verifier blind spot — gate targets aren't checked
   against state-description intent.** The teleportation correction
