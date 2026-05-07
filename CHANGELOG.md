@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.1 (2026-05-07)
+
+### Fixed
+
+- **Bit-flip syndrome physics bug** ([PR #62](../../pull/62), `extend-conditional-gate-compound-bits`) — corrected an incorrect bit-flip syndrome encoding in compound conditional-gate handling.
+- **Inverse-form `Ry(qs[k], -(a + b))` parses end-to-end** ([PR #59](../../pull/59), `tech-debt-backlog` §5.9) — parser previously rejected the negated-sum angle expression in inverse-form effects.
+- **`verify_skill` silent-pass gate** ([PR #61](../../pull/61), `tech-debt-backlog` §5.3) — closed a path where `verify_skill` could silently report success without exercising its checks.
+- **`concept_gram_mps` polish** ([PR #58](../../pull/58), `tech-debt-backlog` §3.11, §5.2, §5.10–§5.13, §5.15) — assorted correctness and ergonomics fixes in the rung-1 MPS Gram path.
+
+### Changed
+
+- **`_infer_qubit_count` promoted to shared util** ([PR #60](../../pull/60), `tech-debt-backlog` §3.13) — moved to `q_orca/compiler/util.py` as the public `infer_qubit_count`. Analysis modules (`concept_gram_mps`, `concept_gram_hea`) now import the public name instead of reaching into `q_orca.compiler.qasm`'s underscored surface; `qasm.py` keeps an internal alias so existing parity tests stay green.
+
+### Tests
+
+- **Test coverage for shipped examples** ([PR #63](../../pull/63), `tech-debt-backlog` §5.4) — added 71 tests across `active-teleportation`, `qaoa-maxcut`, `predictive-coder-minimal`, `predictive-coder-learning`, and `larql-gate-knn-grover` covering parse / verify / compile / behaviour where the semantics admit a clean assertion (e.g. round-trip teleportation recovery, QAOA Z₂-symmetry, predictive-coder ancilla = q0 XOR q1 truth table).
+
+---
+
 ## 0.9.0 (2026-05-03)
 
 ### Added
