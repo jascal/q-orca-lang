@@ -42,6 +42,49 @@ class TestParseSkill:
         result = parse_skill({})
         assert result["status"] == "error"
 
+    def test_parse_with_parser_errors_returns_error_status(self):
+        # Bare-name reference to an undeclared action populates
+        # parsed.errors; the skill must surface that rather than
+        # silently returning status="success".
+        source = """\
+# machine Bad
+
+## events
+- go
+
+## state |0> [initial]
+> Start
+
+## state |1> [final]
+> Done
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |0> | go | | |1> | nonexistent_action |
+"""
+        result = parse_skill({"source": source})
+        assert result["status"] == "error"
+        assert result.get("machines") == []
+        assert result.get("machine") is None
+        errors = result.get("errors")
+        assert errors is not None and len(errors) >= 1
+        first = errors[0]
+        assert first["code"] == "PARSE_ERROR"
+        assert first["severity"] == "error"
+        assert "nonexistent_action" in first["message"]
+
+    def test_parse_no_machine_no_errors_stays_success(self):
+        # Genuinely empty input (no machine heading, no parser errors)
+        # must stay status="success" so callers can distinguish "no
+        # machine in input" from "machine had parse errors."
+        result = parse_skill({"source": ""})
+        assert result["status"] == "success"
+        assert result["machines"] == []
+        assert result["machine"] is None
+        # New errors field is absent on the success path.
+        assert "errors" not in result
+
 
 class TestVerifySkill:
     def test_verify_valid_machine(self, bell_source):
