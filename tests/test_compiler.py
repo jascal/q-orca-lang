@@ -344,6 +344,86 @@ class TestInferQubitCount:
         assert _infer_qubit_count(machine) == 6  # n=5 + ancilla=1
 
 
+class TestInferQubitCountPublicHelper:
+    """Pins the public ``q_orca.compiler.util.infer_qubit_count`` helper.
+
+    Promoted from ``q_orca.compiler.qasm._infer_qubit_count`` so analysis
+    modules (``concept_gram_mps``, ``concept_gram_hea``) can call a public
+    API instead of reaching into the qasm compiler's underscored surface.
+    The qasm name remains as a re-export alias so internal callers and
+    parity tests in ``tests/test_bug_fixes.py`` keep working.
+    """
+
+    def test_public_helper_matches_qasm_alias(self):
+        from q_orca.compiler.qasm import _infer_qubit_count as qasm_alias
+        from q_orca.compiler.util import infer_qubit_count
+
+        assert qasm_alias is infer_qubit_count
+
+    def test_public_helper_resolves_n_plus_ancilla(self):
+        from q_orca.compiler.util import infer_qubit_count
+
+        source = """\
+# machine ThreePlusAncilla
+
+## context
+| Field   | Type        | Default |
+|---------|-------------|---------|
+| qubits  | list<qubit> |         |
+| n       | int         | 3       |
+| ancilla | qubit       | qs[n]   |
+
+## events
+- init
+
+## state |psi0> [initial]
+> Initial
+
+## transitions
+| Source | Event | Guard | Target |
+|--------|-------|-------|--------|
+| |psi0> | init  |       | |psi0> |
+
+## actions
+| Name | Signature  | Effect   |
+|------|------------|----------|
+| noop | (qs) -> qs | Identity |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        machine = _machine(source)
+        assert infer_qubit_count(machine) == 4
+
+    def test_public_helper_fallback_to_one(self):
+        from q_orca.compiler.util import infer_qubit_count
+
+        source = """\
+# machine Minimal
+
+## events
+- go
+
+## state |psi0> [initial]
+> Start
+
+## transitions
+| Source | Event | Guard | Target |
+|--------|-------|-------|--------|
+| |psi0> | go    |       | |psi0> |
+
+## actions
+| Name | Signature  | Effect   |
+|------|------------|----------|
+| noop | (qs) -> qs | Identity |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        machine = _machine(source)
+        assert infer_qubit_count(machine) == 1
+
+
 class TestQiskitCompiler:
     def test_produces_python_script(self, bell_source):
         machine = _machine(bell_source)

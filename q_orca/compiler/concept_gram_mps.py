@@ -70,7 +70,7 @@ import re
 from typing import TYPE_CHECKING
 
 from q_orca.ast import QActionSignature, QMachineDef
-from q_orca.compiler.qasm import _infer_qubit_count
+from q_orca.compiler.util import infer_qubit_count
 
 if TYPE_CHECKING:
     import numpy as np
@@ -587,7 +587,7 @@ def compute_concept_gram_mps(
             f"steps and a more general transfer-matrix contraction)"
         )
 
-    n_qubits = _infer_qubit_count(machine)
+    n_qubits = infer_qubit_count(machine)
     if n_qubits <= 0:
         raise MpsGramConfigurationError(
             f"machine {machine.name!r}: could not infer a qubit register "
