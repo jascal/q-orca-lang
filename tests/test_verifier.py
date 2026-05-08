@@ -468,6 +468,82 @@ class TestQuantumVerification:
         error_codes = [e.code for e in result.errors if e.severity == "error"]
         assert len(error_codes) == 0
 
+    def test_separable_two_term_sum_not_flagged_as_entangled(self):
+        # (|00> + |10>)/√2 = |+>⊗|0> — a product state. The verifier must
+        # not fire ENTANGLEMENT_WITHOUT_GATE on it just because the
+        # expression syntactically looks like a Bell-style sum.
+        source = """\
+# machine PlusZero
+
+## context
+| Field  | Type        | Default  |
+|--------|-------------|----------|
+| qubits | list<qubit> | [q0, q1] |
+
+## events
+- prepare
+
+## state |00> [initial]
+> Ground state
+
+## state |+0> = (|00> + |10>)/√2 [final]
+> |+>⊗|0> — separable
+
+## transitions
+| Source | Event   | Guard | Target | Action  |
+|--------|---------|-------|--------|---------|
+| |00>   | prepare |       | |+0>   | apply_h |
+
+## actions
+| Name    | Signature  | Effect          |
+|---------|------------|-----------------|
+| apply_h | (qs) -> qs | Hadamard(qs[0]) |
+
+## verification rules
+- entanglement: Bell state has Schmidt rank > 1
+"""
+        result = verify_quantum(_machine(source))
+        codes = [e.code for e in result.errors]
+        assert "ENTANGLEMENT_WITHOUT_GATE" not in codes, codes
+
+    def test_genuine_two_term_entanglement_still_flagged_without_gate(self):
+        # (|00> + |11>)/√2 differs in two positions — genuinely entangled.
+        # If the only incoming transition is a Hadamard, the verifier
+        # should still warn.
+        source = """\
+# machine FakeBell
+
+## context
+| Field  | Type        | Default  |
+|--------|-------------|----------|
+| qubits | list<qubit> | [q0, q1] |
+
+## events
+- prepare
+
+## state |00> [initial]
+> Ground state
+
+## state |ψ> = (|00> + |11>)/√2 [final]
+> Claims to be a Bell state but reached via H alone
+
+## transitions
+| Source | Event   | Guard | Target | Action  |
+|--------|---------|-------|--------|---------|
+| |00>   | prepare |       | |ψ>    | apply_h |
+
+## actions
+| Name    | Signature  | Effect          |
+|---------|------------|-----------------|
+| apply_h | (qs) -> qs | Hadamard(qs[0]) |
+
+## verification rules
+- entanglement: Bell state has Schmidt rank > 1
+"""
+        result = verify_quantum(_machine(source))
+        codes = [e.code for e in result.errors]
+        assert "ENTANGLEMENT_WITHOUT_GATE" in codes, codes
+
     def test_qubit_index_out_of_range(self):
         source = """\
 # machine BadIndex

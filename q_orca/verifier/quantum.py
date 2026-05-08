@@ -14,13 +14,32 @@ KNOWN_UNITARY_GATES = {
     "CCZ", "MCX", "MCZ",
 }
 
-ENTANGLED_PATTERNS = [
-    re.compile(r"\(?\s*\|(\d+)>\s*[+\-]\s*\|(\d+)>\s*\)?\s*\/\s*√?2"),
+_TWO_TERM_SUPERPOSITION = re.compile(
+    r"\(?\s*\|(\d+)>\s*[+\-]\s*\|(\d+)>\s*\)?\s*\/\s*√?2"
+)
+_ENTANGLED_KEYWORD_PATTERNS = [
     re.compile(r"bell", re.IGNORECASE),
     re.compile(r"ghz", re.IGNORECASE),
     re.compile(r"epr", re.IGNORECASE),
     re.compile(r"entangl", re.IGNORECASE),
 ]
+
+
+def _two_term_sum_is_entangled(a: str, b: str) -> bool:
+    # (|x> + |y>)/√2 is fully separable iff x and y differ in exactly
+    # one bit: e.g. (|00> + |10>)/√2 = (|0>+|1>)⊗|0> = |+>⊗|0>. Two or
+    # more differing positions means at least one bipartition cannot
+    # be factored, so the state carries entanglement.
+    if len(a) != len(b):
+        return False
+    return sum(1 for x, y in zip(a, b) if x != y) >= 2
+
+
+def _expression_indicates_entanglement(text: str) -> bool:
+    for m in _TWO_TERM_SUPERPOSITION.finditer(text):
+        if _two_term_sum_is_entangled(m.group(1), m.group(2)):
+            return True
+    return any(p.search(text) for p in _ENTANGLED_KEYWORD_PATTERNS)
 
 
 def _has_rule(machine: QMachineDef, kind: str) -> bool:
@@ -210,12 +229,12 @@ def check_entanglement(machine: QMachineDef) -> QVerificationResult:
 
     entangled_states = [
         s for s in machine.states
-        if s.state_expression and any(p.search(s.state_expression) for p in ENTANGLED_PATTERNS)
+        if s.state_expression and _expression_indicates_entanglement(s.state_expression)
     ]
 
     if not entangled_states:
         has_entangled_name = any(
-            any(p.search(s.name) for p in ENTANGLED_PATTERNS)
+            _expression_indicates_entanglement(s.name)
             for s in machine.states
         )
         if not has_entangled_name:

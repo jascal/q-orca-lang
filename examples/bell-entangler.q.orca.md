@@ -14,8 +14,8 @@
 ## state |00> [initial]
 > Ground state, no entanglement yet
 
-## state |+0> = (|0> + |1>)|00>/√2
-> After Hadamard on qubit 0 — superposition
+## state |+0> = (|00> + |10>)/√2
+> After Hadamard on qubit 0 — superposition (equivalently |+>⊗|0>)
 
 ## state |ψ> = (|00> + |11>)/√2
 > Bell state after Hadamard + CNOT

@@ -15,8 +15,8 @@
 ## state |000>
 > Three-qubit ground state
 
-## state |+00> = (|0> + |1>)|00>/√2
-> After Hadamard on first qubit
+## state |+00> = (|000> + |100>)/√2
+> After Hadamard on first qubit (equivalently |+>⊗|00>)
 
 ## state |Φ00_10> = (|000> + |100>)/√2
 > Partially entangled after first CNOT
