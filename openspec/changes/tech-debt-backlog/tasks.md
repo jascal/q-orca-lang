@@ -948,7 +948,7 @@ keep the 2026-05-01 cluster contiguous.
   the loud-error guard is likely sufficient.
   (Source: 2026-05-01 `extend-mps-matcher-rz-phases` PR.)
 
-- [ ] 5.17 **`estimate_resources` raises `TranspilerError` on circuits
+- [x] 5.17 **`estimate_resources` raises `TranspilerError` on circuits
   with `if_else` blocks under qiskit ≥ 2.4.** Severity: MEDIUM. Surface:
   `q_orca/compiler/resources.py:42-46` calls `transpile(qc,
   basis_gates=['u3', 'cx'], optimization_level=1)` and a sibling call
@@ -973,6 +973,29 @@ keep the 2026-05-01 cluster contiguous.
   Worked around in PR #62 by switching the new compound-conditional
   resource tests to `count_ops()` directly so they don't pay the
   transpile cost.)
+  Added a structural fallback `_count_basis_ops(qc, basis_gates)` in
+  `q_orca/compiler/resources.py` that wraps the basis-specific
+  transpile in a `TranspilerError` catch. On the catch path it walks
+  the circuit: flat instructions are appended into a
+  `qc.copy_empty_like()` shell and transpiled together, while each
+  control-flow op (`if_else` / `while_loop` / `switch_case`) is
+  counted by its own `op.name` and its `op.blocks` are recursed into
+  — each block being a self-contained `QuantumCircuit` with no nested
+  control flow at the canonical depth shipped today. `estimate_resources`
+  now routes `cx_count` / `t_count` through the helper; `gate_count`
+  stays on the un-transpiled `qc.count_ops()` so a compound conditional
+  that nests `if_else` inside `if_else` still collapses to a single
+  top-level op (matching `extend-conditional-gate-compound-bits`'s
+  contract). Three regression tests in `tests/test_resource_estimation.py`:
+  `test_estimate_resources_single_conditional_machine` (single-cond
+  `if bits[0]==1: X(qs[1])` machine — completes without crashing),
+  `test_estimate_resources_compound_conditional_machine` (the
+  bit-flip-syndrome example, which now drops the PR #62 workaround),
+  and `test_count_basis_ops_fallback_descends_into_if_else_bodies`
+  (monkeypatch forces the top-level basis transpile to raise
+  `TranspilerError` regardless of qiskit version, then asserts the
+  helper counts a `cx` *inside* an `if_else` body via the recursive
+  walk — the previous code would silently report 0).
 
 ## 6. How to use this file
 

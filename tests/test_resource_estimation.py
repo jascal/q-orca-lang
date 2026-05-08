@@ -250,3 +250,131 @@ def test_bit_flip_syndrome_compound_conditional_op_count():
     assert ops.get("if_else", 0) == 3
     # No top-level X gates — they all live inside if_else blocks.
     assert ops.get("x", 0) == 0
+
+
+def test_estimate_resources_single_conditional_machine():
+    """Single-condition correction (`if bits[0] == 1: X(qs[1])`).
+
+    `estimate_resources` must complete without `TranspilerError` even
+    when the circuit contains an `if_else` op — under qiskit ≥ 2.4 the
+    `BasisTranslator` rejects circuits containing control-flow ops
+    when transpiling to a basis like `['u3', 'cx']` that doesn't
+    enumerate them. Pin the un-transpiled count shape (1 H + 1 measure
+    + 1 if_else) and the basis-derived counts (no cx / t in this
+    circuit since the conditional body holds an X).
+    """
+    src = """\
+# machine SingleCond
+
+## context
+| Field | Type | Default |
+|-------|------|---------|
+| qubits | list<qubit> | [q0, q1] |
+| bits | list<bit> | [b0] |
+
+## events
+- prepare
+- measure_q0
+- correct
+
+## state |a> [initial]
+## state |b>
+## state |c>
+## state |d> [final]
+
+## transitions
+| Source | Event | Guard | Target | Action |
+|--------|-------|-------|--------|--------|
+| |a> | prepare | | |b> | seed |
+| |b> | measure_q0 | | |c> | meas0 |
+| |c> | correct | | |d> | corr |
+
+## actions
+| Name | Signature | Effect |
+|------|-----------|--------|
+| seed | (qs) -> qs | H(qs[0]) |
+| meas0 | (qs) -> qs | measure(qs[0]) -> bits[0] |
+| corr | (qs) -> qs | if bits[0] == 1: X(qs[1]) |
+"""
+    m = parse_q_orca_markdown(src).file.machines[0]
+    r = estimate_resources(m)
+    # 1 H + 1 measure + 1 if_else = 3 top-level ops.
+    assert r["gate_count"] == 3
+    # No top-level cx or T; the conditional's X lives inside the
+    # if_else body and is not a cx/t under either basis decomposition.
+    assert r["cx_count"] == 0
+    assert r["t_count"] == 0
+    assert r["logical_qubits"] == 2
+
+
+def test_estimate_resources_compound_conditional_machine():
+    """Bit-flip-syndrome's three compound conditional corrections
+    (each `if bits[0]==X and bits[1]==Y: X(qs[k])` nesting an inner
+    `if_else` inside an outer `if_else` per
+    `extend-conditional-gate-compound-bits`).
+
+    Before §5.17 this raised `TranspilerError` under qiskit ≥ 2.4 —
+    the worked-around tests in this file checked `count_ops()`
+    directly on the un-transpiled circuit to dodge it. With the
+    structural fallback in `_count_basis_ops`, `estimate_resources`
+    completes and the basis-derived counts agree with the
+    un-transpiled-circuit shape.
+    """
+    m = _load("bit-flip-syndrome.q.orca.md")
+    r = estimate_resources(m)
+    # 4 cx (entangle) + 2 measure + 3 outer if_else = 9 top-level ops.
+    assert r["gate_count"] == 9
+    # 4 top-level cx gates from the entanglement ladder; the if_else
+    # bodies hold X gates only, which contribute 0 to cx_count.
+    assert r["cx_count"] == 4
+    # No T gates anywhere in the circuit.
+    assert r["t_count"] == 0
+    assert r["logical_qubits"] == 5
+
+
+def test_count_basis_ops_fallback_descends_into_if_else_bodies(monkeypatch):
+    """Force the top-level basis transpile to raise `TranspilerError`
+    so the structural fallback in `_count_basis_ops` is exercised
+    regardless of qiskit version. The helper must:
+
+      • count the `if_else` op itself once at the top level
+        (matching `count_ops()` semantics on qiskit 2.3.x);
+      • count the `cx` *inside* the `if_else` body via recursion
+        (the body's transpile to `['u3','cx']` succeeds because the
+        block has no nested control flow); and
+      • count the `measure` at top level via the flat-only sub-circuit.
+    """
+    pytest.importorskip("qiskit", reason="qiskit not installed")
+
+    import qiskit
+    from qiskit import ClassicalRegister, QuantumCircuit, QuantumRegister
+    from qiskit.transpiler.exceptions import TranspilerError
+
+    from q_orca.compiler.resources import _count_basis_ops
+
+    q = QuantumRegister(2, "q")
+    c = ClassicalRegister(1, "c")
+    qc = QuantumCircuit(q, c)
+    qc.measure(0, 0)
+    with qc.if_test((c, 1)):
+        qc.cx(0, 1)
+
+    real_transpile = qiskit.transpile
+    calls = {"n": 0}
+
+    def fake_transpile(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TranspilerError("forced for test")
+        return real_transpile(*args, **kwargs)
+
+    monkeypatch.setattr(qiskit, "transpile", fake_transpile)
+
+    counts = _count_basis_ops(qc, ["u3", "cx"])
+
+    assert counts["if_else"] == 1
+    assert counts["measure"] == 1
+    assert counts["cx"] == 1, (
+        "cx inside the if_else body must be counted via the recursive "
+        "block walk — without the descent it would silently report 0."
+    )

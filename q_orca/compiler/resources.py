@@ -18,12 +18,56 @@ reuses that memory address cannot get a stale cache hit.
 """
 
 import weakref
+from collections import Counter
 from typing import Union
 
 from q_orca.ast import QMachineDef
 
 
 _RESOURCE_CACHE: dict[int, dict[str, Union[int, str]]] = {}
+
+
+def _count_basis_ops(qc, basis_gates: list[str]) -> Counter:
+    """Count gates in `qc` after decomposing to `basis_gates`, descending
+    into control-flow blocks when the top-level transpile rejects them.
+
+    Qiskit ≥ 2.4's `BasisTranslator` raises `TranspilerError` on circuits
+    containing `if_else` (or `while_loop`/`switch_case`/…) because no
+    equivalence rule decomposes a control-flow op into the explicit basis.
+    The fallback splits the circuit: flat instructions transpile together,
+    and each control-flow op's body — itself a self-contained
+    `QuantumCircuit` — transpiles separately and recursively. The
+    control-flow op is counted by its own name (so a compound conditional
+    that nests `if_else` inside `if_else` per
+    `extend-conditional-gate-compound-bits` collapses to a single
+    top-level `if_else` count, matching `count_ops()` semantics on
+    qiskit 2.3.x).
+    """
+    from qiskit import transpile
+    from qiskit.transpiler.exceptions import TranspilerError
+
+    try:
+        return Counter(
+            transpile(qc, basis_gates=basis_gates, optimization_level=1).count_ops()
+        )
+    except TranspilerError:
+        pass
+
+    flat_qc = qc.copy_empty_like()
+    cf_counts: Counter = Counter()
+    for instr in qc.data:
+        op = instr.operation
+        if getattr(op, "blocks", None):
+            cf_counts[op.name] += 1
+            for block in op.blocks:
+                cf_counts.update(_count_basis_ops(block, basis_gates))
+        else:
+            flat_qc.append(instr)
+
+    flat_counts = Counter(
+        transpile(flat_qc, basis_gates=basis_gates, optimization_level=1).count_ops()
+    )
+    return flat_counts + cf_counts
 
 
 def estimate_resources(machine: QMachineDef) -> dict[str, Union[int, str]]:
@@ -39,10 +83,8 @@ def estimate_resources(machine: QMachineDef) -> dict[str, Union[int, str]]:
 
     gate_count = sum(qc.count_ops().values())
     depth = transpile(qc, optimization_level=1).depth()
-    cx_qc = transpile(qc, basis_gates=["u3", "cx"], optimization_level=1)
-    cx_count = cx_qc.count_ops().get("cx", 0)
-    t_qc = transpile(qc, basis_gates=["h", "s", "cx", "t", "tdg"], optimization_level=1)
-    t_ops = t_qc.count_ops()
+    cx_count = _count_basis_ops(qc, ["u3", "cx"]).get("cx", 0)
+    t_ops = _count_basis_ops(qc, ["h", "s", "cx", "t", "tdg"])
     t_count = t_ops.get("t", 0) + t_ops.get("tdg", 0)
     logical_qubits = _infer_qubit_count(machine)
 
