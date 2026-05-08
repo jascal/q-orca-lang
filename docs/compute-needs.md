@@ -9,8 +9,14 @@
 ## What Q-Orca is
 
 Q-Orca is an open-source quantum state machine language that lets developers
-define, verify, and simulate quantum programs as first-class state machines —
-with the same rigour applied to production distributed systems.
+define, verify, and simulate quantum programs as first-class state machines.
+It applies the structural discipline used in production distributed-systems
+specs (reachability, completeness, determinism) and adds quantum-specific
+checks (unitarity, entanglement, coherence, collapse). The pipeline is
+pragmatic — syntactic checks plus state-vector simulation via QuTiP — rather
+than a full deductive system; quantum-program verification is fundamentally
+harder than classical state-machine verification because of superposition
+and measurement.
 
 A Q-Orca program looks like this:
 

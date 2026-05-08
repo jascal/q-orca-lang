@@ -15,12 +15,12 @@ All 19 bundled example machines — from the original Bell / GHZ / Deutsch-Jozsa
 
 ## Why Q-Orca?
 
-Most quantum tools let you draw circuits. Q-Orca lets you **define, verify, and simulate** quantum programs as first-class state machines — with the same rigour you'd apply to a production distributed system.
+Most quantum tools let you draw circuits. Q-Orca lets you **define, verify, and simulate** quantum programs as first-class state machines — applying the kind of structural discipline (reachability, completeness, determinism) that production distributed-systems specs use, augmented with quantum-specific checks (unitarity, entanglement, coherence, collapse).
 
-- **Verification, not just simulation** — a 5-stage pipeline catches unitarity violations, entanglement declaration errors, superposition coherence leaks, and incomplete collapse branches before you run a single shot
+- **Verification, not just simulation** — a 5-stage pipeline catches unitarity violations, entanglement declaration errors, superposition coherence leaks, and incomplete collapse branches before you run a single shot. The pipeline is pragmatic — syntactic/structural checks plus state-vector simulation via QuTiP — not a full deductive system like quantum Hoare logic
 - **Readable by humans and AI** — machines are plain Markdown; LLMs generate and refine them natively via the built-in MCP server
 - **Hybrid classical-quantum control** — mid-circuit measurement + classical feedforward lets you write closed-loop quantum controllers, not just open circuits
-- **Formal foundation** — directly implements quantum finite automata theory in executable, verifiable form
+- **Quantum-finite-automata-inspired** — state/event/guard/transition structure mirrors QFA models, made executable and checkable; not a formal QFA proof system
 
 ---
 
@@ -158,7 +158,7 @@ Stage 4b supports three backends via `--backend`:
 | NVIDIA CUDA-Q | `--backend cudaq` | `pip install cudaq matplotlib` | macOS (Apple Silicon), Linux, Windows |
 | NVIDIA cuQuantum | `--backend cuquantum` | `pip install qutip-cuquantum` + CUDA toolkit | Linux + NVIDIA GPU only |
 
-All backends produce identical verification results — switching changes performance, not correctness. If a requested backend is unavailable, Q-Orca falls back to QuTiP and emits a `BACKEND_UNAVAILABLE` warning. See [Install](#install) for setup instructions.
+All backends are wrappers around state-vector simulation and are expected to produce identical Schmidt-rank / entropy results within numerical tolerance — switching changes performance, not correctness. The hard semantic checks (entanglement, coherence) ultimately reduce to QuTiP-style state-vector evaluation; CUDA-Q and cuQuantum accelerate that same computation. If a requested backend is unavailable, Q-Orca falls back to QuTiP and emits a `BACKEND_UNAVAILABLE` warning. See [Install](#install) for setup instructions.
 
 ### Stage 4 vs 4b — static vs dynamic
 
@@ -442,8 +442,8 @@ The full source for every example is in [`examples/`](examples/). Here is `bell-
 ## state |00>
 > Ground state, no entanglement yet
 
-## state |+0> = (|0> + |1>)|00>/√2
-> After Hadamard on qubit 0 — superposition
+## state |+0> = (|00> + |10>)/√2
+> After Hadamard on qubit 0 — superposition (equivalently |+>⊗|0>)
 
 ## state |ψ> = (|00> + |11>)/√2
 > Bell state after Hadamard + CNOT
@@ -678,7 +678,7 @@ stateDiagram-v2
   direction LR
 
   00 : |00>
-  0 : |+0> = (|0> + |1>)|00>/√2
+  0 : |+0> = (|00> + |10>)/√2
   unnamed : |ψ> = (|00> + |11>)/√2
   00_collapsed : |00_collapsed>
   11_collapsed : |11_collapsed>

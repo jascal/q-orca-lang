@@ -18,8 +18,8 @@
 ## state |start>
 > Initial state |00>
 
-## state |ψ_ansatz> = Ry(θ)⊗Ry(θ)|00> then CNOT|00>
-> Ansatz state: entangled parameterized state
+## state |ψ_ansatz> = CNOT · (Ry(θ)⊗Ry(θ)) |00>
+> Ansatz state: entangled parameterized state (Ry on each qubit, then CNOT)
 
 ## state |measured>
 > Energy ⟨XX + YY + ZZ⟩/4 measured
