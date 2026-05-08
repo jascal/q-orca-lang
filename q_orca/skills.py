@@ -73,6 +73,7 @@ class ParseSkillResult(TypedDict, total=False):
     status: str  # "success" | "error"
     machines: list[ParsedMachine]
     machine: ParsedMachine | None
+    errors: list[SkillError]
     error: str | None
 
 
@@ -129,10 +130,31 @@ def _machine_to_parsed(machine: QMachineDef) -> ParsedMachine:
 
 
 def parse_skill(input: SkillInput) -> ParseSkillResult:
-    """Parse a Q-Orca machine definition and return structured result."""
+    """Parse a Q-Orca machine definition and return structured result.
+
+    When `parse_q_orca_markdown` populates `parsed.errors` (e.g. malformed
+    table syntax, undeclared actions, type mismatches), return
+    `status="error"` with the errors surfaced in the `errors` field. A
+    genuinely empty input — no machine heading and no parser errors —
+    stays `status="success"` with `machines=[]` so callers can distinguish
+    "no machine in input" from "machine had parse errors."
+    """
     try:
         source = _resolve_source(input)
         parsed = parse_q_orca_markdown(source)
+        if parsed.errors:
+            return ParseSkillResult(
+                status="error",
+                machines=[],
+                machine=None,
+                errors=[SkillError(
+                    code="PARSE_ERROR",
+                    message=msg,
+                    severity="error",
+                    location=None,
+                    suggestion=None,
+                ) for msg in parsed.errors],
+            )
         machines = [_machine_to_parsed(m) for m in parsed.file.machines]
         return ParseSkillResult(
             status="success",

@@ -422,7 +422,7 @@
 
 ## 4. MCP server / skills
 
-- [ ] 4.1 Surface parse errors from `parse_skill`
+- [x] 4.1 Surface parse errors from `parse_skill`
   (`q_orca/skills.py:131-143`). Today the skill calls
   `parse_q_orca_markdown(source)` and builds `machines` from
   `parsed.file.machines`, returning `status="success"` regardless
@@ -440,6 +440,20 @@
   stays `status="success"` with `machines=[]` so the call shape
   remains unambiguous.
   (Source: Hermes QA on the MCP server, observation 3.)
+  Added `errors: list[SkillError]` to `ParseSkillResult` and a
+  pre-build branch in `parse_skill` that fires when
+  `parsed.errors` is non-empty: returns
+  `status="error", machines=[], machine=None` and maps each parser
+  message to a `SkillError(code="PARSE_ERROR", severity="error")`,
+  mirroring the `verify_skill` pattern. The genuinely-empty path
+  (`parsed.errors == [] and parsed.file.machines == []`) stays
+  `status="success"` with `machines=[]`. Pinned by
+  `test_parse_with_parser_errors_returns_error_status` (undeclared
+  bare-name action source — surfaces with `code="PARSE_ERROR"`,
+  the offending action name in `message`, and the `errors` field
+  populated) and `test_parse_no_machine_no_errors_stays_success`
+  (empty input — `status="success"`, no `errors` key) in
+  `tests/test_skills.py::TestParseSkill`.
 
 - [ ] 4.2 Document the no-auth-on-tool-calls model in
   `q_orca/mcp_server/`'s top-level docs / README. The MCP server
