@@ -1008,3 +1008,66 @@ keep the 2026-05-01 cluster contiguous.
   this change followed it (note left alongside each `[x]`, no items
   deleted on completion). Originally numbered §5.1; renumbered to
   §6.1 when the example-library QA findings were added as §5.
+
+## Feedback triage — 2026-05-08
+
+Items surfaced from merge-commit bodies of PRs merged in the last
+seven days that recorded follow-up work but did not yet have a
+backlog entry. Numbered in the §7.x range so they don't collide
+with the per-area sections above; promote into an area section
+when one of them is picked up.
+
+- [ ] 7.1 **Robust tier-separation metric for small / noisy
+  clusters.** Severity: LOW. Surface:
+  `q_orca/compiler/concept_gram_hea.py:compute_tier_separation`.
+  The helper computes
+  `min_intra_cluster_mean − max_cross_cluster_overlap` as plain
+  `min`/`max` reductions, which are dominated by single outliers
+  whenever a cluster has only 2–3 concepts. PR #57's docstring
+  caveat names the failure mode and suggests two mitigations:
+  (a) prefer cluster size ≥ 4 before treating the metric as
+  tight, and (b) consider a quantile-trimmed alternative
+  (e.g., 5%-quantile intra-mean and 95%-quantile cross-overlap)
+  for noisy θ tensors. Fix shape: add an opt-in `mode` parameter
+  (`"strict"` (current behavior, default) | `"quantile"`) and a
+  matching grammar slot on `concept_gram_tier_separation` so
+  authors can declare the metric variant. The
+  `HEA_TIER_INVARIANT_VIOLATED` error message should name the
+  mode that failed. Size: [M] half-day. Tests in
+  `tests/test_compiler.py::TestComputeTierSeparation` extend with
+  3-concept and noisy-θ cases that pass under quantile mode and
+  fail under strict mode.
+  (Source: 2026-05-03 `add-hea-tier-ordering-invariant` PR #57
+  follow-up commit docstring.)
+
+- [x] 7.2 **Consolidate the remaining three `infer_qubit_count`
+  peer copies.** Severity: LOW. Surface:
+  `q_orca/compiler/qiskit.py`, `q_orca/compiler/cudaq.py`, and
+  `q_orca/verifier/dynamic.py` each still ship a private
+  re-implementation of qubit-count inference. PR #60 promoted
+  the helper to `q_orca/compiler/util.py:infer_qubit_count` and
+  migrated `qasm.py` plus the two `concept_gram_*.py` callers,
+  but explicitly left these three peers in place as out-of-scope
+  for that entry. Fix shape: have each peer import the public
+  helper, delete the private body, and add a tests/test_compiler
+  parity assertion analogous to
+  `qasm_alias is infer_qubit_count` so future shadowing fails
+  loudly. Size: [S] <2h.
+  (Source: 2026-05-07 `tech-debt-backlog §3.13` PR #60 resolution
+  body, "out of scope for this entry".)
+  Each peer now does `from q_orca.compiler.util import
+  infer_qubit_count as _infer_qubit_count` at module import time,
+  with the private body deleted. The qiskit module additionally
+  dropped its now-unused `QTypeQubit` import. The cudaq and
+  dynamic copies were strictly weaker than the public helper
+  (cudaq had no guard or state-expression scan; dynamic had
+  neither plus no gate-target/control or effect-string scan), so
+  the consolidation may bump the inferred count for some inputs
+  the strictly weaker form previously underestimated — only ever
+  upward, and only on inputs that the qasm/qiskit path already
+  inferred at the higher count. `TestInferQubitCountPublicHelper`
+  in `tests/test_compiler.py` gained three identity assertions
+  (`qiskit_alias is infer_qubit_count`, `cudaq_alias is …`,
+  `dynamic_alias is …`) so a future accidental re-shadowing in
+  any of the four modules fails loudly at test time. Full suite
+  green: 964 passed, 18 skipped.

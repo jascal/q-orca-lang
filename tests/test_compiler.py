@@ -350,8 +350,12 @@ class TestInferQubitCountPublicHelper:
     Promoted from ``q_orca.compiler.qasm._infer_qubit_count`` so analysis
     modules (``concept_gram_mps``, ``concept_gram_hea``) can call a public
     API instead of reaching into the qasm compiler's underscored surface.
-    The qasm name remains as a re-export alias so internal callers and
-    parity tests in ``tests/test_bug_fixes.py`` keep working.
+    The qasm, qiskit, cudaq, and dynamic-verifier modules each retain a
+    ``_infer_qubit_count`` re-export alias bound to the public helper, so
+    internal callers and parity tests in ``tests/test_bug_fixes.py`` keep
+    working. The ``alias is infer_qubit_count`` identity assertions below
+    fail loudly if a future edit accidentally re-shadows the name with a
+    private re-implementation.
     """
 
     def test_public_helper_matches_qasm_alias(self):
@@ -359,6 +363,24 @@ class TestInferQubitCountPublicHelper:
         from q_orca.compiler.util import infer_qubit_count
 
         assert qasm_alias is infer_qubit_count
+
+    def test_public_helper_matches_qiskit_alias(self):
+        from q_orca.compiler.qiskit import _infer_qubit_count as qiskit_alias
+        from q_orca.compiler.util import infer_qubit_count
+
+        assert qiskit_alias is infer_qubit_count
+
+    def test_public_helper_matches_cudaq_alias(self):
+        from q_orca.compiler.cudaq import _infer_qubit_count as cudaq_alias
+        from q_orca.compiler.util import infer_qubit_count
+
+        assert cudaq_alias is infer_qubit_count
+
+    def test_public_helper_matches_dynamic_alias(self):
+        from q_orca.verifier.dynamic import _infer_qubit_count as dynamic_alias
+        from q_orca.compiler.util import infer_qubit_count
+
+        assert dynamic_alias is infer_qubit_count
 
     def test_public_helper_resolves_n_plus_ancilla(self):
         from q_orca.compiler.util import infer_qubit_count
