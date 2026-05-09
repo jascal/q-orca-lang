@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from q_orca.ast import QMachineDef
 from q_orca.compiler.parametric import expand_action_call
+from q_orca.compiler.util import infer_qubit_count as _infer_qubit_count
 from q_orca.effect_parser import (
     ParsedGate,
     parse_effect_string,
@@ -35,39 +36,6 @@ try:
 except ImportError:
     Qobj = Any
     pass
-
-
-def _infer_qubit_count(machine: QMachineDef) -> int:
-    """Infer qubit count from machine context."""
-    n_value: Optional[int] = None
-    has_ancilla = False
-    qubits_list_length: Optional[int] = None
-
-    for field in machine.context:
-        if field.name == "n" and hasattr(field.type, "kind") and field.type.kind == "int":
-            try:
-                n_value = int(field.default_value) if field.default_value else None
-            except (ValueError, TypeError):
-                n_value = None
-        if field.name == "ancilla" and hasattr(field.type, "kind") and field.type.kind == "qubit":
-            has_ancilla = True
-        if field.name == "qubits" and hasattr(field.type, "kind") and field.type.kind == "list":
-            if field.default_value:
-                items = re.findall(r"q\d+", field.default_value)
-                if items:
-                    qubits_list_length = len(items)
-
-    if n_value is not None and has_ancilla:
-        return n_value + 1
-    if qubits_list_length is not None:
-        return qubits_list_length
-
-    max_bits = 0
-    for state in machine.states:
-        m = re.search(r"\|([01]+)>", state.name)
-        if m:
-            max_bits = max(max_bits, len(m.group(1)))
-    return max_bits or 1
 
 
 def _build_gate_sequence(machine: QMachineDef, max_gates: int = 50) -> tuple[Optional[str], list[list[Dict[str, Any]]]]:
