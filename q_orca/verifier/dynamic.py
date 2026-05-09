@@ -10,7 +10,6 @@ This module performs actual quantum verification by:
 
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from q_orca.ast import QMachineDef
