@@ -372,7 +372,7 @@
   `BoundArg.value` to a string and asserts the contextful error replaces
   the bare `ValueError`.
 
-- [ ] 3.12 Vectorize the Gram double-loop in
+- [x] 3.12 Vectorize the Gram double-loop in
   `compute_concept_gram_mps` (`concept_gram_mps.py:392-395`). The
   matrix is Hermitian by construction (`gram[j,i] = conj(gram[i,j])`)
   with unit-modulus diagonal, but the current implementation computes
@@ -389,6 +389,25 @@
   (Source: Claude Sonnet 4.6 code review on PR #45, suggestion 5.
   Related to the N ≈ 1K statevector-path wall discussed in
   `docs/research/polysemantic-encoding-beyond-product-states.md`.)
+  Took option (a). Replaced the explicit `for i, for j` Python loop
+  over `np.vdot(flat_states[i], flat_states[j])` with a single
+  `flat_states.conj() @ flat_states.T` matmul after stacking the
+  per-call-site flat statevectors via `np.stack`. Same dtype/shape
+  contract; the BLAS call is typically more numerically accurate than
+  the `O(N²)` `np.vdot` sweep and removes the dominant Python-level
+  cost. All 34 existing `TestComputeConceptGramMps` tests pass
+  unchanged. New regression test
+  `test_vectorized_gram_is_hermitian_with_unit_modulus_diagonal`
+  pins the contract from this task body (Hermitian symmetry + unit-
+  modulus diagonal) on a 6-call-site cross-coupled inverse-form
+  machine, so a future regression in the vectorized path (e.g., a
+  swapped `conj` / `T` order) is caught directly rather than only via
+  downstream Gram-magnitude tests. Note: option (a)'s formulation in
+  the original task body was `flat @ flat.conj().T`, which would have
+  produced `gram[i, j] = sum_k flat[i, k] * flat[j, k].conj()` — i.e.
+  the conjugate of the wanted Gram, since `np.vdot(a, b) = a.conj() ·
+  b`. The implementation uses `flat.conj() @ flat.T`, which gives the
+  correct `<c_i | c_j>` ordering matching the previous loop.
 
 - [x] 3.13 Promote `_infer_qubit_count` from
   `q_orca/compiler/qasm.py` to a public helper in a shared module
