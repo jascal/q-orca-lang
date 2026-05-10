@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/jascal/q-orca-lang)
 
-Q-Orca is a quantum-aware dialect of [Orca](https://github.com/orca-lang/orca-lang), a state machine language written in Markdown. It extends Orca with Dirac ket notation for quantum states, unitary gate actions, entanglement verification, and simulation via Qiskit.
+Q-Orca is a quantum-aware dialect of [Orca](https://github.com/jascal/orca-lang), a state machine language written in Markdown. It extends Orca with Dirac ket notation for quantum states, unitary gate actions, entanglement verification, and simulation via Qiskit.
 
 All 19 bundled example machines — from the original Bell / GHZ / Deutsch-Jozsa / Teleportation / VQE set through QAOA, predictive-coder, and LARQL polysemantic / HEA circuits — pass the full 5-stage verification pipeline on every commit, across Python 3.10–3.13.
 
@@ -350,7 +350,7 @@ q-orca simulate examples/bell-entangler.q.orca.md --run --json
 
 ### Hybrid Classical + Quantum Demo
 
-The `demos/hybrid_quantum_controller/` demo shows a classical [Orca](https://github.com/orca-lang/orca-lang) state machine orchestrating a Q-Orca quantum circuit through design, verification, refinement, and compilation.
+The `demos/hybrid_quantum_controller/` demo shows a classical [Orca](https://github.com/jascal/orca-lang) state machine orchestrating a Q-Orca quantum circuit through design, verification, refinement, and compilation.
 
 **Architecture:**
 
