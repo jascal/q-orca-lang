@@ -640,25 +640,24 @@ def compute_concept_gram_mps(
 
     # TODO(deferred): replace this 2^n statevector simulation with an
     # MPS transfer-matrix contraction in O(n * chi^6) per call site.
-    # The current path is fine for the shipped n=3 hierarchical example
-    # and is dominated by the O(N^2) Gram double-loop below; the
-    # asymptotic statevector cost only bites once n grows past ~8.
+    # The current path is fine for the shipped n=3 hierarchical example;
+    # the asymptotic statevector cost only bites once n grows past ~8.
     # Sketch of the contraction: build a per-site `T_k = sum_b A_k^b
     # \otimes A_k^b\dagger` rank-4 transfer matrix from the staircase
     # MPS tensors `A_k`, then contract along the chain to obtain
     # `gram[i, j]` without ever materializing the 2^n statevector. See
     # the research note `docs/research/polysemantic-encoding-beyond-
     # product-states.md` for the closed-form derivation.
-    states = [
-        _build_concept_state(
-            np, n_qubits, angles[i].tolist(), param_names, ops,
-        )
-        for i in range(n_calls)
-    ]
-    flat_states = [s.reshape(-1) for s in states]
-
-    gram = np.zeros((n_calls, n_calls), dtype=complex)
-    for i in range(n_calls):
-        for j in range(n_calls):
-            gram[i, j] = np.vdot(flat_states[i], flat_states[j])
-    return gram
+    flat_states = np.stack(
+        [
+            _build_concept_state(
+                np, n_qubits, angles[i].tolist(), param_names, ops,
+            ).reshape(-1)
+            for i in range(n_calls)
+        ]
+    )
+    # gram[i, j] = <c_i | c_j> = sum_k flat_states[i, k].conj() *
+    # flat_states[j, k] = (flat_states.conj() @ flat_states.T)[i, j].
+    # Single BLAS call replaces the previous O(N^2) Python loop over
+    # np.vdot, and is typically more numerically accurate.
+    return flat_states.conj() @ flat_states.T

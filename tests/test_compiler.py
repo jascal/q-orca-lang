@@ -2007,6 +2007,42 @@ class TestComputeConceptGramMps:
         # technically true but misleading for the all-constants case.
         assert "non-constant" not in message
 
+    def test_vectorized_gram_is_hermitian_with_unit_modulus_diagonal(self):
+        """The Gram matrix is Hermitian by construction
+        (``gram[j, i] == conj(gram[i, j])``) with unit-modulus diagonal,
+        per the contract documented in tech-debt-backlog §3.12. Pinned
+        on a 6-site cross-coupled inverse-form machine so a future
+        regression in the vectorized BLAS path (e.g., a swapped
+        ``conj`` / ``T`` order) is caught directly rather than only via
+        downstream Gram-magnitude tests."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
+
+        # Six distinct angle tuples chosen to spread off-diagonal entries
+        # away from 0 and 1 in magnitude.
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle) -> qs",
+            "Ry(qs[2], -b - c); CNOT(qs[1], qs[2]); "
+            "Ry(qs[1], -a - b); CNOT(qs[0], qs[1]); Ry(qs[0], -a)",
+            [
+                "0.10, 0.20, 0.30",
+                "0.40, 0.50, 0.60",
+                "0.70, 0.80, 0.90",
+                "1.10, 1.20, 1.30",
+                "0.25, 1.05, 0.55",
+                "0.95, 0.15, 0.85",
+            ],
+        )
+        gram = compute_concept_gram_mps(machine)
+
+        assert gram.shape == (6, 6)
+        assert gram.dtype == np.complex128
+        np.testing.assert_allclose(gram, gram.conj().T, atol=1e-12)
+        np.testing.assert_allclose(
+            np.abs(np.diag(gram)), np.ones(6), atol=1e-12
+        )
+
     def test_call_site_non_numeric_bound_argument_raises(self):
         """A non-numeric `BoundArg.value` at a call site (e.g., a
         programmatically-built machine that injected a string where a
