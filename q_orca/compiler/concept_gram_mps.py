@@ -56,24 +56,56 @@ Gram signature of a hierarchical polysemantic example. It coexists
 with ``compute_concept_gram`` (rung 0, product state); the caller
 picks based on which preparation convention the example uses.
 
-Implementation note: the present implementation uses an explicit
-``2^n`` statevector simulation, which is fine for the shipped
-``n = 3`` example. The asymptotically-correct ``O(n * chi^6)``
-transfer-matrix contraction is tracked under tech-debt-backlog as a
-future optimization for larger ``n``.
+Implementation note: two algorithmic paths are available, selected via
+the ``method`` parameter of :func:`compute_concept_gram_mps`:
+
+- ``"statevector"`` --- the reference path. Builds the full ``2**n``
+  complex statevector for every call site and contracts the N^2 pairs
+  via a single ``flat.conj() @ flat.T`` BLAS matmul. Exact and fast
+  for small ``n``; uses ``2**n`` complex amplitudes per state, which
+  hits a memory wall around ``n = 25``.
+- ``"contracted"`` --- the transfer-matrix contraction path. Builds
+  per-site MPS tensors of shape ``(chi_L, 2, chi_R)`` with ``chi <= 2``
+  directly from the staircase ops (see :mod:`q_orca.compiler.mps_contract`)
+  and contracts pairs via a left-to-right environment sweep at cost
+  ``O(n * chi^6)`` per overlap. Memory is constant in ``n`` at fixed
+  ``chi``.
+- ``"auto"`` (default) --- dispatches to ``"statevector"`` when
+  ``n_qubits < STATEVECTOR_NQUBIT_THRESHOLD`` and to ``"contracted"``
+  otherwise. The threshold is set to the regime where statevector's
+  per-state storage and per-pair compute start to outweigh the
+  per-overlap constant-factor cost of the contraction.
+
+The two paths are pinned to within 1e-12 absolute tolerance on every
+``n_qubits in {3, 4, 5, 6}`` shipped example by the equivalence tests in
+``tests/test_concept_gram_mps_contraction.py``. The bond-dimension
+invariant ``chi = 2`` is enforced by both paths; ``bond_dim != 2``
+continues to raise :class:`MpsGramConfigurationError`.
 """
 
 from __future__ import annotations
 
 import ast
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from q_orca.ast import QActionSignature, QMachineDef
+from q_orca.compiler.mps_contract import mps_gram, staircase_to_mps_tensors
 from q_orca.compiler.util import infer_qubit_count
 
 if TYPE_CHECKING:
     import numpy as np
+
+
+# Auto-dispatch threshold for `method="auto"`. Below this n_qubits the
+# statevector path is the cheaper option (its O(2**n) per-state cost is
+# small in absolute terms and BLAS matmul amortises the N^2 loop); at or
+# above this n_qubits the transfer-matrix contraction takes over. See
+# design.md Decision 1 for the choice of 20 as a conservative crossover.
+STATEVECTOR_NQUBIT_THRESHOLD: int = 20
+
+
+_SUPPORTED_METHODS = ("statevector", "contracted", "auto")
 
 
 class MpsGramConfigurationError(ValueError):
@@ -542,6 +574,7 @@ def compute_concept_gram_mps(
     machine: QMachineDef,
     concept_action_label: str = "query_concept",
     bond_dim: int = 2,
+    method: Literal["statevector", "contracted", "auto"] = "auto",
 ) -> "np.ndarray":
     """Compute the N x N concept-overlap matrix for an MPS-encoded machine.
 
@@ -559,6 +592,14 @@ def compute_concept_gram_mps(
     bond_dim:
         Reserved for future generalization. Currently fixed at ``2`` —
         any other value raises ``MpsGramConfigurationError``.
+    method:
+        Algorithm selector. ``"statevector"`` runs the reference explicit
+        ``2**n`` simulation; ``"contracted"`` runs the
+        O(``n * chi^6``) transfer-matrix contraction (see
+        :mod:`q_orca.compiler.mps_contract`); ``"auto"`` (the default)
+        dispatches to ``"statevector"`` when
+        ``n_qubits < STATEVECTOR_NQUBIT_THRESHOLD`` and to
+        ``"contracted"`` otherwise.
 
     Returns
     -------
@@ -574,10 +615,19 @@ def compute_concept_gram_mps(
         If the named action is missing, has the wrong signature, has
         an effect that isn't a CNOT-staircase, has zero call sites,
         or ``bond_dim != 2``.
+    ValueError
+        If ``method`` is not one of ``"statevector"``, ``"contracted"``,
+        or ``"auto"``.
     """
     # Lazy numpy import: this module is re-exported from the top-level
     # ``q_orca`` package, and numpy isn't part of the base install.
     import numpy as np
+
+    if method not in _SUPPORTED_METHODS:
+        raise ValueError(
+            f"compute_concept_gram_mps: unknown method {method!r}; "
+            f"supported values are {set(_SUPPORTED_METHODS)}"
+        )
 
     if bond_dim != 2:
         raise MpsGramConfigurationError(
@@ -638,26 +688,38 @@ def compute_concept_gram_mps(
     angles = np.array(angle_rows, dtype=float)
     n_calls = len(angles)
 
-    # TODO(deferred): replace this 2^n statevector simulation with an
-    # MPS transfer-matrix contraction in O(n * chi^6) per call site.
-    # The current path is fine for the shipped n=3 hierarchical example;
-    # the asymptotic statevector cost only bites once n grows past ~8.
-    # Sketch of the contraction: build a per-site `T_k = sum_b A_k^b
-    # \otimes A_k^b\dagger` rank-4 transfer matrix from the staircase
-    # MPS tensors `A_k`, then contract along the chain to obtain
-    # `gram[i, j]` without ever materializing the 2^n statevector. See
-    # the research note `docs/research/polysemantic-encoding-beyond-
-    # product-states.md` for the closed-form derivation.
-    flat_states = np.stack(
-        [
-            _build_concept_state(
-                np, n_qubits, angles[i].tolist(), param_names, ops,
-            ).reshape(-1)
-            for i in range(n_calls)
-        ]
-    )
-    # gram[i, j] = <c_i | c_j> = sum_k flat_states[i, k].conj() *
-    # flat_states[j, k] = (flat_states.conj() @ flat_states.T)[i, j].
-    # Single BLAS call replaces the previous O(N^2) Python loop over
-    # np.vdot, and is typically more numerically accurate.
-    return flat_states.conj() @ flat_states.T
+    if method == "auto":
+        resolved_method = (
+            "statevector"
+            if n_qubits < STATEVECTOR_NQUBIT_THRESHOLD
+            else "contracted"
+        )
+    else:
+        resolved_method = method
+
+    if resolved_method == "statevector":
+        # Reference path: explicit 2^n statevector per call site, then
+        # a single `flat.conj() @ flat.T` BLAS matmul. Preserved
+        # verbatim from the pre-`method`-parameter implementation
+        # (tech-debt-backlog §3.12 vectorisation) so the
+        # `"statevector"` mode stays bit-identical for the shipped
+        # examples.
+        flat_states = np.stack(
+            [
+                _build_concept_state(
+                    np, n_qubits, angles[i].tolist(), param_names, ops,
+                ).reshape(-1)
+                for i in range(n_calls)
+            ]
+        )
+        return flat_states.conj() @ flat_states.T
+
+    # Contracted path: per-site MPS tensors at chi <= 2, transfer-matrix
+    # overlap. O(n * chi^6) per pair, constant memory in n.
+    tensor_lists = [
+        staircase_to_mps_tensors(
+            ops, n_qubits, angles[i].tolist(), param_names,
+        )
+        for i in range(n_calls)
+    ]
+    return mps_gram(tensor_lists)

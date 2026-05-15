@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **MPS concept-Gram transfer-matrix contraction** (`mps-transfer-matrix-contraction`) — `compute_concept_gram_mps` gained a `method` parameter (`"statevector" | "contracted" | "auto"`, default `"auto"`). The new `"contracted"` path builds per-site MPS tensors of shape `(χ_L, 2, χ_R)` at `χ ≤ 2` from the parsed staircase ops and contracts pairs via a left-to-right transfer-matrix sweep at cost `O(n · χ⁶)` per overlap, with memory constant in `n` at fixed `χ`. `"auto"` dispatches to `"statevector"` when `n_qubits < STATEVECTOR_NQUBIT_THRESHOLD` (currently 20) and to `"contracted"` otherwise, so all shipped examples keep the prior statevector behaviour. The two paths are pinned to within 1e-12 absolute tolerance on every `n_qubits ∈ {3, 4, 5, 6}` shipped example. The companion `compute_concept_gram_hea` path does NOT yet have a transfer-matrix contraction equivalent; HEA contraction is a forward-looking follow-on if a consumer asks for it.
+
+### Tests
+
+- New `tests/test_concept_gram_mps_contraction.py` covers the contracted primitives in isolation (single-Ry / single-Rz / single-CNOT tensor builds, hand-derived overlap pairs), pins `"statevector"` against the pre-change Python `np.vdot` double-loop bit-for-bit, asserts contracted = statevector at `n ∈ {3, 4, 5, 6}` on synthetic + shipped machines (cross-coupled and Rz-knob variants), and checks the contracted path produces Hermitian, unit-modulus-diagonal, finite Grams at `n ∈ {10, 16, 20, 24}` over 100 random seeds.
+
+---
+
 ## 0.9.1 (2026-05-07)
 
 ### Fixed
