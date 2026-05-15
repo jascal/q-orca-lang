@@ -439,6 +439,15 @@
   including a `qasm_alias is infer_qubit_count` identity assertion
   so a future accidental re-shadowing in qasm fails loudly.
 
+- [ ] 3.14 MPS transfer-matrix contraction (O(n · χ⁶) per overlap,
+  constant memory in n) — pulled out as dedicated change
+  `mps-transfer-matrix-contraction`. The original `add-mps-concept-
+  encoding` design.md flagged the asymptotically-correct contraction
+  as a future optimisation; this entry pulls it out per the §6.1
+  convention now that downstream consumers (polygram clustered-
+  dictionary primitive, MPSRung1 past 3 qubits) want to push past the
+  n_qubits=25 statevector wall. Tick on merge.
+
 ## 4. MCP server / skills
 
 - [x] 4.1 Surface parse errors from `parse_skill`
