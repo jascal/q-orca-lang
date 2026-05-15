@@ -47,9 +47,32 @@ Never pre-check tasks. A task is done when the tests prove it, not before.
 
 Run `gh pr create` with a title and body summarising what was implemented and what tests were added.
 
-## Step 5 — Wait for CI
+## Step 5 — Wait for CI (BOUNDED — do not block forever)
 
-Run `gh pr checks <number> --watch`. If CI fails, diagnose the failure, fix it, and push again.
+Poll CI with a hard ceiling. Do NOT use `gh pr checks --watch` — it has no timeout and will block forever if a check hangs. Instead, run this bounded loop (≤ 10 minutes; ~20 checks at 30s each):
+
+```bash
+PR=<number>
+for i in {1..20}; do
+  status=$(gh pr checks "$PR" --json bucket --jq '.[].bucket' 2>/dev/null || echo "error")
+  if [[ -z "$status" ]] || ! echo "$status" | grep -q "pending"; then
+    break
+  fi
+  sleep 30
+done
+gh pr checks "$PR" || true
+```
+
+If after the loop any check still reports pending, log the state and proceed to Step 6 — don't block further. If checks failed, diagnose and push fixes (one round of fix-and-repush is fine; don't chase indefinitely).
+
+## Step 5.5 — Bail conditions
+
+Stop the run early if any of these are true:
+- The fix-and-repush loop has executed more than 2 cycles (CI is in a bad state; flag for human review).
+- A single tool call has been running more than 5 minutes without completing.
+- Disk write would exceed 100 MB (something is wrong with the diff).
+
+Print the bail reason in the summary and stop.
 
 ## Step 6 — Report and stop
 
