@@ -30,12 +30,8 @@ from q_orca.compiler.concept_gram_mps import (
     _find_concept_action,
 )
 from q_orca.compiler.mps_contract import (
-    mps_gram,
     mps_overlap,
     staircase_to_mps_tensors,
-    _apply_1q,
-    _ry_matrix,
-    _rz_matrix,
 )
 from q_orca.parser.markdown_parser import parse_q_orca_markdown
 
