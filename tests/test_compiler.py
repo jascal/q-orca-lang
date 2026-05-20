@@ -2043,6 +2043,88 @@ class TestComputeConceptGramMps:
             np.abs(np.diag(gram)), np.ones(6), atol=1e-12
         )
 
+    def test_vectorized_gram_matches_vdot_oracle_with_complex_states(self):
+        """Pin the vectorized BLAS path against an ``np.vdot`` double-loop
+        oracle on a machine producing complex statevectors (prep form
+        with an ``Rz`` phase knob), per tech-debt-backlog §7.4. The
+        sibling Hermitian / unit-modulus pin is preserved under elementwise
+        complex conjugation, so a buggy
+        ``flat_states @ flat_states.conj().T`` (which yields
+        ``gram.conj()`` instead of ``gram``) would still pass that test
+        — but only when the Gram has nontrivial imaginary parts can the
+        bug be detected. ``Rz`` in prep form guarantees that condition,
+        and the oracle pins the canonical
+        ``gram[i, j] = <c_i | c_j> = vdot(c_i, c_j)`` convention."""
+        import numpy as np
+
+        from q_orca import compute_concept_gram_mps
+        from q_orca.compiler.concept_gram_mps import (
+            _build_concept_state,
+            _find_concept_action,
+            _parse_staircase_effect,
+        )
+        from q_orca.compiler.util import infer_qubit_count
+
+        # Prep-form staircase with an Rz phase knob — Rz introduces
+        # complex amplitudes so the Gram has nontrivial imaginary parts
+        # at the chosen angle tuples, and the test bites if a future
+        # edit swaps `flat.conj() @ flat.T` for `flat @ flat.conj().T`.
+        machine = self._make_machine(
+            "(qs, a: angle, b: angle, c: angle, phi: angle) -> qs",
+            "Ry(qs[0], a); CNOT(qs[0], qs[1]); Ry(qs[1], a + b); "
+            "Rz(qs[1], phi); CNOT(qs[1], qs[2]); Ry(qs[2], b + c)",
+            [
+                "0.10, 0.20, 0.30, 0.50",
+                "0.40, 0.50, 0.60, 1.10",
+                "0.70, 0.80, 0.90, 0.30",
+                "1.10, 1.20, 1.30, 0.90",
+                "0.25, 1.05, 0.55, 1.40",
+            ],
+            action_name="prepare_concept",
+        )
+        gram = compute_concept_gram_mps(
+            machine, concept_action_label="prepare_concept"
+        )
+        assert gram.shape == (5, 5)
+        assert gram.dtype == np.complex128
+
+        # Oracle: pre-vectorised `np.vdot` double-loop over the same
+        # `_build_concept_state` helper that feeds the BLAS matmul.
+        # `np.vdot(a, b) = conj(a) · b`, i.e., the canonical inner-
+        # product convention — a buggy `flat @ flat.conj().T` would
+        # produce the conjugate matrix instead.
+        n_qubits = infer_qubit_count(machine)
+        action = _find_concept_action(machine, "prepare_concept")
+        ops = _parse_staircase_effect(machine, action, n_qubits)
+        param_names = [p.name for p in action.parameters]
+        angle_rows = [
+            [float(b.value) for b in t.bound_arguments]
+            for t in machine.transitions
+            if t.action == "prepare_concept" and t.bound_arguments
+        ]
+        flat_states = np.stack(
+            [
+                _build_concept_state(
+                    np, n_qubits, row, param_names, ops,
+                ).reshape(-1)
+                for row in angle_rows
+            ]
+        )
+        n_calls = len(flat_states)
+        oracle = np.zeros((n_calls, n_calls), dtype=np.complex128)
+        for i in range(n_calls):
+            for j in range(n_calls):
+                oracle[i, j] = np.vdot(flat_states[i], flat_states[j])
+
+        np.testing.assert_allclose(gram, oracle, atol=1e-12)
+
+        # Sanity: this test only distinguishes `gram` from `gram.conj()`
+        # when the off-diagonal entries carry nontrivial imaginary parts.
+        # The Rz phase knob on the chosen angle tuples guarantees that;
+        # the assert is a guard against a future edit that silently
+        # neutralises the test by switching to a pure-Ry machine.
+        assert np.max(np.abs(gram.imag)) > 1e-3
+
     def test_call_site_non_numeric_bound_argument_raises(self):
         """A non-numeric `BoundArg.value` at a call site (e.g., a
         programmatically-built machine that injected a string where a
