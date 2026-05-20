@@ -439,7 +439,7 @@
   including a `qasm_alias is infer_qubit_count` identity assertion
   so a future accidental re-shadowing in qasm fails loudly.
 
-- [ ] 3.14 MPS transfer-matrix contraction (O(n · χ⁶) per overlap,
+- [x] 3.14 MPS transfer-matrix contraction (O(n · χ⁶) per overlap,
   constant memory in n) — pulled out as dedicated change
   `mps-transfer-matrix-contraction`. The original `add-mps-concept-
   encoding` design.md flagged the asymptotically-correct contraction
@@ -447,6 +447,13 @@
   convention now that downstream consumers (polygram clustered-
   dictionary primitive, MPSRung1 past 3 qubits) want to push past the
   n_qubits=25 statevector wall. Tick on merge.
+  Merged 2026-05-15 as PR #70 (commit 457e459,
+  `mps-transfer-matrix-contraction: O(n·χ⁶) contraction path for MPS
+  concept-Gram`). The contracted path lives in
+  `q_orca/compiler/mps_contract.py`; `compute_concept_gram_mps` gained
+  a `method="statevector"|"contracted"|"auto"` selector that dispatches
+  on `n_qubits >= STATEVECTOR_NQUBIT_THRESHOLD` (=20). Reference-only
+  entry — no follow-up code change needed.
 
 ## 4. MCP server / skills
 
@@ -1099,3 +1106,136 @@ when one of them is picked up.
   `dynamic_alias is …`) so a future accidental re-shadowing in
   any of the four modules fails loudly at test time. Full suite
   green: 964 passed, 18 skipped.
+
+## Feedback triage — 2026-05-15
+
+Items surfaced from `logs/pr-review-*.log` for PRs merged in the
+seven days ending 2026-05-15 (PRs #67, #68, #69, #70). PR #69
+(planning-only proposal markdown) had no captured reviewer
+comments. Numbered in the §7.x range continuing from the
+2026-05-08 triage; promote into an area section when one is
+picked up.
+
+- [ ] 7.3 **Behavioral test for the dynamic-verifier
+  `_infer_qubit_count` alias path.** Severity: LOW. Surface:
+  `tests/test_compiler.py::TestInferQubitCountPublicHelper`. The
+  class today pins the dynamic-verifier alias only by an
+  `is`-identity assertion (`dynamic_alias is infer_qubit_count`)
+  and exercises the *behavioral* code path
+  (`test_public_helper_resolves_n_plus_ancilla`,
+  `test_public_helper_fallback_to_one`) only via the public
+  `from q_orca.compiler.util import infer_qubit_count` import.
+  A future accidental re-shadowing of the alias by a
+  re-implemented private body in `q_orca/verifier/dynamic.py`
+  would still pass the identity test if the rebinding happens
+  *after* `TestInferQubitCountPublicHelper` imports, and no
+  existing test would notice the behavioral divergence on the
+  dynamic path. Fix shape: add one `test_dynamic_alias_resolves_n_plus_ancilla`
+  parallel to the existing `_resolves_n_plus_ancilla` test that
+  imports the alias from the verifier module and runs the same
+  3-qubit + ancilla machine through it. Size: [XS] <30 min.
+  (Source: 2026-05-09 PR #67 review log,
+  `logs/pr-review-2026-05-09.log`.)
+
+- [x] 7.4 **Strengthen the vectorised-Gram regression test to
+  catch a `gram.conj()` mistake.** Severity: LOW. Surface:
+  `tests/test_compiler.py::test_vectorized_gram_is_hermitian_with_unit_modulus_diagonal`.
+  PR #68 landed the Hermitian-symmetry + unit-modulus-diagonal
+  pin to lock in the §3.12 vectorisation. Both invariants are
+  preserved under elementwise complex conjugation, so the
+  realistic implementation slip — writing
+  `flat_states @ flat_states.conj().T` instead of
+  `flat_states.conj() @ flat_states.T`, which yields
+  `gram.conj()` rather than `gram` — would still pass the
+  test. Fix shape: extend the test to either (a) pin one
+  off-diagonal value against an oracle computed via the
+  pre-vectorised `np.vdot` double-loop, or (b) compare the full
+  Gram against the oracle within `1e-12` absolute tolerance.
+  Option (b) is simpler and self-documenting. Size: [S] <2h.
+  (Source: 2026-05-10 PR #68 review log,
+  `logs/pr-review-2026-05-10.log`.)
+  Took option (b) and went one step further. Added a sibling test
+  `test_vectorized_gram_matches_vdot_oracle_with_complex_states`
+  in `TestComputeConceptGramMps` that builds a *prep-form*
+  staircase with an `Rz` phase knob — needed because the existing
+  pure-`Ry`+`CNOT` inverse-form machine in the §3.12 test produces
+  real-valued statevectors (every `Ry`/`CNOT` matrix is real), so
+  the Gram is real, and `gram == gram.conj()` — meaning the
+  `flat @ flat.conj().T` slip would *not* have been caught even
+  with an oracle on the existing machine. `Rz` introduces complex
+  amplitudes via `exp(±iθ/2)`, giving non-trivial imaginary parts
+  on the off-diagonal. The new test (1) reaches into
+  `_build_concept_state` / `_find_concept_action` /
+  `_parse_staircase_effect` to evaluate the same flat states the
+  BLAS path consumes, (2) builds the oracle Gram via an explicit
+  `np.vdot` double-loop, (3) asserts agreement to `atol=1e-12`,
+  and (4) sanity-asserts `max(|gram.imag|) > 1e-3` so a future
+  edit that silently neutralises the test by switching back to a
+  pure-`Ry` machine fails loudly. Verified by monkey-patching
+  `compute_concept_gram_mps` to return `gram.conj()`: 20 / 25
+  elements mismatch on the conjugate-flip with max abs diff ≈ 0.51.
+
+- [ ] 7.5 **Defensive rank-≤2 guard in `_apply_cnot` against
+  silent SVD truncation.** Severity: LOW (correctness, not a
+  live bug). Surface:
+  `q_orca/compiler/mps_contract.py:_apply_cnot` (lines
+  ~107-145). The function SVD-decomposes the CNOT-permuted
+  joint tensor and then truncates to
+  `chi = min(_MAX_BOND_DIM, len(S))` with no check that the
+  discarded singular values are zero. The CNOT-staircase
+  construction guarantees rank ≤ `_MAX_BOND_DIM` at this cut so
+  the truncation is currently always exact, but a future caller
+  that feeds a non-staircase tensor (or a numerical pathology
+  that nudges the rank above `_MAX_BOND_DIM` by ε) would silently
+  lose amplitude. Fix shape: after computing `S`, assert
+  `np.allclose(S[_MAX_BOND_DIM:], 0, atol=1e-10)` (or analogue)
+  and raise a structured `MPS_BOND_TRUNCATION` error naming the
+  call site if the assertion fails. Document the invariant in
+  the docstring's "we strip only zero singular values" comment.
+  Add a test that constructs a deliberately rank-3 input and
+  confirms the new guard fires loudly. Size: [S] <2h.
+  (Source: 2026-05-15 PR #70 review logs,
+  `logs/pr-review-2026-05-15.log`, both run-1 and run-2.)
+
+- [ ] 7.6 **Vectorise the `mps_gram` N² Python loop with batched
+  einsum.** Severity: LOW. Surface:
+  `q_orca/compiler/mps_contract.py:mps_gram` (lines ~245-262).
+  The helper computes the upper triangle of the N×N overlap
+  matrix via a Python `for i, for j` loop calling `mps_overlap`
+  per pair, undoing the constant-factor win that PR #68's §3.12
+  vectorisation just landed for the statevector path. At the
+  shipped `n_qubits ≤ 6` examples this is dwarfed by the
+  per-overlap contraction cost; once a polygram or larger-n
+  consumer pushes N past ~50, the Python loop becomes visible.
+  Fix shape: batch the per-site transfer-matrix sweep across
+  the (N choose 2) site pairs with a single `np.einsum` of
+  shape `(N, N, χ_L, χ_R, …)`, or fall back to a vectorised
+  `mps_overlap_pairs(tensor_lists)` helper that computes the
+  full upper triangle in one pass. Pin the new helper against
+  the current loop output to within `1e-12` on a 16-call-site
+  synthetic fixture. Size: [M] half-day.
+  (Source: 2026-05-15 PR #70 review log,
+  `logs/pr-review-2026-05-15.log` run-2, item 2.)
+
+- [ ] 7.7 **Benchmark to back the
+  `STATEVECTOR_NQUBIT_THRESHOLD = 20` crossover choice.**
+  Severity: LOW. Surface:
+  `q_orca/compiler/concept_gram_mps.py:105` and the
+  `mps-transfer-matrix-contraction` design. The constant 20 is
+  documented in the change spec
+  (`openspec/changes/mps-transfer-matrix-contraction/specs/compiler/spec.md`)
+  as "initial value 20" with no measurement to back the
+  crossover point. The two paths agree to `1e-12` at
+  `n_qubits ∈ {3, 4, 5, 6}` so correctness is unaffected, but a
+  consumer compiling at `n = 18` or `n = 22` today picks the
+  default without knowing whether they're on the right side of
+  the crossover. Fix shape: add `benchmarks/mps_crossover.py`
+  that times `compute_concept_gram_mps(method="statevector")`
+  vs. `method="contracted"` on a synthetic staircase machine at
+  `n ∈ {8, 12, 16, 18, 20, 22, 24}` and writes a
+  `benchmarks/reports/mps_crossover.md` table. If the empirical
+  crossover differs from 20 by more than ~10%, file a follow-up
+  to retune the constant; otherwise paste the table into the
+  module docstring as documentation. Size: [M] half-day.
+  (Source: 2026-05-15 PR #70 review log,
+  `logs/pr-review-2026-05-15.log` run-2, item 3.)
