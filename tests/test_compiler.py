@@ -445,6 +445,48 @@ class TestInferQubitCountPublicHelper:
         machine = _machine(source)
         assert infer_qubit_count(machine) == 1
 
+    def test_dynamic_alias_resolves_n_plus_ancilla(self):
+        # Behavioral pin on the dynamic-verifier alias path. The identity
+        # assertion in test_public_helper_matches_dynamic_alias would still
+        # pass if q_orca/verifier/dynamic.py re-bound the private name to a
+        # weaker re-implementation *after* this class's import — this test
+        # exercises the alias through its module-level binding so a
+        # behavioural divergence (e.g., the pre-#67 weaker fallback that
+        # missed n + ancilla machines) fails loudly here.
+        from q_orca.verifier.dynamic import _infer_qubit_count as dynamic_alias
+
+        source = """\
+# machine ThreePlusAncilla
+
+## context
+| Field   | Type        | Default |
+|---------|-------------|---------|
+| qubits  | list<qubit> |         |
+| n       | int         | 3       |
+| ancilla | qubit       | qs[n]   |
+
+## events
+- init
+
+## state |psi0> [initial]
+> Initial
+
+## transitions
+| Source | Event | Guard | Target |
+|--------|-------|-------|--------|
+| |psi0> | init  |       | |psi0> |
+
+## actions
+| Name | Signature  | Effect   |
+|------|------------|----------|
+| noop | (qs) -> qs | Identity |
+
+## verification rules
+- unitarity: all gates preserve norm
+"""
+        machine = _machine(source)
+        assert dynamic_alias(machine) == 4
+
 
 class TestQiskitCompiler:
     def test_produces_python_script(self, bell_source):

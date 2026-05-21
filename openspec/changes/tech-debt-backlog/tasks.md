@@ -1116,7 +1116,7 @@ comments. Numbered in the §7.x range continuing from the
 2026-05-08 triage; promote into an area section when one is
 picked up.
 
-- [ ] 7.3 **Behavioral test for the dynamic-verifier
+- [x] 7.3 **Behavioral test for the dynamic-verifier
   `_infer_qubit_count` alias path.** Severity: LOW. Surface:
   `tests/test_compiler.py::TestInferQubitCountPublicHelper`. The
   class today pins the dynamic-verifier alias only by an
@@ -1136,6 +1136,17 @@ picked up.
   3-qubit + ancilla machine through it. Size: [XS] <30 min.
   (Source: 2026-05-09 PR #67 review log,
   `logs/pr-review-2026-05-09.log`.)
+  Added `test_dynamic_alias_resolves_n_plus_ancilla` in
+  `TestInferQubitCountPublicHelper` (`tests/test_compiler.py`). The
+  test imports `_infer_qubit_count` from `q_orca.verifier.dynamic` as
+  `dynamic_alias` and calls it directly on the canonical 3-qubit +
+  ancilla machine used by `test_public_helper_resolves_n_plus_ancilla`,
+  asserting it returns 4. This pins the dynamic path *behaviorally*,
+  not just by identity: a future weaker re-implementation that rebinds
+  the alias name (the pre-#67 dynamic-verifier copy lacked guard and
+  state-expression scans, so would mis-count `ancilla: qubit = qs[n]`
+  fields) fails loudly even if the existing `is`-identity check still
+  passes due to import-ordering quirks.
 
 - [x] 7.4 **Strengthen the vectorised-Gram regression test to
   catch a `gram.conj()` mistake.** Severity: LOW. Surface:
