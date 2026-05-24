@@ -65,6 +65,28 @@ if TYPE_CHECKING:
 
 _MAX_BOND_DIM = 2
 
+# Tolerance for the defensive guard in ``_apply_cnot``: a singular
+# value discarded under truncation to ``_MAX_BOND_DIM`` must be at or
+# below this magnitude for the truncation to count as "exact". Sized
+# well above float64 round-off (~1e-14 typical, ~1e-12 worst-case for
+# the contractions here) and well below any physically meaningful
+# amplitude in the Gram, so a genuine rank-leak surfaces loudly while
+# numerical noise stays silent.
+_BOND_TRUNCATION_ATOL = 1e-10
+
+
+class MpsBondTruncationError(ValueError):
+    """Raised when an MPS bond would lose amplitude under truncation.
+
+    ``_apply_cnot`` truncates the SVD of the joint two-site tensor to
+    bond dimension ``_MAX_BOND_DIM``. The CNOT-staircase construction
+    guarantees rank ``<= _MAX_BOND_DIM`` at this cut so the truncation
+    is exact; if a non-staircase input (or numerical pathology) yields
+    a higher effective rank, the discarded singular values would
+    silently leak amplitude. This error fires when any discarded
+    singular value exceeds ``_BOND_TRUNCATION_ATOL`` (1e-10).
+    """
+
 
 def _ry_matrix(np_module, theta: float):
     c = np_module.cos(theta / 2.0)
@@ -130,9 +152,28 @@ def _apply_cnot(np_module, A_c, A_t):
 
     # SVD-decompose back into left and right tensors. The staircase
     # guarantees rank <= _MAX_BOND_DIM at this cut, so the truncation
-    # is exact (we strip only zero singular values).
+    # is exact (we strip only zero singular values). The guard below
+    # raises ``MpsBondTruncationError`` if a discarded singular value
+    # exceeds ``_BOND_TRUNCATION_ATOL`` — the only way that can happen
+    # under the staircase contract is a caller feeding non-staircase
+    # tensors or a numerical pathology that nudges the rank above
+    # ``_MAX_BOND_DIM`` by more than round-off.
     M = T2.reshape(L * 2, 2 * R)
     U, S, Vh = np_module.linalg.svd(M, full_matrices=False)
+    if len(S) > _MAX_BOND_DIM:
+        discarded = S[_MAX_BOND_DIM:]
+        max_discarded = float(discarded.max())
+        if max_discarded > _BOND_TRUNCATION_ATOL:
+            raise MpsBondTruncationError(
+                f"_apply_cnot: SVD truncation would lose amplitude — "
+                f"largest discarded singular value {max_discarded:.3e} "
+                f"exceeds atol {_BOND_TRUNCATION_ATOL:.0e}. The CNOT-"
+                f"staircase contract guarantees rank <= {_MAX_BOND_DIM} "
+                f"at this cut; received tensors with effective rank "
+                f"{len([s for s in S if s > _BOND_TRUNCATION_ATOL])} "
+                f"(kept {len(S[:_MAX_BOND_DIM])} of {len(S)} singular "
+                f"values)."
+            )
     chi = min(_MAX_BOND_DIM, len(S))
     U = U[:, :chi]
     S = S[:chi]

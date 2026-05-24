@@ -1186,7 +1186,7 @@ picked up.
   `compute_concept_gram_mps` to return `gram.conj()`: 20 / 25
   elements mismatch on the conjugate-flip with max abs diff ≈ 0.51.
 
-- [ ] 7.5 **Defensive rank-≤2 guard in `_apply_cnot` against
+- [x] 7.5 **Defensive rank-≤2 guard in `_apply_cnot` against
   silent SVD truncation.** Severity: LOW (correctness, not a
   live bug). Surface:
   `q_orca/compiler/mps_contract.py:_apply_cnot` (lines
@@ -1207,6 +1207,40 @@ picked up.
   confirms the new guard fires loudly. Size: [S] <2h.
   (Source: 2026-05-15 PR #70 review logs,
   `logs/pr-review-2026-05-15.log`, both run-1 and run-2.)
+  Added `MpsBondTruncationError(ValueError)` and module-level
+  `_BOND_TRUNCATION_ATOL = 1e-10` in
+  `q_orca/compiler/mps_contract.py`. After the SVD in `_apply_cnot`
+  the guard checks `len(S) > _MAX_BOND_DIM` and, if so, raises
+  `MpsBondTruncationError` when the largest discarded singular
+  value exceeds the atol. The message names the discarded
+  magnitude, the staircase rank contract, the effective rank
+  observed, and the kept-vs-total singular-value counts so the
+  user can decide whether to retune the atol or chase down the
+  non-staircase input. Updated the "we strip only zero singular
+  values" comment to reference the guard. Note: the original task
+  body proposed naming the *call site* in the error message; that
+  would require threading the call-site index from
+  `compute_concept_gram_mps` through `staircase_to_mps_tensors`
+  into `_apply_cnot`, wider than §7.5 scope. The guard names the
+  (control, target) bond at the failure point implicitly via the
+  `_apply_cnot:` prefix and the discarded magnitude; the caller's
+  stack trace identifies the call site. New
+  `TestApplyCnotBondTruncationGuard` in
+  `tests/test_concept_gram_mps_contraction.py` pins three shapes:
+  (1) `test_rank_two_input_passes_through_cleanly` — a rank-2
+  Bell-like `Ry; CNOT` pair flows through with no exception, so
+  the guard does not regress in-spec callers;
+  (2) `test_rank_three_input_raises_with_named_discard` — a
+  seeded rank-3 input (`A_c` shape `(2, 2, 3)`, `A_t` shape
+  `(3, 2, 2)`, complex Gaussian entries) where the joint matrix
+  oracle SVD has `S[2] > 1e-3` triggers the guard, with the
+  error message containing the discarded magnitude formatted
+  identically to the oracle (`f"{S_oracle[2]:.3e}"`); and
+  (3) `test_below_atol_discard_does_not_raise` — an explicitly
+  constructed `(4, 4)` matrix with singular values
+  `[1.0, 0.5, 1e-12, 0]` passes silently, confirming the guard
+  separates physical leaks from round-off-sized noise. Full suite
+  green: 1010 passed, 19 skipped.
 
 - [ ] 7.6 **Vectorise the `mps_gram` N² Python loop with batched
   einsum.** Severity: LOW. Surface:

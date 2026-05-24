@@ -30,6 +30,8 @@ from q_orca.compiler.concept_gram_mps import (
     _find_concept_action,
 )
 from q_orca.compiler.mps_contract import (
+    MpsBondTruncationError,
+    _apply_cnot,
     mps_overlap,
     staircase_to_mps_tensors,
 )
@@ -239,6 +241,129 @@ class TestStaircaseToMpsTensors:
         np.testing.assert_allclose(state[0, 1], 0.0, atol=1e-12)
         np.testing.assert_allclose(state[1, 0], 0.0, atol=1e-12)
         np.testing.assert_allclose(state[1, 1], s, atol=1e-12)
+
+
+class TestApplyCnotBondTruncationGuard:
+    """Defensive rank-≤ ``_MAX_BOND_DIM`` guard in ``_apply_cnot``.
+
+    The CNOT-staircase contract guarantees rank ``<= _MAX_BOND_DIM`` at
+    the SVD cut so the truncation is exact for in-spec callers. The
+    guard raises ``MpsBondTruncationError`` when a non-staircase input
+    (or numerical pathology) yields a higher effective rank — without
+    the guard, the discarded singular values would silently leak
+    amplitude. These tests are defensive: no in-spec call site triggers
+    them today, so they pin the guard against a future regression in
+    the truncation step.
+    """
+
+    def test_rank_two_input_passes_through_cleanly(self):
+        """In-spec input (rank ≤ _MAX_BOND_DIM) raises nothing.
+
+        Builds the rank-2 Bell-like pair from
+        ``test_ry_then_cnot_produces_bond_2_bell_like_state`` and
+        confirms ``_apply_cnot`` returns the truncated tensors without
+        firing the guard.
+        """
+        # |0⟩ tensors with shape (1, 2, 1).
+        A_c = np.zeros((1, 2, 1), dtype=complex)
+        A_c[0, 0, 0] = 1.0
+        A_t = np.zeros((1, 2, 1), dtype=complex)
+        A_t[0, 0, 0] = 1.0
+        # Apply Ry(θ) to A_c to make the eventual CNOT non-trivial.
+        theta = 1.1
+        c, s = np.cos(theta / 2.0), np.sin(theta / 2.0)
+        A_c[0, 0, 0] = c
+        A_c[0, 1, 0] = s
+        # No exception: rank stays at 2 (Bell-like).
+        A_c_new, A_t_new = _apply_cnot(np, A_c, A_t)
+        assert A_c_new.shape[2] in (1, 2)
+        assert A_t_new.shape[0] == A_c_new.shape[2]
+
+    def test_rank_three_input_raises_with_named_discard(self):
+        """Out-of-spec rank-3 input fires the guard with the discarded value.
+
+        Constructs ``A_c`` of shape ``(2, 2, 3)`` and ``A_t`` of shape
+        ``(3, 2, 2)`` with random complex entries (seeded) so the joint
+        tensor's CNOT-permuted matrix has rank 3. ``_apply_cnot`` would
+        silently truncate the third singular value to zero; the guard
+        instead raises ``MpsBondTruncationError`` naming that value.
+        """
+        rng = np.random.default_rng(42)
+        A_c = (
+            rng.standard_normal((2, 2, 3))
+            + 1j * rng.standard_normal((2, 2, 3))
+        )
+        A_t = (
+            rng.standard_normal((3, 2, 2))
+            + 1j * rng.standard_normal((3, 2, 2))
+        )
+        # Sanity-check our setup: the joint matrix really does have a
+        # non-trivial third singular value so the guard is the only
+        # thing standing between a silent amplitude leak and the user.
+        T = np.einsum("Lsm,mtr->Lstr", A_c, A_t)
+        T_perm = T.copy()
+        T_perm[:, 1, 0, :] = T[:, 1, 1, :]
+        T_perm[:, 1, 1, :] = T[:, 1, 0, :]
+        M = T_perm.reshape(4, 4)
+        S_oracle = np.linalg.svd(M, compute_uv=False)
+        assert len(S_oracle) >= 3
+        assert S_oracle[2] > 1e-3, (
+            f"test fixture sanity check: third singular value "
+            f"{S_oracle[2]:.3e} too small to reach the guard's atol; "
+            f"the test would pass for the wrong reason."
+        )
+
+        with pytest.raises(MpsBondTruncationError) as exc_info:
+            _apply_cnot(np, A_c, A_t)
+        msg = str(exc_info.value)
+        assert "SVD truncation would lose amplitude" in msg
+        assert "discarded singular value" in msg
+        # The message should reference the actual discarded value so a
+        # human reader can decide whether it's a real leak or noise.
+        assert f"{S_oracle[2]:.3e}" in msg
+
+    def test_below_atol_discard_does_not_raise(self):
+        """Numerical noise at ~ε does not fire the guard.
+
+        Constructs the same shape as the rank-3 case but scales the
+        third singular value below the guard's atol (1e-10). Pins that
+        round-off-sized noise on an otherwise rank-2 input stays
+        silent — the guard separates physical leaks from round-off.
+        """
+        # Build an explicit (4, 4) matrix with singular values
+        # [1.0, 0.5, 1e-12, 0] so the discarded entries sit well below
+        # the 1e-10 atol.
+        U_oracle, _ = np.linalg.qr(
+            np.random.default_rng(0).standard_normal((4, 4))
+            + 1j * np.random.default_rng(1).standard_normal((4, 4))
+        )
+        Vh_oracle, _ = np.linalg.qr(
+            np.random.default_rng(2).standard_normal((4, 4))
+            + 1j * np.random.default_rng(3).standard_normal((4, 4))
+        )
+        S_oracle = np.diag([1.0, 0.5, 1e-12, 0.0]).astype(complex)
+        M = U_oracle @ S_oracle @ Vh_oracle
+        # Reverse the CNOT permutation so _apply_cnot's permutation
+        # lands us back at M (the guard sees the singular values of M
+        # itself, so the permutation choice is immaterial for this
+        # test — it just needs A_c/A_t shapes _apply_cnot accepts).
+        T_perm = M.reshape(2, 2, 2, 2)
+        T = T_perm.copy()
+        T[:, 1, 0, :] = T_perm[:, 1, 1, :]
+        T[:, 1, 1, :] = T_perm[:, 1, 0, :]
+        # Factor T back into A_c (2, 2, 2) and A_t (2, 2, 2) via SVD on
+        # the middle index. T has shape (L=2, s_c=2, s_t=2, R=2); we
+        # reshape to (L*s_c, s_t*R) = (4, 4) and split.
+        T_mat = T.reshape(4, 4)
+        U2, S2, Vh2 = np.linalg.svd(T_mat, full_matrices=False)
+        # Keep all singular values — chi_M = 4 — so _apply_cnot sees
+        # the leak (or absence thereof) cleanly at its own SVD step.
+        A_c = (U2 * S2).reshape(2, 2, 4)
+        A_t = Vh2.reshape(4, 2, 2)
+        # Guard does not fire: the SVD of M has S[2] = 1e-12 < 1e-10.
+        A_c_new, A_t_new = _apply_cnot(np, A_c, A_t)
+        assert A_c_new.shape[2] == 2
+        assert A_t_new.shape[0] == 2
 
 
 # -----------------------------------------------------------------------------
