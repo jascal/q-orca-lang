@@ -863,17 +863,38 @@ Add to your Claude Code settings (`~/.claude/settings.json` or project `.claude.
 }
 ```
 
+### Trust Boundary
+
+The server speaks JSON-RPC over **stdio only**. There is no auth check on
+`tools/call` — any client that can connect to the stdio pipe can invoke any
+tool, including the two that spend on an LLM provider (`generate_machine`,
+`refine_machine`). This is intentional: under stdio the client is a local
+process the user already started, so the OS process boundary is the trust
+boundary.
+
+This property is invisible from the outside, so operators (and anyone wiring
+the server up to a new transport) should know:
+
+- **Stdio = local trust.** Any code with stdio access already runs as the user
+  and can do anything they can do; an extra auth check buys nothing.
+- **LLM-spending tools.** `generate_machine` and `refine_machine` make
+  outbound calls to the configured LLM provider (`ORCA_PROVIDER` /
+  `ORCA_API_KEY`). Every invocation costs real money against the configured
+  key. If a future deployment exposes the server over a non-stdio transport
+  (HTTP, WebSocket, TCP), authentication and per-caller rate limits **must**
+  be added before that bit flips, or untrusted callers can drain the API key.
+
 ### Available MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `parse_machine` | Parse a Q-Orca machine and return structure as JSON |
-| `verify_machine` | Run 5-stage verification pipeline |
-| `compile_machine` | Compile to Mermaid, QASM, or Qiskit |
-| `generate_machine` | Generate quantum machine from natural language spec |
-| `refine_machine` | Fix verification errors using LLM |
-| `simulate_machine` | Run Qiskit simulation |
-| `server_status` | Get server version and LLM config |
+| Tool | Description | LLM-spending |
+|------|-------------|--------------|
+| `parse_machine` | Parse a Q-Orca machine and return structure as JSON | no |
+| `verify_machine` | Run 5-stage verification pipeline | no |
+| `compile_machine` | Compile to Mermaid, QASM, or Qiskit | no |
+| `generate_machine` | Generate quantum machine from natural language spec | **yes** |
+| `refine_machine` | Fix verification errors using LLM | **yes** |
+| `simulate_machine` | Run Qiskit simulation | no |
+| `server_status` | Get server version and LLM config | no |
 
 ### Using with Claude Code
 

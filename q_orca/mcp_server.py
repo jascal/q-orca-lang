@@ -4,6 +4,18 @@
 This server speaks the MCP protocol over stdin/stdout, allowing AI clients
 (Claude Code, etc.) to call Q-Orca skills as tools.
 
+Trust boundary:
+    The transport is stdio only. There is no auth check on ``tools/call`` —
+    any client that can reach the stdio pipe can invoke any tool, including
+    the LLM-spending ``generate_machine`` and ``refine_machine`` (each call
+    bills the configured ``ORCA_API_KEY``). Under stdio the trust boundary
+    is the OS process boundary: the client is a local process the user
+    already started. Anyone wiring this server up to a non-stdio transport
+    (HTTP, WebSocket, TCP, …) MUST add authentication and per-caller rate
+    limiting before that bit flips, or untrusted callers can drain the API
+    key. See the ``Trust Boundary`` section in ``README.md`` for the
+    user-facing version of this note.
+
 Usage:
     python -m q_orca.mcp_server
     # or via installed package:

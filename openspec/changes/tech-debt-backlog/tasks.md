@@ -490,7 +490,7 @@
   (empty input — `status="success"`, no `errors` key) in
   `tests/test_skills.py::TestParseSkill`.
 
-- [ ] 4.2 Document the no-auth-on-tool-calls model in
+- [x] 4.2 Document the no-auth-on-tool-calls model in
   `q_orca/mcp_server/`'s top-level docs / README. The MCP server
   speaks JSON-RPC over stdio, so any client that connects can call
   any tool — including `generate_machine` and `refine_machine`
@@ -502,6 +502,22 @@
   spending tools so anyone wiring up a non-stdio transport in the
   future knows to add auth before flipping the bit.
   (Source: Hermes QA on the MCP server, observation 2.)
+  The MCP server is a single module (`q_orca/mcp_server.py`), not a
+  package directory, so the docs landed in two places: a new
+  `### Trust Boundary` subsection in `README.md`'s MCP Server
+  section (placed before `### Available MCP Tools` so the threat
+  model is read before the tool list it references), and a
+  `Trust boundary:` paragraph in the module's top-of-file docstring
+  pointing back at the README. The README subsection names two
+  things explicitly: (1) stdio = local trust boundary, and (2)
+  `generate_machine` and `refine_machine` are the two LLM-spending
+  tools that bill `ORCA_API_KEY` per call — a future non-stdio
+  transport MUST add auth and per-caller rate limits before
+  exposing either, or untrusted callers can drain the key. The
+  Available MCP Tools table gained an `LLM-spending` column
+  flagging `generate_machine` and `refine_machine` so the property
+  is visible at the table-row level too, not only in the prose
+  above.
 
 - [x] 4.3 Sanitize exception messages on the `tools/call` error
   path (`q_orca/mcp_server/`, around the `isError` content build
