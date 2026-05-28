@@ -503,7 +503,7 @@
   future knows to add auth before flipping the bit.
   (Source: Hermes QA on the MCP server, observation 2.)
 
-- [ ] 4.3 Sanitize exception messages on the `tools/call` error
+- [x] 4.3 Sanitize exception messages on the `tools/call` error
   path (`q_orca/mcp_server/`, around the `isError` content build
   flagged at line 244 in Hermes's report). Today caught exceptions
   are stringified directly into the response; a stack trace or
@@ -515,6 +515,23 @@
   and limit to the exception class name + a short generic
   message, with the full repr behind a debug flag.
   (Source: Hermes QA on the MCP server, observation 4.)
+  Added `sanitize_exception_message` to `q_orca/mcp_server.py`
+  that prefixes the exception class name, strips POSIX and
+  Windows absolute paths with `<path>`, and truncates long
+  messages at `_MAX_SANITIZED_LENGTH = 200` chars with an ellipsis.
+  Wired into both the `tools/call` inner except and the outer
+  JSON-RPC error envelope. An `ORCA_MCP_DEBUG=1` env flag opts
+  out of scrubbing for local stdio debugging — flag is read fresh
+  per request via `_mcp_debug_enabled()` so it can be toggled at
+  runtime. New `tests/test_mcp_server.py` covers the sanitizer
+  (POSIX/Windows path scrubbing, numeric-slash preservation,
+  truncation, debug pass-through) and the integration path
+  (unknown-tool error returns `ValueError: …` prefix, raised
+  absolute paths get replaced, debug flag truthiness is strict).
+  The outer-except branch turned out to be structurally
+  unreachable via the public JSON-RPC surface (every per-method
+  arm either has its own try/except or routes through `resp`
+  cleanly); pinned as a skip with the rationale documented.
 
 ## 5. Example library — QA findings (2026-05-01)
 

@@ -20,6 +20,7 @@ Environment variables (ORCA_* prefix overrides config file):
 
 import json
 import os
+import re
 import sys
 import asyncio
 from pathlib import Path
@@ -206,6 +207,39 @@ def format_error(error: str) -> list[dict]:
     return [{"type": "text", "text": error}]
 
 
+# Strips POSIX absolute paths (/foo/bar/baz) and Windows-style paths
+# (C:\foo\bar). Conservative so that something like "expected 3, got 2" or
+# "1/2" survives unchanged.
+_ABS_PATH_RE = re.compile(
+    r"(?:/[A-Za-z0-9_.\-]+){2,}"
+    r"|(?:[A-Za-z]:\\(?:[A-Za-z0-9_.\-]+\\?)+)"
+)
+_MAX_SANITIZED_LENGTH = 200
+
+
+def _mcp_debug_enabled() -> bool:
+    return os.environ.get("ORCA_MCP_DEBUG", "").lower() in ("1", "true", "yes")
+
+
+def sanitize_exception_message(exc: BaseException, *, debug: bool = False) -> str:
+    """Format an exception for client-facing MCP responses.
+
+    Returns ``"<ExceptionType>: <message>"`` with absolute filesystem paths
+    replaced by ``<path>`` and the message truncated to
+    ``_MAX_SANITIZED_LENGTH`` characters. Set ``ORCA_MCP_DEBUG=1`` (or pass
+    ``debug=True``) to disable scrubbing — useful for local stdio debugging
+    but unsafe to leave on for any non-stdio transport, which is the threat
+    model this helper exists to harden against.
+    """
+    raw = str(exc)
+    if debug:
+        return f"{type(exc).__name__}: {raw}"
+    stripped = _ABS_PATH_RE.sub("<path>", raw)
+    if len(stripped) > _MAX_SANITIZED_LENGTH:
+        stripped = stripped[: _MAX_SANITIZED_LENGTH - 1] + "…"
+    return f"{type(exc).__name__}: {stripped}"
+
+
 async def handle_request(request: dict) -> dict:
     """Handle a single MCP JSON-RPC request."""
     method = request.get("method", "")
@@ -241,7 +275,15 @@ async def handle_request(request: dict) -> dict:
                     result = await call_tool(tool_name, arguments)
                     return resp({"content": format_result(result), "isError": False})
                 except Exception as e:
-                    return resp({"content": format_error(str(e)), "isError": True})
+                    debug = _mcp_debug_enabled()
+                    return resp(
+                        {
+                            "content": format_error(
+                                sanitize_exception_message(e, debug=debug)
+                            ),
+                            "isError": True,
+                        }
+                    )
 
             case "ping":
                 return resp({"pong": True})
@@ -255,7 +297,11 @@ async def handle_request(request: dict) -> dict:
     except Exception as e:
         if req_id is None:
             return None
-        return resp({"code": -32603, "message": str(e)}, is_error=True)
+        debug = _mcp_debug_enabled()
+        return resp(
+            {"code": -32603, "message": sanitize_exception_message(e, debug=debug)},
+            is_error=True,
+        )
 
 
 async def main():
