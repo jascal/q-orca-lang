@@ -503,7 +503,7 @@
   future knows to add auth before flipping the bit.
   (Source: Hermes QA on the MCP server, observation 2.)
 
-- [ ] 4.3 Sanitize exception messages on the `tools/call` error
+- [x] 4.3 Sanitize exception messages on the `tools/call` error
   path (`q_orca/mcp_server/`, around the `isError` content build
   flagged at line 244 in Hermes's report). Today caught exceptions
   are stringified directly into the response; a stack trace or
@@ -515,6 +515,22 @@
   and limit to the exception class name + a short generic
   message, with the full repr behind a debug flag.
   (Source: Hermes QA on the MCP server, observation 4.)
+  Took the strip-paths path. Added `_sanitize_exception_message` in
+  `q_orca/mcp_server.py` that returns `"<ClassName>: <message>"`
+  with absolute filesystem paths replaced by `<path>`. The regex
+  matches Unix paths (`/seg/seg` with ≥2 segments — so single
+  tokens like `/tmp` or `1/2` are left alone) and Windows paths
+  (`C:\seg` or `C:/seg`). The `tools/call` exception handler now
+  routes `str(e)` through the sanitiser before the `format_error`
+  call. `ORCA_MCP_DEBUG=1` bypasses the strip for local triage so
+  the original path-bearing repr remains accessible. Pinned by 14
+  tests in `tests/test_mcp_server.py::TestSanitizeExceptionMessage`
+  (sanitiser unit tests covering Unix / Windows / multi-path /
+  preserve-class-name / preserve-fraction-tokens / debug-bypass
+  cases) and `TestToolsCallErrorPath` (end-to-end through
+  `handle_request` with a monkeypatched `call_tool` that raises
+  FileNotFoundError carrying an absolute path, plus the
+  unknown-tool ValueError control case).
 
 ## 5. Example library — QA findings (2026-05-01)
 

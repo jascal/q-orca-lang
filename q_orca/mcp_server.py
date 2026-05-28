@@ -20,6 +20,7 @@ Environment variables (ORCA_* prefix overrides config file):
 
 import json
 import os
+import re
 import sys
 import asyncio
 from pathlib import Path
@@ -196,6 +197,30 @@ async def call_tool(name: str, arguments: dict) -> dict:
             raise ValueError(f"Unknown tool: {name}")
 
 
+# Absolute filesystem paths that may appear in exception messages
+# (e.g. FileNotFoundError carries the full path). Strip these on the
+# `tools/call` error response so a future non-stdio transport doesn't
+# ship usernames or directory layout to remote callers.
+_ABS_PATH_RE = re.compile(
+    r"(?:[A-Za-z]:[\\/][\w.\-]+(?:[\\/][\w.\-]+)*"  # Windows: drive letter + ≥1 segment
+    r"|/[\w.\-]+(?:/[\w.\-]+)+)"                     # Unix: leading / + ≥2 segments
+)
+
+
+def _sanitize_exception_message(exc: BaseException) -> str:
+    """Format a caught exception for the MCP `tools/call` error response.
+
+    Returns ``"<ClassName>: <message>"`` with absolute filesystem paths
+    replaced by ``<path>``. Set ``ORCA_MCP_DEBUG=1`` to bypass the
+    sanitisation when debugging locally.
+    """
+    cls = type(exc).__name__
+    msg = str(exc)
+    if os.environ.get("ORCA_MCP_DEBUG") == "1":
+        return f"{cls}: {msg}"
+    return f"{cls}: {_ABS_PATH_RE.sub('<path>', msg)}"
+
+
 def format_result(result: dict) -> list[dict]:
     """Format a skill result as MCP content array."""
     return [{"type": "text", "text": json.dumps(result, indent=2)}]
@@ -241,7 +266,7 @@ async def handle_request(request: dict) -> dict:
                     result = await call_tool(tool_name, arguments)
                     return resp({"content": format_result(result), "isError": False})
                 except Exception as e:
-                    return resp({"content": format_error(str(e)), "isError": True})
+                    return resp({"content": format_error(_sanitize_exception_message(e)), "isError": True})
 
             case "ping":
                 return resp({"pong": True})
