@@ -26,7 +26,13 @@ Run `openspec list --json` to check for active (non-archived) changes.
 
 Run `openspec instructions apply --change "<name>" --json` to get pending tasks.
 
-Work through each pending task. Keep changes minimal and focused.
+**Before picking a task, cross-check open PRs.** Yesterday's nightly may have opened a PR for a task that is still unchecked in `tasks.md` because the PR is awaiting human review. Implementing the same task again produces a duplicate PR with conflicting `tasks.md` edits.
+
+Run `gh pr list --state open --json number,title,body,headRefName --limit 50`. For each pending task, scan every open PR's title, body, and `headRefName` for the task's section identifier (e.g. `§4.3`, `4.3 `, `tech-debt-backlog-4-3`). If any open PR already covers the task, treat that task as taken and pick the next one.
+
+If every pending task is already covered by an open PR, stop and report `"No uncovered work — N PRs await human review."` Do not implement anything; do not open a PR.
+
+Work through each remaining pending task. Keep changes minimal and focused.
 
 **CRITICAL: Only mark a task complete (`- [ ]` → `- [x]`) AFTER:**
 1. The code change has been written to disk (Read the file to confirm)

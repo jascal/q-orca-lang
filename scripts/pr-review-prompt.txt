@@ -7,9 +7,8 @@ Steps:
    If there are none, print "No open PRs — nothing to do." and stop.
 
 2. For each open PR:
-   a. Run `gh pr view <number> --comments --json number,title,author,body,headRefName,comments` to get existing comments.
-   b. Check if any comment body contains "Claude" and was posted by a bot or automation account.
-      If a Claude review already exists, skip this PR (print "PR #<n>: already reviewed by Claude, skipping.").
+   a. Run `gh pr view <number> --json number,title,author,body,headRefName,reviews,comments` to fetch both posted reviews and discussion comments.
+   b. Check **both** the `reviews` array and the `comments` array for any entry whose `body` contains `"Claude"`. `gh pr review --comment` (used in step 3e below) writes to the `reviews` endpoint, NOT the `comments` endpoint, so a check against `comments` alone misses prior Claude reviews and produces duplicates. If either field contains a prior Claude review, skip this PR (print `"PR #<n>: already reviewed by Claude, skipping."`).
 
 3. For each PR that needs a review:
    a. Run `gh pr diff <number>` to get the full diff.
