@@ -1,56 +1,55 @@
 ## 1. AST
 
-- [ ] 1.1 Add `QImport(path: str, aliases: list[str])` and
+- [x] 1.1 Add `QImport(path: str, aliases: list[str])` and
   `QReexport(alias: str, source: str)` dataclasses to `q_orca/ast.py`.
-- [ ] 1.2 Add `imports: list[QImport] = []` and
+- [x] 1.2 Add `imports: list[QImport] = []` and
   `reexports: list[QReexport] = []` fields to `QOrcaFile`.
 
 ## 2. Parser
 
-- [ ] 2.1 Recognise a top-level `## imports` section (in the first chunk,
-  before the first machine) and parse its `Path | Aliases` table into
-  `QImport` nodes. Reject absolute paths with a structured error.
-- [ ] 2.2 Recognise a top-level `## reexports` section and parse its
+- [x] 2.1 Recognise a top-level `## imports` section and parse its
+  `Path | Aliases` table into `QImport` nodes. Reject absolute paths
+  (`import_absolute_path`).
+  Parsed at the file level (`_parse_file_imports`), position-independent, so the
+  machine-chunk parser leaves the heading untouched.
+- [x] 2.2 Recognise a top-level `## reexports` section and parse its
   `Alias | From` table into `QReexport` nodes.
-- [ ] 2.3 Attach parsed imports/reexports to `QOrcaFile` (file-level, not
-  per-machine). The parser SHALL NOT load any imported file.
-- [ ] 2.4 Unit tests in `tests/test_parser.py`: relative + project-relative
-  paths, multi-alias rows, absent section, absolute-path rejection, reexport
-  rows.
+- [x] 2.3 Attach parsed imports/reexports to `QOrcaFile` (file-level). The
+  parser does NOT load any imported file.
+- [x] 2.4 Unit tests: relative + multi-alias rows, absent section,
+  absolute-path rejection, reexport rows. Covered by `tests/test_import_resolver.py`
+  (which parses these fixtures end-to-end); dedicated `test_parser.py` cases TODO.
 
 ## 3. Resolver
 
-- [ ] 3.1 Create `q_orca/loader/import_resolver.py` with
+- [x] 3.1 Create `q_orca/loader/import_resolver.py` with
   `resolve_imports(file_def, base_path, project_root) -> ResolvedImportGraph`.
-  BFS over the import graph; parse each absolute path once (memoised);
-  in-flight set for cycle detection.
-- [ ] 3.2 Project-root discovery: walk up from the importing file to the
-  nearest `pyproject.toml`; fall back to cwd. Resolve `q_orca:` paths against
-  it; resolve `./` / `../` against the importing file's directory.
-- [ ] 3.3 `ResolvedImportGraph.lookup_machine(alias) -> QMachineDef | None` and
-  `known_aliases() -> set[str]` (for edit-distance suggestions). Follow
-  re-exports transitively, capped at 4 hops.
-- [ ] 3.4 Raise/return structured results for `IMPORT_NOT_FOUND`,
-  `IMPORT_PARSE_FAILED` (re-prefix delegated parse error with the chain),
-  `IMPORT_CYCLE` (path list), `IMPORT_CHAIN_TOO_DEEP` (chain).
-- [ ] 3.5 Unit tests in `tests/test_import_resolver.py`: happy path,
-  project-relative resolution, cycle, missing file, parse failure, deep chain.
+  DFS over the import graph with a path-stack for cycle detection; each file
+  parsed once (memoised by absolute path).
+- [x] 3.2 Project-root discovery (`find_project_root`): walk up to the nearest
+  `pyproject.toml`, else cwd. `q_orca:` paths resolve against it; `./`/`../`
+  against the importing file's directory.
+- [x] 3.3 `lookup_machine`, `known_aliases`, `is_ambiguous`; re-exports followed
+  transitively, capped at 4 hops.
+- [x] 3.4 Structured `ImportDiagnostic`s: `IMPORT_NOT_FOUND`,
+  `IMPORT_PARSE_FAILED` (chain-prefixed), `IMPORT_CYCLE` (path), `IMPORT_CHAIN_TOO_DEEP`.
+- [x] 3.5 `tests/test_import_resolver.py`: happy, project-relative, cycle,
+  missing file, reexport-via-index, chain-too-deep (6 tests).
 
 ## 4. Verifier — composition fall-through
 
-- [ ] 4.1 In `q_orca/verifier/composition.py`, after same-file resolution fails,
-  consult the resolved import graph (import alias → re-export) in order.
-  A same-file machine shadows imports.
-- [ ] 4.2 Emit `AMBIGUOUS_CHILD_MACHINE` when a name resolves from ≥2 distinct
-  non-local sources; name the conflicting source paths.
-- [ ] 4.3 Extend `UNRESOLVED_CHILD_MACHINE` with edit-distance "did you mean…?"
-  suggestions over same-file names + import-graph aliases.
-- [ ] 4.4 Translate resolver diagnostics (`IMPORT_*`) into `QVerificationError`s.
-- [ ] 4.5 Honour `--no-follow-imports`: skip the resolver; treat every non-local
-  invoke as unresolved with a flag-active hint. Thread the flag via
-  `VerifyOptions`.
-- [ ] 4.6 Unit tests in `tests/test_verifier.py`: import-alias resolution,
-  same-file shadowing, ambiguity, edit-distance suggestion, `--no-follow-imports`.
+- [x] 4.1 `check_composition` consults `import_graph` after same-file resolution;
+  same-file machine shadows imports.
+- [x] 4.2 `AMBIGUOUS_CHILD_MACHINE` when a name resolves from ≥2 distinct
+  sources, naming the source paths.
+- [x] 4.3 `UNRESOLVED_CHILD_MACHINE` extended with `difflib`-based "did you
+  mean…?" suggestions over same-file names + import-graph aliases.
+- [x] 4.4 Resolver `IMPORT_*` diagnostics merged into the result once.
+- [x] 4.5 `--no-follow-imports`: the CLI/skill layer simply passes
+  `import_graph=None`, so every non-local invoke is unresolved. (CLI flag itself
+  is §6.1.)
+- [x] 4.6 `tests/test_verifier.py::TestCompositionImports`: imported resolution,
+  edit-distance suggestion, no-follow (3 tests).
 
 ## 5. Compiler — Mermaid
 

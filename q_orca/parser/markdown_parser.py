@@ -19,7 +19,7 @@ from q_orca.ast import (
     ActionParameter, BoundArg,
     EncodingDecl, ThetaBlock, ThetaRow,
     Span, QubitSlice, QAssertion, AssertionPolicy,
-    QInvoke, QReturnDef,
+    QInvoke, QReturnDef, QImport, QReexport,
 )
 from q_orca.verifier.quantum import KNOWN_UNITARY_GATES
 
@@ -91,7 +91,7 @@ MdElement = MdHeading | MdTable | MdBulletList | MdBlockquote
 _KNOWN_SECTIONS = frozenset({
     "context", "events", "transitions", "guards", "actions", "effects",
     "verification rules", "invariants", "encoding", "theta",
-    "assertion policy", "returns",
+    "assertion policy", "returns", "imports", "reexports",
 })
 
 
@@ -243,6 +243,8 @@ def parse_q_orca_markdown(source: str) -> QParseResult:
     elements = parse_markdown_structure(source, errors=errors)
     machines = []
 
+    imports, reexports = _parse_file_imports(elements, errors)
+
     chunks = _split_by_separator(elements)
     for chunk in chunks:
         machine = _parse_machine_chunk(chunk, errors)
@@ -250,7 +252,68 @@ def parse_q_orca_markdown(source: str) -> QParseResult:
             _validate_returns_statistics(machine, errors)
             machines.append(machine)
 
-    return QParseResult(file=QOrcaFile(machines=machines), errors=errors)
+    return QParseResult(
+        file=QOrcaFile(machines=machines, imports=imports, reexports=reexports),
+        errors=errors,
+    )
+
+
+def _parse_file_imports(
+    elements: list[MdElement], errors: list[str]
+) -> tuple[list[QImport], list[QReexport]]:
+    """Parse file-level `## imports` / `## reexports` sections.
+
+    These are file-scoped (they apply to every machine in the file), so they are
+    parsed here rather than in `_parse_machine_chunk`, which leaves the headings
+    untouched. Position-independent: any `## imports` / `## reexports` heading in
+    the element stream is recognized.
+    """
+    imports: list[QImport] = []
+    reexports: list[QReexport] = []
+    for i, el in enumerate(elements):
+        if not (isinstance(el, MdHeading) and el.level == 2):
+            continue
+        key = _section_key(el.text)
+        table = elements[i + 1] if i + 1 < len(elements) else None
+        if key == "imports" and isinstance(table, MdTable):
+            imports.extend(_parse_imports_table(table, errors))
+        elif key == "reexports" and isinstance(table, MdTable):
+            reexports.extend(_parse_reexports_table(table, errors))
+    return imports, reexports
+
+
+def _parse_imports_table(table: MdTable, errors: list[str]) -> list[QImport]:
+    out: list[QImport] = []
+    path_idx = _find_column_index(table.headers, "path")
+    alias_idx = _find_column_index(table.headers, "aliases")
+    for row in table.rows:
+        path = _strip_backticks(row[path_idx].strip()).strip() if 0 <= path_idx < len(row) else ""
+        if not path:
+            continue
+        if path.startswith("/") or re.match(r"^[A-Za-z]:[\\/]", path):
+            errors.append(
+                f"import_absolute_path: import path '{path}' is absolute; only "
+                f"relative (./, ../) or project-relative (q_orca:…) paths are permitted"
+            )
+            continue
+        aliases = []
+        if 0 <= alias_idx < len(row):
+            aliases = [a.strip() for a in row[alias_idx].split(",") if a.strip()]
+        out.append(QImport(path=path, aliases=aliases))
+    return out
+
+
+def _parse_reexports_table(table: MdTable, errors: list[str]) -> list[QReexport]:
+    out: list[QReexport] = []
+    alias_idx = _find_column_index(table.headers, "alias")
+    from_idx = _find_column_index(table.headers, "from")
+    for row in table.rows:
+        alias = _strip_backticks(row[alias_idx].strip()).strip() if 0 <= alias_idx < len(row) else ""
+        if not alias:
+            continue
+        source = row[from_idx].strip() if 0 <= from_idx < len(row) else ""
+        out.append(QReexport(alias=alias, source=source))
+    return out
 
 
 def _machine_has_measurement(machine: QMachineDef) -> bool:

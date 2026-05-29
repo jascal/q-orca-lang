@@ -9,6 +9,7 @@ See `add-parameterized-invoke`.
 
 from __future__ import annotations
 
+import difflib
 from typing import Optional
 
 from q_orca.ast import (
@@ -136,15 +137,32 @@ def check_composition(
     file: QOrcaFile,
     machine: QMachineDef,
     options=None,
+    import_graph=None,
     _visited: Optional[frozenset] = None,
 ) -> QVerificationResult:
-    """Static multi-machine checks for `machine`'s invoke states."""
+    """Static multi-machine checks for `machine`'s invoke states.
+
+    `import_graph` is an optional `ResolvedImportGraph` (built by the CLI/skill
+    layer, which knows the file's path on disk). When present, children that
+    don't resolve to a same-file machine fall through to it; its `IMPORT_*`
+    diagnostics are merged into the result once.
+    """
     errors: list[QVerificationError] = []
     invoke_states = [s for s in machine.states if s.invoke is not None]
     if not invoke_states:
         return QVerificationResult(valid=True, errors=[])
 
     by_name = {m.name: m for m in file.machines}
+
+    # Merge file-level import diagnostics (IMPORT_NOT_FOUND / IMPORT_CYCLE /
+    # IMPORT_PARSE_FAILED / IMPORT_CHAIN_TOO_DEEP) once.
+    if import_graph is not None and not _visited:
+        for diag in import_graph.errors:
+            errors.append(QVerificationError(
+                code=diag.code, message=diag.message, severity="error",
+                location={"machine": machine.name},
+            ))
+
     graph = _invoke_graph(file)
     in_cycle = machine.name in _machines_in_cycle(graph)
     if in_cycle:
@@ -163,14 +181,37 @@ def check_composition(
     for state in invoke_states:
         inv = state.invoke
         loc = {"invoke_state": state.name}
+        # Resolution order: same-file machine (shadows imports) → import alias.
         child = by_name.get(inv.child_name)
+        if child is None and import_graph is not None:
+            if import_graph.is_ambiguous(inv.child_name):
+                errors.append(QVerificationError(
+                    code="AMBIGUOUS_CHILD_MACHINE",
+                    message=(
+                        f"invoke state {state.name}: '{inv.child_name}' resolves "
+                        f"from multiple imports "
+                        f"({', '.join(sorted(set(import_graph.alias_sources.get(inv.child_name, []))))})"
+                    ),
+                    severity="error",
+                    location=loc,
+                ))
+                continue
+            child = import_graph.lookup_machine(inv.child_name)
         if child is None:
+            candidates = list(by_name)
+            if import_graph is not None:
+                candidates += list(import_graph.known_aliases())
+            suggestions = difflib.get_close_matches(inv.child_name, candidates, n=3)
+            message = (
+                f"invoke state {state.name} references machine "
+                f"'{inv.child_name}', which is not defined in this file "
+                f"or its import graph"
+            )
+            if suggestions:
+                message += f" (did you mean: {', '.join(suggestions)}?)"
             errors.append(QVerificationError(
                 code="UNRESOLVED_CHILD_MACHINE",
-                message=(
-                    f"invoke state {state.name} references machine "
-                    f"'{inv.child_name}', which is not defined in this file"
-                ),
+                message=message,
                 severity="error",
                 location=loc,
             ))
@@ -271,7 +312,8 @@ def check_composition(
             child = by_name.get(state.invoke.child_name)
             if child is None or child.name in visited:
                 continue
-            child_result = verify(child, options, file=file, _visited=visited)
+            child_result = verify(
+                child, options, file=file, import_graph=import_graph, _visited=visited)
             for err in child_result.errors:
                 errors.append(QVerificationError(
                     code=err.code,
