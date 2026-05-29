@@ -218,7 +218,11 @@ def verify_skill(input: SkillInput, skip_completeness: bool = False, skip_quantu
 
         machine = parsed.file.machines[0]
         opts = VerifyOptions(skip_completeness=skip_completeness, skip_quantum=skip_quantum, skip_dynamic=skip_dynamic)
-        result = verify(machine, opts, file=parsed.file)
+        import_graph = None
+        if input.get("file") and parsed.file.imports:
+            from q_orca.loader.import_resolver import resolve_imports
+            import_graph = resolve_imports(parsed.file, input["file"])
+        result = verify(machine, opts, file=parsed.file, import_graph=import_graph)
 
         def _sanitize_location(loc):
             """Ensure location dict is JSON-serializable."""

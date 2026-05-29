@@ -11,7 +11,9 @@ def _sanitize(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_]", "_", name.strip("|").strip(">").strip("<")).strip("_") or "unnamed"
 
 
-def compile_to_mermaid(machine: QMachineDef, file: Optional[QOrcaFile] = None) -> str:
+def compile_to_mermaid(
+    machine: QMachineDef, file: Optional[QOrcaFile] = None, import_graph=None
+) -> str:
     lines = []
 
     lines.append("stateDiagram-v2")
@@ -62,28 +64,36 @@ def compile_to_mermaid(machine: QMachineDef, file: Optional[QOrcaFile] = None) -
             label += f" / {t.action_label or t.action}"
         lines.append(f"  {sanitize(t.source)} --> {sanitize(t.target)} : {label}")
 
-    # Nested composite blocks for each resolved invoked child machine, so the
-    # composed diagram is self-contained.
-    if file is not None:
-        by_name = {m.name: m for m in file.machines}
-        rendered: set[str] = set()
-        for state in machine.states:
-            if state.invoke is None:
-                continue
-            child = by_name.get(state.invoke.child_name)
-            if child is None or child.name in rendered:
-                continue
-            rendered.add(child.name)
-            lines.append("")
-            lines.append(f"  state {sanitize(child.name)} {{")
-            for cs in child.states:
-                lines.append(f"    {sanitize(child.name)}_{sanitize(cs.name)} : {cs.name}")
-            for ct in child.transitions:
-                lines.append(
-                    f"    {sanitize(child.name)}_{sanitize(ct.source)} --> "
-                    f"{sanitize(child.name)}_{sanitize(ct.target)} : {ct.event}"
-                )
-            lines.append("  }")
+    # Nested composite blocks for each resolved invoked child machine (same-file
+    # or imported), so the composed diagram is self-contained. Imported children
+    # carry the import path so the diagram shows where they came from.
+    by_name = {m.name: m for m in file.machines} if file is not None else {}
+    rendered: set[str] = set()
+    for state in machine.states:
+        if state.invoke is None:
+            continue
+        alias = state.invoke.child_name
+        child = by_name.get(alias)
+        import_path = None
+        if child is None and import_graph is not None:
+            child = import_graph.lookup_machine(alias)
+            sources = import_graph.alias_sources.get(alias) if child is not None else None
+            import_path = sources[0] if sources else None
+        if child is None or alias in rendered:
+            continue
+        rendered.add(alias)
+        lines.append("")
+        if import_path is not None:
+            lines.append(f"  %% {alias} imported from {import_path}")
+        lines.append(f"  state {sanitize(alias)} {{")
+        for cs in child.states:
+            lines.append(f"    {sanitize(alias)}_{sanitize(cs.name)} : {cs.name}")
+        for ct in child.transitions:
+            lines.append(
+                f"    {sanitize(alias)}_{sanitize(ct.source)} --> "
+                f"{sanitize(alias)}_{sanitize(ct.target)} : {ct.event}"
+            )
+        lines.append("  }")
 
     # Verification rules note
     if machine.verification_rules:
@@ -95,4 +105,31 @@ def compile_to_mermaid(machine: QMachineDef, file: Optional[QOrcaFile] = None) -
             lines.append(f"    - {rule.kind}: {rule.description}")
         lines.append("  end note")
 
+    return "\n".join(lines)
+
+
+def compile_import_graph_to_mermaid(import_graph, root_label: str = "root") -> str:
+    """Render a `ResolvedImportGraph` as a Mermaid flowchart of files + edges.
+
+    Used by `q-orca imports show`. Each file is a node (basename), each import is
+    a directed edge. Diagnostics (cycles, missing files) are listed as comments.
+    """
+    import os
+
+    lines = ["flowchart LR"]
+    nodes: dict[str, str] = {}
+
+    def node_id(path: str) -> str:
+        if path not in nodes:
+            nodes[path] = f"n{len(nodes)}"
+        return nodes[path]
+
+    edges = getattr(import_graph, "import_edges", []) or []
+    for importer, imported in edges:
+        a, b = node_id(importer), node_id(imported)
+        lines.append(f"  {a}[{os.path.basename(importer)}] --> {b}[{os.path.basename(imported)}]")
+    if not edges:
+        lines.append(f"  {node_id(root_label)}[{root_label}]")
+    for diag in getattr(import_graph, "errors", []) or []:
+        lines.append(f"  %% {diag.code}: {diag.message}")
     return "\n".join(lines)

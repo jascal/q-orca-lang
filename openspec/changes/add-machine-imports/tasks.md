@@ -53,30 +53,32 @@
 
 ## 5. Compiler — Mermaid
 
-- [ ] 5.1 In `q_orca/compiler/mermaid.py`, render an imported child as a nested
-  composite block carrying its import path (resolved via the import graph).
-- [ ] 5.2 Add an import-graph view helper that renders the transitive import
-  closure as a Mermaid diagram of files + import edges (used by `imports show`).
-- [ ] 5.3 Unit tests in `tests/test_compiler.py`.
+- [x] 5.1 `compile_to_mermaid(machine, file, import_graph)` renders an imported
+  child as a nested composite block with a `%% <Alias> imported from <path>`
+  comment from the import graph.
+- [x] 5.2 `compile_import_graph_to_mermaid(graph)` renders the import closure as
+  a `flowchart` of files + edges (used by `imports show`).
+- [x] 5.3 Covered by `tests/test_machine_imports.py` (mermaid nested child +
+  import-graph view).
 
 ## 6. CLI
 
-- [ ] 6.1 Add `--no-follow-imports` to `q-orca verify`, plumbed into
-  `VerifyOptions` and the resolver dispatch; pass the surrounding file/base path.
-- [ ] 6.2 Add a `q-orca imports show <file>` subcommand emitting the import-graph
-  Mermaid view.
-- [ ] 6.3 Wire `verify_skill` / CLI verify to resolve imports (build the
-  `ResolvedImportGraph` from the parsed file + its path) and pass it to the
-  composition stage.
+- [x] 6.1 Added `--no-follow-imports` to `q-orca verify`; `_build_import_graph`
+  resolves imports from `args.file` and passes the graph into `verify(...)`
+  (skipped when the flag is set).
+- [x] 6.2 Added a `q-orca imports show <file>` subcommand emitting the
+  import-graph Mermaid view.
+- [x] 6.3 Wired `verify_skill` (resolves when `input["file"]` is present) and
+  the CLI verify/compile commands to build and pass the `ResolvedImportGraph`.
 
 ## 7. End-to-end + docs
 
-- [ ] 7.1 Fixture: a `lib/` primitive file + a parent that imports and invokes
-  it; confirm parse + verify + Mermaid render end-to-end (`tests/test_machine_imports.py`).
-- [ ] 7.2 Run the full suite and `q-orca verify --strict` on all examples; no
-  regressions.
-- [ ] 7.3 Update `docs/research/spec-machine-imports.md` status header to
-  in-flight and link to this change.
+- [x] 7.1 Fixtures `tests/fixtures/imports/{parent,lib/bell-pair}.q.orca.md` +
+  `tests/test_machine_imports.py` (5 tests): parse, verify-follows-imports,
+  no-follow-unresolved, Mermaid nested child, imports-show view.
+- [x] 7.2 Full suite 1109 passed, 20 skipped; all 20 examples pass `--strict`.
+- [x] 7.3 Updated `docs/research/spec-machine-imports.md` status header to
+  in-flight.
 
 ## 8. Spec sync
 

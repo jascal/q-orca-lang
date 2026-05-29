@@ -1,6 +1,9 @@
 # Spec: Cross-File Machine Imports — `## imports` Section
 
-**Status:** Draft
+**Status:** In flight — implemented under
+`openspec/changes/add-machine-imports/`. Resolver lives at
+`q_orca/loader/import_resolver.py`; the composition verifier consults it for
+`invoke:` fall-through.
 **Date:** 2026-05-15
 **Priority:** High
 

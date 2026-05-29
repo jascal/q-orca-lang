@@ -39,6 +39,8 @@ def main():
     v.add_argument("--skip-dynamic", action="store_true", help="Skip stage 4b: QuTiP circuit simulation (Schmidt rank, entropy)")
     v.add_argument("--skip-resource-bounds", action="store_true", help="Skip stage 4c: resource invariant checks (gate_count, depth, cx_count, t_count, logical_qubits)")
     v.add_argument("--strict", action="store_true", help="Treat warnings as errors (exit 1 on any warning)")
+    v.add_argument("--no-follow-imports", action="store_true",
+                   help="Do not resolve cross-file `## imports`; non-local invokes report UNRESOLVED_CHILD_MACHINE")
     v.add_argument("--backend", default=None, metavar="BACKEND",
                    help="Verification backend: qutip (default), cuquantum, cudaq")
     v.add_argument("--gpu-count", type=int, default=1, metavar="N",
@@ -50,6 +52,11 @@ def main():
     c = sub.add_parser("compile", help="Compile to a target format")
     c.add_argument("format", choices=["mermaid", "qasm", "qiskit", "cudaq"], help="Output format")
     c.add_argument("file", nargs="?", help="Path to .q.orca.md file (or use --stdin)")
+
+    # imports
+    im = sub.add_parser("imports", help="Inspect cross-file machine imports")
+    im.add_argument("imports_command", choices=["show"], help="imports subcommand")
+    im.add_argument("file", nargs="?", help="Path to .q.orca.md file")
 
     # simulate
     s = sub.add_parser("simulate", help="Simulate a quantum machine with Qiskit")
@@ -102,6 +109,8 @@ def main():
         _cmd_compile(parsed, args)
     elif args.command == "simulate":
         _cmd_simulate(parsed, args)
+    elif args.command == "imports":
+        _cmd_imports(parsed, args)
 
 
 def _resolve_backend(args, config=None) -> str:
@@ -128,6 +137,8 @@ def _cmd_verify(parsed, args):
         cuquantum_backend.gpu_count = getattr(args, "gpu_count", 1)
         cuquantum_backend.tensor_network = getattr(args, "tensor_network", False)
 
+    import_graph = _build_import_graph(parsed, args)
+
     has_errors = False
     for machine in parsed.file.machines:
         opts = VerifyOptions(
@@ -137,7 +148,7 @@ def _cmd_verify(parsed, args):
             skip_resource_bounds=args.skip_resource_bounds,
             backend=backend,
         )
-        result = verify(machine, opts, file=parsed.file)
+        result = verify(machine, opts, file=parsed.file, import_graph=import_graph)
 
         # Collect backend metadata for JSON output
         backend_meta = _get_backend_meta(backend)
@@ -183,11 +194,35 @@ def _cmd_verify(parsed, args):
     sys.exit(1 if has_errors else 0)
 
 
+def _build_import_graph(parsed, args):
+    """Resolve the file's cross-file imports, or None if not applicable."""
+    if getattr(args, "no_follow_imports", False):
+        return None
+    file_path = getattr(args, "file", None)
+    if not file_path or not parsed.file.imports:
+        return None
+    from q_orca.loader.import_resolver import resolve_imports
+    return resolve_imports(parsed.file, file_path)
+
+
+def _cmd_imports(parsed, args):
+    from q_orca.compiler.mermaid import compile_import_graph_to_mermaid
+    from q_orca.loader.import_resolver import resolve_imports
+
+    file_path = getattr(args, "file", None)
+    if not file_path:
+        print("Error: `imports show` requires a file path", file=sys.stderr)
+        sys.exit(1)
+    graph = resolve_imports(parsed.file, file_path)
+    print(compile_import_graph_to_mermaid(graph, root_label=Path(file_path).name))
+
+
 def _cmd_compile(parsed, args):
+    import_graph = _build_import_graph(parsed, args)
     for machine in parsed.file.machines:
         try:
             if args.format == "mermaid":
-                print(compile_to_mermaid(machine, file=parsed.file))
+                print(compile_to_mermaid(machine, file=parsed.file, import_graph=import_graph))
             elif args.format == "qasm":
                 print(compile_to_qasm(machine))
             elif args.format == "qiskit":
