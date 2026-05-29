@@ -174,7 +174,7 @@ def _cmd_verify(parsed, args):
                 has_errors = True
 
             for err in result.errors:
-                icon = "ERR" if err.severity == "error" else "WARN"
+                icon = {"error": "ERR", "warning": "WARN"}.get(err.severity, "INFO")
                 print(f"  [{icon}] {err.code}: {err.message}")
                 if err.suggestion:
                     print(f"        -> {err.suggestion}")

@@ -264,20 +264,32 @@
 
 ## 13. Examples & docs
 
-- [ ] 13.1 Create `examples/bell-entangler-asserts.q.orca.md` — Bell
+- [x] 13.1 Create `examples/bell-entangler-asserts.q.orca.md` — Bell
       pair with `[assert: superposition(qs[0])]` on the
       Hadamard state and `[assert: entangled(qs[0], qs[1])]` on the
       post-CNOT state. Set `shots_per_assert=256` for fast CI.
-- [ ] 13.2 Update `examples/bit-flip-syndrome.q.orca.md` with
+      Verifies VALID (both assertions PASS) under `q-orca verify` and
+      `--strict`; added to `tests/test_examples.py::EXAMPLE_FILES`.
+- [x] 13.2 Update `examples/bit-flip-syndrome.q.orca.md` with
       `[assert: entangled(qs[0], qs[1])]` etc. at the encoded state
       and `[assert: classical(qs[3..4])]` at the measured state.
-- [ ] 13.3 Create `docs/language/assertions.md` covering the
+      DEVIATION: used `classical(qs[0..2])` at the encoded state, not
+      `entangled`. On the no-error path the checker simulates, the data
+      register stays in the product codeword |000⟩ (the syndrome CNOTs have
+      |0> controls), so `entangled` would *fail*. `classical(qs[3..4])` at
+      the measured state holds as specified. Existing
+      `tests/test_bit_flip_syndrome.py` still green.
+- [x] 13.3 Create `docs/language/assertions.md` covering the
       vocabulary, statistical semantics, the destructive-measurement
       caveat, and the GHZ-marginal subtlety from design.md
-      Decision 4.
-- [ ] 13.4 Update `docs/specs/spec-runtime-assertions.md`'s status
+      Decision 4. Also documents the PPT/negativity and confidence
+      deviations.
+- [x] 13.4 Update `docs/specs/spec-runtime-assertions.md`'s status
       header to mark this proposal as in flight and link to
       `openspec/changes/add-runtime-state-assertions/`.
+      The spec actually lives at `docs/research/spec-runtime-assertions.md`
+      (not `docs/specs/`); updated there. Also bumped the stale example
+      count 19 → 20 in README.md and docs/compute-needs.md (§5.2-style drift).
 
 ## 14. Spec sync
 

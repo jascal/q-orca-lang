@@ -9,6 +9,7 @@ EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 
 EXAMPLE_FILES = {
     "bell-entangler": "bell-entangler.q.orca.md",
+    "bell-entangler-asserts": "bell-entangler-asserts.q.orca.md",
     "deutsch-jozsa": "deutsch-jozsa.q.orca.md",
     "ghz-state": "ghz-state.q.orca.md",
     "quantum-teleportation": "quantum-teleportation.q.orca.md",
