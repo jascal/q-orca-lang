@@ -2464,3 +2464,76 @@ class TestSharedFixtureCompilerAdapter:
             assert gate.parameter == pytest.approx(expected.parameter)
         if expected.custom_name is not None:
             assert gate.custom_name == expected.custom_name
+
+
+# ---------------------------------------------------------------------------
+# Composed-machine compilation (add-parameterized-invoke §4.3)
+# ---------------------------------------------------------------------------
+
+import pytest
+
+from q_orca.parser.markdown_parser import parse_q_orca_markdown
+from q_orca.compiler.qasm import compile_to_qasm
+from q_orca.compiler.mermaid import compile_to_mermaid
+from q_orca.compiler.util import ComposedMachineError
+
+_COMPOSED_FILE = """# machine Parent
+## context
+| Field | Type | Default |
+| theta | float | 0.5 |
+## state |idle> [initial]
+## state |train> [invoke: QChild(theta=theta) shots=1024]
+## state |fin> [final]
+## transitions
+| Source | Event | Guard | Target | Action |
+| |idle> | g | | |train> | |
+| |train> | n | | |fin> | |
+
+---
+
+# machine QChild
+## context
+| Field | Type | Default |
+| theta | float | 0.5 |
+## state |q0> [initial]
+## state |qm> [final]
+## transitions
+| Source | Event | Guard | Target | Action |
+| |q0> | measure_it | | |qm> | meas |
+## actions
+| Name | Signature | Effect |
+| meas | (qs) -> qs | measure(qs[0]) -> bits[0] |
+"""
+
+
+def _composed():
+    result = parse_q_orca_markdown(_COMPOSED_FILE)
+    assert not result.errors, result.errors
+    return result
+
+
+class TestComposedMachineCompilation:
+    def test_qasm_refuses_composed_machine(self):
+        parent = _composed().file.machines[0]
+        with pytest.raises(ComposedMachineError) as exc:
+            compile_to_qasm(parent)
+        assert exc.value.code == "COMPILE_COMPOSED_MACHINE"
+
+    def test_qiskit_refuses_composed_machine(self):
+        from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
+        parent = _composed().file.machines[0]
+        with pytest.raises(ComposedMachineError) as exc:
+            compile_to_qiskit(parent, QSimulationOptions(analytic=True, skip_qutip=True))
+        assert exc.value.code == "COMPILE_COMPOSED_MACHINE"
+
+    def test_mermaid_renders_composed_machine(self):
+        result = _composed()
+        mermaid = compile_to_mermaid(result.file.machines[0], file=result.file)
+        assert "invoke: QChild" in mermaid
+        assert "state QChild {" in mermaid
+
+    def test_single_machine_still_compiles(self):
+        # The child alone (no invoke states) compiles unchanged.
+        child = _composed().file.machines[1]
+        qasm = compile_to_qasm(child)
+        assert "OPENQASM 3.0" in qasm

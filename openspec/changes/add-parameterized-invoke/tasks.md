@@ -94,19 +94,28 @@
 
 ## 4. Compiler — Mermaid + refusal
 
-- [ ] 4.1 In `q_orca/compiler/mermaid.py`, detect invoke states
+- [x] 4.1 In `q_orca/compiler/mermaid.py`, detect invoke states
   and render them as rounded rectangles with the child machine
   name. Emit a nested `state <ChildName> { ... }` block by
   recursively rendering the resolved child.
-- [ ] 4.2 In `q_orca/compiler/qasm.py` and
+  `compile_to_mermaid` gained an optional `file` param; invoke states are
+  labeled `invoke: <Child>` and each resolved child is rendered as a nested
+  `state <Child> { … }` composite (one level; stateDiagram-v2 has no flowchart
+  shape syntax, so "rounded rectangle" = the native composite-state rendering).
+- [x] 4.2 In `q_orca/compiler/qasm.py` and
   `q_orca/compiler/qiskit.py`, detect invoke states in the input
   machine and return a structured `COMPILE_COMPOSED_MACHINE`
   error (shape defined in the compiler spec). Do not produce a
   partial output.
-- [ ] 4.3 Unit tests in `tests/test_compiler.py` for all three
+  Both backends raise `ComposedMachineError` (`.code =
+  "COMPILE_COMPOSED_MACHINE"`, in `q_orca/compiler/util.py`) at the top of the
+  compile function — the idiomatic "structured error" for string-returning
+  compilers — before producing any output.
+- [x] 4.3 Unit tests in `tests/test_compiler.py` for all three
   backends: Mermaid renders composed machine, QASM/Qiskit refuse
   with the structured error, and a single-machine file (no
   invokes) still compiles identically to before.
+  `TestComposedMachineCompilation` (4 tests).
 
 ## 5. Spec + docs sync
 

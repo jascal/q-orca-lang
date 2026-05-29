@@ -1,30 +1,38 @@
 """Q-Orca Mermaid compiler — compiles QMachineDef → Mermaid stateDiagram-v2."""
 
 import re
+from typing import Optional
 
-from q_orca.ast import QMachineDef, QStateDef
+from q_orca.ast import QMachineDef, QOrcaFile, QStateDef
 from q_orca.compiler.util import format_assertion_expr
 
 
-def compile_to_mermaid(machine: QMachineDef) -> str:
+def _sanitize(name: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_]", "_", name.strip("|").strip(">").strip("<")).strip("_") or "unnamed"
+
+
+def compile_to_mermaid(machine: QMachineDef, file: Optional[QOrcaFile] = None) -> str:
     lines = []
 
     lines.append("stateDiagram-v2")
     lines.append("  direction LR")
     lines.append("")
 
-    def sanitize(name: str) -> str:
-        return re.sub(r"[^a-zA-Z0-9_]", "_", name.strip("|").strip(">").strip("<")).strip("_") or "unnamed"
+    sanitize = _sanitize
 
     def state_id(s: QStateDef) -> str:
         return sanitize(s.name)
 
     # Add state descriptions. Assertions are appended to the description text
-    # only — no new state nodes, transitions, or labels are introduced.
+    # only. Invoke states are labeled `invoke: <Child>` (and their child is
+    # rendered as a nested composite state below when the file is available).
     for state in machine.states:
-        label = state.name
-        if state.state_expression:
-            label += f" = {state.state_expression}"
+        if state.invoke is not None:
+            label = f"invoke: {state.invoke.child_name}"
+        else:
+            label = state.name
+            if state.state_expression:
+                label += f" = {state.state_expression}"
         if state.assertions:
             summary = "; ".join(format_assertion_expr(a, "qs") for a in state.assertions)
             label += f" — assert: {summary}"
@@ -53,6 +61,29 @@ def compile_to_mermaid(machine: QMachineDef) -> str:
             # `action` directly.
             label += f" / {t.action_label or t.action}"
         lines.append(f"  {sanitize(t.source)} --> {sanitize(t.target)} : {label}")
+
+    # Nested composite blocks for each resolved invoked child machine, so the
+    # composed diagram is self-contained.
+    if file is not None:
+        by_name = {m.name: m for m in file.machines}
+        rendered: set[str] = set()
+        for state in machine.states:
+            if state.invoke is None:
+                continue
+            child = by_name.get(state.invoke.child_name)
+            if child is None or child.name in rendered:
+                continue
+            rendered.add(child.name)
+            lines.append("")
+            lines.append(f"  state {sanitize(child.name)} {{")
+            for cs in child.states:
+                lines.append(f"    {sanitize(child.name)}_{sanitize(cs.name)} : {cs.name}")
+            for ct in child.transitions:
+                lines.append(
+                    f"    {sanitize(child.name)}_{sanitize(ct.source)} --> "
+                    f"{sanitize(child.name)}_{sanitize(ct.target)} : {ct.event}"
+                )
+            lines.append("  }")
 
     # Verification rules note
     if machine.verification_rules:

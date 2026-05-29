@@ -7,6 +7,29 @@ import re
 from q_orca.ast import QAssertion, QMachineDef, QTypeList, QTypeQubit, QTypeScalar
 
 
+class ComposedMachineError(Exception):
+    """Raised when a backend is asked to compile a machine with invoke states.
+
+    Composed (multi-machine) compilation is deferred to `add-composed-runtime`;
+    the QASM and Qiskit backends refuse rather than emit a partial program.
+    """
+
+    code = "COMPILE_COMPOSED_MACHINE"
+
+    def __init__(self, machine_name: str = ""):
+        self.machine_name = machine_name
+        super().__init__(
+            "cannot compile a machine with invoke states directly. Compile "
+            "child machines individually and compose via the runtime (planned "
+            "as `add-composed-runtime`)."
+        )
+
+
+def machine_has_invoke(machine: QMachineDef) -> bool:
+    """True if any state delegates to another machine via `[invoke: …]`."""
+    return any(getattr(s, "invoke", None) is not None for s in machine.states)
+
+
 def format_assertion_expr(assertion: QAssertion, register: str = "qs") -> str:
     """Render an assertion as ``category(reg[a..b], …)`` for compiler comments.
 
