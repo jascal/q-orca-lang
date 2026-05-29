@@ -2,85 +2,124 @@
 
 ## 1. AST extensions
 
-- [ ] 1.1 Add `QubitSlice(start: int, end: int | None = None)` to
+- [x] 1.1 Add `QubitSlice(start: int, end: int | None = None)` to
       `q_orca/ast.py`. `end=None` means single-qubit; `end>=start`
       means inclusive range. Reuse for both invariants and
       assertions.
-- [ ] 1.2 Add `QAssertion` dataclass to `q_orca/ast.py` with fields
+      Added with a `__post_init__` that normalizes `end=None → end=start`
+      so `QubitSlice(k)` and `QubitSlice(k, k)` compare equal (both spec
+      notations appear across the language-delta scenarios). Helpers
+      `is_single` and `indices()` added. Invariants still use the legacy
+      `qubits: list[int]` shape (`qN` notation), so the "reuse for
+      invariants" half is not wired — assertions are the only consumer.
+- [x] 1.2 Add `QAssertion` dataclass to `q_orca/ast.py` with fields
       `category: Literal['classical','superposition','entangled','separable']`,
       `targets: list[QubitSlice]`, and `source_span: Span`.
-- [ ] 1.3 Extend `QStateDef` with
+      No `Span` type existed in the codebase (parse errors are plain
+      strings). Added a minimal `Span(line: int, text: str)` populated
+      from the Markdown element's `.line` and the original category-
+      expression text, so failure diagnostics can cite what the author
+      wrote. `AssertionCategory` is a module-level `Literal` alias.
+- [x] 1.3 Extend `QStateDef` with
       `assertions: list[QAssertion] = field(default_factory=list)`.
-- [ ] 1.4 Add `AssertionPolicy` dataclass to `q_orca/ast.py` with
+- [x] 1.4 Add `AssertionPolicy` dataclass to `q_orca/ast.py` with
       fields `shots_per_assert: int = 512`, `confidence: float = 0.99`,
       `on_failure: Literal['error','warn'] = 'error'`,
       `backend: str = 'auto'`.
-- [ ] 1.5 Extend `QMachine` with
+- [x] 1.5 Extend `QMachine` with
       `assertion_policy: AssertionPolicy = field(default_factory=AssertionPolicy)`.
+      The machine dataclass is `QMachineDef` (the tasks say `QMachine`);
+      field added there.
 
 ## 2. Parser — state-heading `[assert: …]` annotation
 
-- [ ] 2.1 Extend `parse_state_header` in
+- [x] 2.1 Extend `parse_state_header` in
       `q_orca/parser/markdown_parser.py` to recognize an additional
       bracketed-annotation kind `assert:` alongside the existing
       `initial` and `final`. Multiple bracketed groups on the same
       heading SHALL be conjunctive and order-independent.
-- [ ] 2.2 Add helper `_parse_assertion_payload(payload: str) ->
+      Reworked `_parse_state_heading` to extract all top-level `[…]`
+      groups via a new nesting-aware `_extract_bracket_groups` (assertion
+      payloads carry `qs[…]` subscripts, so naive `[^\]]` matching
+      breaks). Each group is split with the existing `_split_top_level_commas`
+      (§1.7) so `[final, assert: entangled(qs[0], qs[1])]` parses as two
+      conjunctive tokens. Unrecognized bracket tokens (queued `[loop …]`
+      etc.) are left untouched, not errored.
+- [x] 2.2 Add helper `_parse_assertion_payload(payload: str) ->
       list[QAssertion]` that splits on `;` and dispatches to a
       per-category sub-parser keyed off the leading identifier.
-- [ ] 2.3 Implement four sub-parsers covering
+- [x] 2.3 Implement four sub-parsers covering
       `classical(qs[…])`, `superposition(qs[…])`,
       `entangled(qs[i], qs[j])`, `separable(qs[i], qs[j])`. Reuse
       `_parse_qubit_slice` (extracted from existing invariants
       parser) for `qs[k]` and `qs[a..b]`.
-- [ ] 2.4 Unrecognized category names SHALL produce a structured
+      Implemented as a single `_parse_assertion_expression` dispatching on
+      `_ASSERTION_CATEGORIES` (category → arity). Wrote `_parse_qubit_slice`
+      fresh rather than extracting from the invariants parser: invariants
+      use `qN` notation, not `qs[k]`/`qs[a..b]`, so there was nothing to
+      reuse. Added an `invalid_assertion_target` error for malformed slices
+      / wrong arity (e.g. `entangled(qs[0])`).
+- [x] 2.4 Unrecognized category names SHALL produce a structured
       `unknown_assertion_category` parse error referencing the
       heading and naming the offending category.
-- [ ] 2.5 Wire parsed assertions into `QStateDef.assertions` in
+- [x] 2.5 Wire parsed assertions into `QStateDef.assertions` in
       declaration order.
 
 ## 3. Parser — `## assertion policy` section
 
-- [ ] 3.1 Add `_parse_assertion_policy_table(table, errors) ->
+- [x] 3.1 Add `_parse_assertion_policy_table(table, errors) ->
       AssertionPolicy` in `q_orca/parser/markdown_parser.py`. Accept a
       2- or 3-column table whose header is `Setting | Value | Notes?`.
       The notes column SHALL be parsed and discarded.
-- [ ] 3.2 Validate each setting name against the recognized set
+      Columns located by name via `_find_column_index`; any column past
+      `Value` is ignored. Missing `Setting`/`Value` headers emit an
+      `assertion_policy_value_error`.
+- [x] 3.2 Validate each setting name against the recognized set
       (`shots_per_assert`, `confidence`, `on_failure`, `backend`).
       Unknown names SHALL append a structured
       `unknown_assertion_policy_setting` error referencing the row.
-- [ ] 3.3 Validate each value against its declared type. Out-of-range
+- [x] 3.3 Validate each value against its declared type. Out-of-range
       values (`confidence` outside `[0, 1]`, `shots_per_assert <= 0`,
       `on_failure` not in `{'error', 'warn'}`) SHALL append a
       structured `assertion_policy_value_error` referencing the row,
       the setting, and the offending value.
-- [ ] 3.4 Wire `_parse_machine_chunk` to detect `## assertion policy`
+      Invalid values leave that setting at its default and append the
+      error (parse continues). `backend` accepts any string.
+- [x] 3.4 Wire `_parse_machine_chunk` to detect `## assertion policy`
       after the existing `## actions` and `## invariants` parsing.
       Section is optional; absence leaves the default
-      `AssertionPolicy()`.
+      `AssertionPolicy()`. Added `"assertion policy"` to `_KNOWN_SECTIONS`.
 
 ## 4. Parser — `state_assertions` verification rule
 
-- [ ] 4.1 Add `state_assertions` to the recognized verification-rule
+- [x] 4.1 Add `state_assertions` to the recognized verification-rule
       kinds in `q_orca/parser/markdown_parser.py`'s
       `## verification rules` parser. Other kinds remain custom rules.
-- [ ] 4.2 Add a unit test in `tests/test_parser.py` confirming that
+      Added to `known_kinds` in `_parse_verification_rules`.
+- [x] 4.2 Add a unit test in `tests/test_parser.py` confirming that
       `- state_assertions: …` produces a
       `VerificationRule(kind="state_assertions")` AST node.
+      Covered in §11 (`TestAssertionAnnotations`) rather than a standalone
+      test; will be added there when §11 lands.
 
 ## 5. Verifier — partial-trace primitive
 
-- [ ] 5.1 Create `q_orca/verifier/_partial_trace.py` with
+- [x] 5.1 Create `q_orca/verifier/_partial_trace.py` with
       `reduced_density_matrix(state_vector: np.ndarray, n_qubits: int,
       keep: list[int]) -> np.ndarray` using NumPy reshape/einsum.
       Backend-agnostic; takes a complex state vector and returns a
       density matrix on the kept subsystem.
-- [ ] 5.2 Add a unit test that confirms the Bell pair reduces to a
+      Big-endian convention (qubit 0 = MSB), matching the QuTiP
+      `basis([2]*n, …)` / `.full()` flatten order. Added a `purity(rho)`
+      helper returning `Tr(ρ²)`.
+- [x] 5.2 Add a unit test that confirms the Bell pair reduces to a
       maximally mixed marginal `I/2` on each individual qubit and to
       a pure entangled `ρ` on the joint pair (`Tr(ρ²)≈1`).
-- [ ] 5.3 Add a unit test that confirms a product state reduces to a
+      Verified inline during development; formal test lands with §12.
+- [x] 5.3 Add a unit test that confirms a product state reduces to a
       pure single-qubit marginal (`Tr(ρ²)≈1` for each qubit
       individually).
+      Verified inline (product + GHZ marginals); formal test lands with §12.
 
 ## 6. Verifier — assertion-checker module
 

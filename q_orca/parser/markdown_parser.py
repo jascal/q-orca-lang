@@ -18,6 +18,7 @@ from q_orca.ast import (
     QContextMutation, QEffectContextUpdate,
     ActionParameter, BoundArg,
     EncodingDecl, ThetaBlock, ThetaRow,
+    Span, QubitSlice, QAssertion, AssertionPolicy,
 )
 from q_orca.verifier.quantum import KNOWN_UNITARY_GATES
 
@@ -89,6 +90,7 @@ MdElement = MdHeading | MdTable | MdBulletList | MdBlockquote
 _KNOWN_SECTIONS = frozenset({
     "context", "events", "transitions", "guards", "actions", "effects",
     "verification rules", "invariants", "encoding", "theta",
+    "assertion policy",
 })
 
 
@@ -309,6 +311,7 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
     resource_metrics: list[str] = []
     encoding: Optional[EncodingDecl] = None
     theta: Optional[ThetaBlock] = None
+    assertion_policy = AssertionPolicy()
 
     # Pre-scan for the context table so that angle expressions in actions
     # can reference numeric context fields regardless of section order.
@@ -343,7 +346,7 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
                 continue
 
             if section_name_lower.startswith("state "):
-                state, next_i = _parse_state_heading(section_full, elements, i)
+                state, next_i = _parse_state_heading(section_full, elements, i, errors)
                 states.append(state)
                 i = next_i
                 continue
@@ -413,6 +416,13 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
                     i += 1
                 continue
 
+            if section_name_lower == "assertion policy":
+                i += 1
+                if i < len(elements) and isinstance(elements[i], MdTable):
+                    assertion_policy = _parse_assertion_policy_table(elements[i], errors)
+                    i += 1
+                continue
+
         i += 1
 
     if not name:
@@ -441,6 +451,7 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
         resource_metrics=resource_metrics,
         encoding=encoding,
         theta=theta,
+        assertion_policy=assertion_policy,
     )
 
 
@@ -472,22 +483,43 @@ def _parse_event_def(item: str) -> EventDef:
     return EventDef(name=name)
 
 
-def _parse_state_heading(heading_text: str, elements: list[MdElement], current_index: int) -> tuple[QStateDef, int]:
+def _parse_state_heading(
+    heading_text: str,
+    elements: list[MdElement],
+    current_index: int,
+    errors: Optional[list[str]] = None,
+) -> tuple[QStateDef, int]:
     # heading_text is like "state |00>" or "state |ψ> = (|00> + |11>)/√2"
     rest = heading_text[6:].strip()  # remove "state "
+    heading_line = getattr(elements[current_index], "line", 0)
 
     is_initial = False
     is_final = False
+    assertions: list[QAssertion] = []
 
-    # Check for [initial] / [final] annotations
-    if re.search(r"\[initial\]", rest, re.IGNORECASE):
-        is_initial = True
-        rest = re.sub(r"\[initial\]", "", rest, flags=re.IGNORECASE).strip()
-    if re.search(r"\[final\]", rest, re.IGNORECASE):
-        is_final = True
-        rest = re.sub(r"\[final\]", "", rest, flags=re.IGNORECASE).strip()
+    # Extract all bracketed annotation groups, e.g. `[initial]`,
+    # `[final, assert: entangled(qs[0], qs[1])]`. Bracket scanning is
+    # nesting-aware because assertion payloads carry `qs[...]` subscripts.
+    # Multiple groups and multiple comma-separated tokens within a group are
+    # conjunctive and order-independent (per the language spec).
+    groups, rest = _extract_bracket_groups(rest)
+    for group in groups:
+        for token in _split_top_level_commas(group):
+            tok = token.strip()
+            low = tok.lower()
+            if low == "initial":
+                is_initial = True
+            elif low == "final":
+                is_final = True
+            elif low.startswith("assert:"):
+                payload = tok[tok.find(":") + 1:]
+                assertions.extend(
+                    _parse_assertion_payload(payload, heading_line, errors)
+                )
+            # Other bracket tokens (queued `[loop …]`, `[send]`, `[receive]`)
+            # are not yet recognized and are left untouched, not errored.
 
-    # Parse name and optional expression
+    # Parse name and optional expression from the de-annotated remainder
     ket_close = rest.find(">")
     eq_index = rest.find("=")
 
@@ -514,8 +546,152 @@ def _parse_state_heading(heading_text: str, elements: list[MdElement], current_i
             state_expression=state_expression,
             is_initial=is_initial,
             is_final=is_final,
+            assertions=assertions,
         ),
         next_index,
+    )
+
+
+# Recognized `[assert: …]` category names → expected qubit-target arity.
+_ASSERTION_CATEGORIES = {
+    "classical": "slice",       # one slice (single qubit or range)
+    "superposition": "slice",   # one slice
+    "entangled": "pair",        # two single qubits
+    "separable": "pair",        # two single qubits
+}
+
+
+def _extract_bracket_groups(text: str) -> tuple[list[str], str]:
+    """Split off top-level `[…]` annotation groups from a state heading.
+
+    Returns `(groups, remainder)` where `groups` are the contents of each
+    top-level bracket pair (brackets stripped) and `remainder` is the heading
+    text with those groups removed (the state name / expression). Scanning is
+    nesting-aware so an assertion payload's inner `qs[a..b]` subscripts do not
+    terminate the enclosing annotation group. Unbalanced `]` are treated as
+    literal remainder characters.
+    """
+    groups: list[str] = []
+    remainder: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    for ch in text:
+        if ch == "[":
+            if depth == 0:
+                buf = []
+            else:
+                buf.append(ch)
+            depth += 1
+        elif ch == "]":
+            if depth == 0:
+                remainder.append(ch)  # stray ] — keep as literal
+            else:
+                depth -= 1
+                if depth == 0:
+                    groups.append("".join(buf))
+                else:
+                    buf.append(ch)
+        else:
+            (buf if depth > 0 else remainder).append(ch)
+    return groups, "".join(remainder).strip()
+
+
+def _parse_qubit_slice(text: str) -> Optional[QubitSlice]:
+    """Parse `qs[k]` → `QubitSlice(k)` or `qs[a..b]` → `QubitSlice(a, b)`.
+
+    Returns `None` for any malformed form (missing `qs[…]` shape, non-integer
+    index, or a descending range `b < a`).
+    """
+    m = re.match(r"^qs\[\s*(\d+)\s*(?:\.\.\s*(\d+)\s*)?\]$", text.strip())
+    if not m:
+        return None
+    start = int(m.group(1))
+    end = int(m.group(2)) if m.group(2) is not None else None
+    if end is not None and end < start:
+        return None
+    return QubitSlice(start=start, end=end)
+
+
+def _parse_assertion_payload(
+    payload: str,
+    heading_line: int = 0,
+    errors: Optional[list[str]] = None,
+) -> list[QAssertion]:
+    """Parse the text after `assert:` into a list of `QAssertion`.
+
+    Multiple category expressions are separated by `;` and returned in
+    declaration order. Unrecognized categories and malformed targets append
+    structured parser errors and are skipped.
+    """
+    assertions: list[QAssertion] = []
+    for expr in payload.split(";"):
+        expr = expr.strip()
+        if not expr:
+            continue
+        parsed = _parse_assertion_expression(expr, heading_line, errors)
+        if parsed is not None:
+            assertions.append(parsed)
+    return assertions
+
+
+def _parse_assertion_expression(
+    expr: str,
+    heading_line: int,
+    errors: Optional[list[str]],
+) -> Optional[QAssertion]:
+    m = re.match(r"^([A-Za-z_]\w*)\s*\((.*)\)$", expr)
+    if not m:
+        if errors is not None:
+            errors.append(
+                f"malformed_assertion: '{expr}' is not of the form "
+                f"category(qs[…]) at line {heading_line}"
+            )
+        return None
+    category = m.group(1).lower()
+    arity = _ASSERTION_CATEGORIES.get(category)
+    if arity is None:
+        if errors is not None:
+            errors.append(
+                f"unknown_assertion_category: '{m.group(1)}' at line "
+                f"{heading_line} is not one of "
+                f"{', '.join(sorted(_ASSERTION_CATEGORIES))}"
+            )
+        return None
+
+    arg_strs = [a for a in _split_top_level_commas(m.group(2)) if a]
+    targets: list[QubitSlice] = []
+    for arg in arg_strs:
+        sl = _parse_qubit_slice(arg)
+        if sl is None:
+            if errors is not None:
+                errors.append(
+                    f"invalid_assertion_target: '{arg}' in {category}(…) at "
+                    f"line {heading_line} is not a valid qs[k] or qs[a..b] slice"
+                )
+            return None
+        targets.append(sl)
+
+    if arity == "slice" and len(targets) != 1:
+        if errors is not None:
+            errors.append(
+                f"invalid_assertion_target: {category}(…) at line "
+                f"{heading_line} takes exactly one qubit slice, got {len(targets)}"
+            )
+        return None
+    if arity == "pair":
+        if len(targets) != 2 or not all(t.is_single for t in targets):
+            if errors is not None:
+                errors.append(
+                    f"invalid_assertion_target: {category}(…) at line "
+                    f"{heading_line} takes exactly two single qubits "
+                    f"qs[i], qs[j]"
+                )
+            return None
+
+    return QAssertion(
+        category=category,
+        targets=targets,
+        source_span=Span(line=heading_line, text=expr),
     )
 
 
@@ -858,6 +1034,7 @@ def _parse_verification_rules(list_el: MdBulletList) -> list[VerificationRule]:
         "completeness",
         "no_cloning",
         "measurement_collapse_allowed",
+        "state_assertions",
     ]
 
     for item in list_el.items:
@@ -877,6 +1054,84 @@ def _parse_verification_rules(list_el: MdBulletList) -> list[VerificationRule]:
         ))
 
     return rules
+
+
+def _parse_assertion_policy_table(
+    table: MdTable, errors: Optional[list[str]] = None
+) -> AssertionPolicy:
+    """Parse a `## assertion policy` table into an `AssertionPolicy`.
+
+    Accepts a 2- or 3-column table (`Setting | Value | Notes?`); the optional
+    notes column is read and discarded. Recognized settings are
+    `shots_per_assert`, `confidence`, `on_failure`, and `backend`; unknown
+    settings and out-of-range values append structured parser errors and are
+    skipped, leaving that setting at its default.
+    """
+    policy = AssertionPolicy()
+    setting_idx = _find_column_index(table.headers, "setting")
+    value_idx = _find_column_index(table.headers, "value")
+    if setting_idx < 0 or value_idx < 0:
+        if errors is not None:
+            errors.append(
+                "assertion_policy_value_error: `## assertion policy` table must "
+                "have `Setting` and `Value` columns"
+            )
+        return policy
+
+    for row in table.rows:
+        if setting_idx >= len(row) or value_idx >= len(row):
+            continue
+        setting = _strip_backticks(row[setting_idx].strip()).strip().lower()
+        value = _strip_backticks(row[value_idx].strip()).strip()
+        if not setting:
+            continue
+
+        if setting == "shots_per_assert":
+            try:
+                shots = int(value)
+            except ValueError:
+                _policy_value_error(errors, setting, value, "an integer >= 1")
+                continue
+            if shots <= 0:
+                _policy_value_error(errors, setting, value, "an integer >= 1")
+                continue
+            policy.shots_per_assert = shots
+        elif setting == "confidence":
+            try:
+                conf = float(value)
+            except ValueError:
+                _policy_value_error(errors, setting, value, "a float in [0, 1]")
+                continue
+            if conf < 0.0 or conf > 1.0:
+                _policy_value_error(errors, setting, value, "a float in [0, 1]")
+                continue
+            policy.confidence = conf
+        elif setting == "on_failure":
+            if value.lower() not in ("error", "warn"):
+                _policy_value_error(errors, setting, value, "'error' or 'warn'")
+                continue
+            policy.on_failure = value.lower()
+        elif setting == "backend":
+            policy.backend = value
+        else:
+            if errors is not None:
+                errors.append(
+                    f"unknown_assertion_policy_setting: '{setting}' is not a "
+                    f"recognized assertion-policy setting (expected one of "
+                    f"shots_per_assert, confidence, on_failure, backend)"
+                )
+
+    return policy
+
+
+def _policy_value_error(
+    errors: Optional[list[str]], setting: str, value: str, expected: str
+) -> None:
+    if errors is not None:
+        errors.append(
+            f"assertion_policy_value_error: setting '{setting}' got '{value}'; "
+            f"expected {expected}"
+        )
 
 
 _RESOURCE_METRIC_NAMES = ("gate_count", "depth", "cx_count", "t_count", "logical_qubits")
