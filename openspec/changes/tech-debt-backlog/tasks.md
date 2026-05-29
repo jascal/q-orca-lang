@@ -943,7 +943,7 @@ keep the 2026-05-01 cluster contiguous.
   asserts the new wording lands and the misleading "non-constant"
   phrase no longer appears for the all-constants case.
 
-- [ ] 5.14 **Polysemy column tabulates `0.000` for entries that
+- [x] 5.14 **Polysemy column tabulates `0.000` for entries that
   compute as ~`1e-4`.** Severity: LOW.
   `examples/larql-polysemantic-hierarchical.q.orca.md:138-139`
   claims `mango (6) → 0.000` and `papaya (7) → 0.000`. Actual
@@ -954,6 +954,18 @@ keep the 2026-05-01 cluster contiguous.
   zero". Fix optional — add a "≈" prefix on near-zero rows or
   document the rounding convention in the surrounding paragraph.
   (Source: 2026-05-01 PR #48 self-review.)
+  Did both: the two cells now read `≈0.000 (1.1e-4)` and
+  `≈0.000 (6.2e-5)` so the magnitude is visible inline (verified
+  against `compute_concept_gram_mps` — mango = 1.091e-4, papaya =
+  6.169e-5), and a short paragraph after the tier-summary line
+  documents the rounding convention and points readers at the
+  demo's `< 0.05` heatmap threshold for cross-check. Other near-
+  zero columns (`strawberry`, `blueberry`, `car`, `bike` at ~0.06)
+  are already above the 3-dp rounding floor and keep their plain
+  `0.063` / `0.055` entries. No code or test changes — the
+  pipeline test `test_larql_polysemantic_hierarchical_pipeline`
+  parses the machine and recomputes the Gram, so its tier
+  assertions are unaffected by the prose/table edits.
 
 - [x] 5.15 **Documentation/contract polish on
   `MpsGramConfigurationError` and the compiler spec example.**

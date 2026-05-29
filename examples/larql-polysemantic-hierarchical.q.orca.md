@@ -135,8 +135,8 @@ exposes the four-tier structure in the clearest form:
 | eagle      (3)   | animals   | birds        | 0.335             | super-group-sib    |
 | strawberry (4)   | fruits    | berries      | 0.063             | cross-group        |
 | blueberry  (5)   | fruits    | berries      | 0.055             | cross-group        |
-| mango      (6)   | fruits    | tropical     | 0.000             | cross-group        |
-| papaya     (7)   | fruits    | tropical     | 0.000             | cross-group        |
+| mango      (6)   | fruits    | tropical     | ≈0.000 (1.1e-4)   | cross-group        |
+| papaya     (7)   | fruits    | tropical     | ≈0.000 (6.2e-5)   | cross-group        |
 | car        (8)   | vehicles  | land         | 0.063             | cross-group        |
 | bike       (9)   | vehicles  | land         | 0.055             | cross-group        |
 | plane     (10)   | vehicles  | air          | 0.140             | cross-group        |
@@ -144,6 +144,12 @@ exposes the four-tier structure in the clearest form:
 
 Four ordered tiers — **1.0** (self) → **0.88** (sub-cluster-mate) →
 **0.34 – 0.59** (super-group sibling) → **≤ 0.14** (cross-group).
+The `≈0.000` entries on rows 6 (mango) and 7 (papaya) are not exactly
+zero — they round to `0.000` at 3-decimal display but compute to
+`~1e-4`. The ASCII heatmap in the companion demo correctly renders
+them as blank under its `< 0.05` threshold; the inline scientific-
+notation magnitudes in the table preserve the non-zero structure for
+readers running `compute_concept_gram_mps` directly.
 Compare against `larql-polysemantic-clusters`'s flat 1.00 / 0.72 /
 ≲ 0.09 three-tier structure: that example demonstrates the *block*
 polysemantic phenomenon on the product manifold, this one lifts it to
