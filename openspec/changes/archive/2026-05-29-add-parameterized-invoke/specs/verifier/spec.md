@@ -4,10 +4,15 @@
 
 The verifier SHALL run stages in the following order: structural,
 completeness, determinism, classical-context, composition,
-quantum (static), dynamic (QuTiP), superposition leak. If the
-structural stage produces any error, later stages SHALL be
-skipped. Otherwise, every non-skipped stage SHALL run and their
-errors SHALL be merged into a single result.
+quantum (static), dynamic (QuTiP), superposition leak, state
+assertions. If the structural stage produces any error, later stages
+SHALL be skipped. Otherwise, every non-skipped stage SHALL run and
+their errors SHALL be merged into a single result.
+
+The state-assertions stage SHALL be skipped when the machine declares
+no `state_assertions` verification rule, when no `## state` heading
+carries an `[assert: …]` annotation, or when
+`VerifyOptions.skip_state_assertions` is set.
 
 #### Scenario: Structural failure halts the pipeline
 
@@ -28,6 +33,21 @@ errors SHALL be merged into a single result.
   child machine
 - **THEN** the verifier emits `UNRESOLVED_CHILD_MACHINE` from the
   composition stage, and the quantum static stage still runs
+
+#### Scenario: State-assertions stage skipped when no rule declared
+
+- **WHEN** a machine carries `[assert: …]` annotations on its states
+  but does not declare `state_assertions` under `## verification rules`
+- **THEN** the state-assertions stage SHALL NOT run and no
+  assertion-related diagnostics are emitted
+
+#### Scenario: State-assertions stage skipped when no annotations
+
+- **WHEN** a machine declares `state_assertions` under
+  `## verification rules` but no state carries an `[assert: …]`
+  annotation
+- **THEN** the state-assertions stage SHALL run trivially and emit no
+  diagnostics
 
 ## ADDED Requirements
 
