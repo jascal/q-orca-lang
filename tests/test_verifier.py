@@ -1828,6 +1828,27 @@ class TestComposition:
         assert "INVOKE_CYCLE" not in _composition_codes(src, "A")
         assert [c for c in _composition_codes(src, "A") if c in _INVOKE_ERROR_CODES] == []
 
+    def test_three_machine_cycle_reports_path(self):
+        # A -> B -> C -> A: every machine is flagged, and the INVOKE_CYCLE
+        # error carries a representative cycle path for debugging.
+        def m(name, child):
+            return (
+                f"# machine {name}\n## context\n| Field | Type | Default |\n| x | int | 0 |\n"
+                f"## state |s0> [initial]\n## state |s1> [invoke: {child}(x=x)]\n## state |s2> [final]\n"
+                "## transitions\n| Source | Event | Guard | Target | Action |\n"
+                "| |s0> | g | | |s1> | |\n| |s1> | n | | |s2> | |\n"
+            )
+        src = m("A", "B") + "\n---\n\n" + m("B", "C") + "\n---\n\n" + m("C", "A")
+        result = parse_q_orca_markdown(src)
+        assert not result.errors, result.errors
+        by_name = {mm.name: mm for mm in result.file.machines}
+        for name in ("A", "B", "C"):
+            errs = check_composition(result.file, by_name[name]).errors
+            cyc = [e for e in errs if e.code == "INVOKE_CYCLE"]
+            assert cyc, f"{name} should report INVOKE_CYCLE"
+            path = cyc[0].location["cycle_path"]
+            assert path[0] == name and path[-1] == name and len(path) == 4
+
     def test_pipeline_runs_composition_before_quantum_static(self):
         # An unresolved child surfaces from composition while verify() still runs.
         src = _parent("| x | int | 0 |\n", "[invoke: Missing(a=x)]")

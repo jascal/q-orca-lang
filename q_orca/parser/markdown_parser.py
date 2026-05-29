@@ -273,6 +273,15 @@ def _validate_returns_statistics(machine: QMachineDef, errors: list[str]) -> Non
 
 
 def _split_by_separator(elements: list[MdElement]) -> list[list[MdElement]]:
+    """Break the element stream into one chunk per machine on `---` separators.
+
+    Relies on `parse_markdown_structure` emitting a level-0 `---` marker for a
+    standalone horizontal rule. Before `add-parameterized-invoke`, the structural
+    parser *skipped* standalone `---` lines outright, so this split never fired
+    and every machine in a multi-machine file collapsed into a single chunk
+    (only the last `# machine` heading survived). Multi-machine files therefore
+    never actually worked until the marker was emitted.
+    """
     chunks: list[list[MdElement]] = [[]]
     for el in elements:
         if isinstance(el, MdHeading) and el.level == 0 and el.text == "---":

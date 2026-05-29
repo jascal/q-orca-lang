@@ -95,9 +95,8 @@ def _invoke_graph(file: QOrcaFile) -> dict[str, set[str]]:
     return graph
 
 
-def _machines_in_cycle(file: QOrcaFile) -> set[str]:
+def _machines_in_cycle(graph: dict[str, set[str]]) -> set[str]:
     """Names of machines that can reach themselves through the invoke graph."""
-    graph = _invoke_graph(file)
     in_cycle: set[str] = set()
     for start in graph:
         stack = list(graph.get(start, ()))
@@ -114,6 +113,25 @@ def _machines_in_cycle(file: QOrcaFile) -> set[str]:
     return in_cycle
 
 
+def _find_cycle_path(graph: dict[str, set[str]], start: str) -> list[str]:
+    """A representative invoke path `start → … → start` for diagnostics.
+
+    Assumes `start` is already known to be on a cycle. Returns e.g.
+    `["A", "B", "C", "A"]`; falls back to `[start]` if no path is found.
+    """
+    stack = [(start, [start])]
+    seen: set[str] = set()
+    while stack:
+        node, path = stack.pop()
+        for nxt in sorted(graph.get(node, ())):
+            if nxt == start:
+                return path + [start]
+            if nxt not in seen:
+                seen.add(nxt)
+                stack.append((nxt, path + [nxt]))
+    return [start]
+
+
 def check_composition(
     file: QOrcaFile,
     machine: QMachineDef,
@@ -127,17 +145,19 @@ def check_composition(
         return QVerificationResult(valid=True, errors=[])
 
     by_name = {m.name: m for m in file.machines}
-    cycle_machines = _machines_in_cycle(file)
-    in_cycle = machine.name in cycle_machines
+    graph = _invoke_graph(file)
+    in_cycle = machine.name in _machines_in_cycle(graph)
     if in_cycle:
+        cycle_path = _find_cycle_path(graph, machine.name)
         errors.append(QVerificationError(
             code="INVOKE_CYCLE",
             message=(
                 f"machine '{machine.name}' invokes itself directly or "
-                f"transitively; composition cycles are rejected"
+                f"transitively ({' → '.join(cycle_path)}); composition cycles "
+                f"are rejected"
             ),
             severity="error",
-            location={"machine": machine.name},
+            location={"machine": machine.name, "cycle_path": cycle_path},
         ))
 
     for state in invoke_states:
