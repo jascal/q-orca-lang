@@ -76,3 +76,15 @@ class QIterativeSimulationResult:
 class QIterativeRuntimeError(RuntimeError):
     """Raised by the iterative runtime on stuck states, type mismatches,
     unsupported guard kinds, or iteration-ceiling exhaustion."""
+
+
+@dataclass
+class ComposedRunResult:
+    """Result of executing a composed (multi-machine) machine via run_composed."""
+    machine: str
+    success: bool
+    final_state: str = ""
+    final_context: dict = field(default_factory=dict)
+    # One entry per invoke executed: {invoke_state, child, shots, returns}
+    child_runs: list = field(default_factory=list)
+    error: Optional[str] = None

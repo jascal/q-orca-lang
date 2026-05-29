@@ -1,0 +1,253 @@
+"""Composed-machine execution (`add-composed-runtime`).
+
+`run_composed` walks a parent machine and, at each `invoke:` state, executes the
+resolved child (classical run-to-completion, quantum single-shot, or quantum
+shot-batched), computes the declared return statistics into the synthesized
+`prob_`/`hist_`/`var_` aggregates (the same names the composition verifier
+checks), and threads them back into the parent context.
+
+v1 supports the classical-orchestrator-parent shape: a parent whose own
+transitions are plain or context-update only (its quantum work is delegated to
+children). A gate/measurement-bearing action *on an invoke-bearing parent* is
+rejected with a clear error — that mixed case is a documented follow-up.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import replace
+from typing import Optional
+
+from q_orca.ast import QMachineDef, QOrcaFile
+from q_orca.runtime import context_ops
+from q_orca.runtime.iterative import (
+    _enabled_transitions,
+    _initial_context,
+    _initial_state_name,
+    simulate_iterative,
+)
+from q_orca.runtime.types import (
+    ComposedRunResult,
+    QIterativeRuntimeError,
+    QIterativeSimulationOptions,
+)
+
+_DEFAULT_DEPTH_CEILING = 32
+_BIT_RETURN_RE = re.compile(r"^bits\[(\d+)\]$")
+
+
+def _machine_has_measurement(machine: QMachineDef) -> bool:
+    return any(
+        a.measurement is not None or a.mid_circuit_measure is not None
+        for a in machine.actions
+    )
+
+
+def _sanitize_return_name(name: str) -> str:
+    """`bits[0]` → `bits_0` — mirrors verifier/composition._sanitize."""
+    return name.replace("[", "_").replace("]", "").replace(".", "_")
+
+
+def run_composed(
+    file: QOrcaFile,
+    machine: QMachineDef,
+    options: Optional[QIterativeSimulationOptions] = None,
+    base_path: Optional[str] = None,
+    import_graph=None,
+    depth_ceiling: int = _DEFAULT_DEPTH_CEILING,
+    _depth: int = 0,
+    _initial_overrides: Optional[dict] = None,
+) -> ComposedRunResult:
+    """Execute `machine` (and everything it invokes); return its final context."""
+    opts = options or QIterativeSimulationOptions()
+    if _depth > depth_ceiling:
+        raise QIterativeRuntimeError(
+            f"composition depth ceiling {depth_ceiling} exceeded"
+        )
+
+    # No invoke states → the existing single-machine runtime, unchanged.
+    if not any(s.invoke is not None for s in machine.states):
+        result = simulate_iterative(machine, opts, initial_context=_initial_overrides)
+        return ComposedRunResult(
+            machine=machine.name,
+            success=result.success,
+            final_state=result.final_state,
+            final_context=result.final_context,
+        )
+
+    return _walk_composed(
+        file, machine, opts, base_path, import_graph, depth_ceiling, _depth, _initial_overrides
+    )
+
+
+def _walk_composed(file, machine, opts, base_path, import_graph, depth_ceiling, depth, overrides):
+    action_map = {a.name: a for a in machine.actions}
+    guard_map = {g.name: g for g in machine.guards}
+    state_map = {s.name: s for s in machine.states}
+    final_states = {s.name for s in machine.states if s.is_final}
+
+    ctx = _initial_context(machine)
+    if overrides:
+        ctx.update(overrides)
+    bits: dict[int, int] = {}
+    child_runs: list[dict] = []
+
+    current = _initial_state_name(machine)
+    steps = 0
+    while True:
+        steps += 1
+        if steps > opts.iteration_ceiling:
+            raise QIterativeRuntimeError(
+                f"iteration ceiling {opts.iteration_ceiling} exceeded in {machine.name!r}"
+            )
+        if current in final_states:
+            break
+
+        state = state_map[current]
+        if state.invoke is not None:
+            summary, ctx = _run_invoke(
+                file, state, ctx, opts, base_path, import_graph, depth_ceiling, depth
+            )
+            child_runs.append(summary)
+
+        enabled = _enabled_transitions(machine, current, ctx, bits, guard_map)
+        if not enabled:
+            if state.invoke is not None:
+                break  # invoke state with no outgoing transition → fall through
+            raise QIterativeRuntimeError(
+                f"stuck state {current!r} in {machine.name!r}: no guarded transition enabled"
+            )
+        transition = enabled[0]
+
+        # Only advance through the action for non-invoke states; an invoke
+        # state's outgoing transition fires *after* the child completed above.
+        if state.invoke is None and transition.action:
+            action = action_map.get(transition.action)
+            if action is not None and action.context_update is not None:
+                ctx = context_ops.apply(action.context_update, ctx, bits)
+            elif action is not None and (
+                action.gate is not None
+                or action.mid_circuit_measure is not None
+                or action.measurement is not None
+                or action.conditional_gate is not None
+            ):
+                raise QIterativeRuntimeError(
+                    f"run_composed v1 supports classical-orchestrator parents; "
+                    f"gate/measurement action {transition.action!r} on the "
+                    f"invoke-bearing machine {machine.name!r} is not yet supported"
+                )
+        current = transition.target
+
+    return ComposedRunResult(
+        machine=machine.name,
+        success=True,
+        final_state=current,
+        final_context=ctx,
+        child_runs=child_runs,
+    )
+
+
+def _run_invoke(file, state, ctx, opts, base_path, import_graph, depth_ceiling, depth):
+    inv = state.invoke
+    child = _resolve_child(file, inv.child_name, import_graph)
+    if child is None:
+        raise QIterativeRuntimeError(
+            f"invoke state {state.name}: child {inv.child_name!r} did not resolve "
+            f"(was the machine verified?)"
+        )
+
+    child_init = {
+        param: _eval_parent_expr(expr, ctx) for param, expr in inv.arg_bindings.items()
+    }
+
+    is_quantum = _machine_has_measurement(child)
+    shot_batched = is_quantum and inv.shots is not None and inv.shots > 1
+    child_opts = replace(opts, inner_shots=inv.shots if shot_batched else 1)
+
+    child_has_invokes = any(s.invoke is not None for s in child.states)
+    if child_has_invokes:
+        # Nested composition: recurse (aggregate stats unavailable through a
+        # composed child in v1 — nested children are classical/single-shot).
+        child_result = run_composed(
+            file, child, child_opts, base_path, import_graph,
+            depth_ceiling, depth + 1, child_init,
+        )
+        aggregate_counts = {}
+    else:
+        child_result = simulate_iterative(child, child_opts, initial_context=child_init)
+        aggregate_counts = getattr(child_result, "aggregate_counts", {}) or {}
+
+    returns = _compute_returns(child, child_result.final_context, aggregate_counts, shot_batched)
+
+    new_ctx = dict(ctx)
+    for parent_field, child_return in inv.return_bindings.items():
+        if child_return in returns:
+            new_ctx[parent_field] = returns[child_return]
+
+    summary = {
+        "invoke_state": state.name,
+        "child": child.name,
+        "shots": inv.shots,
+        "returns": returns,
+    }
+    return summary, new_ctx
+
+
+def _resolve_child(file, name, import_graph):
+    for m in file.machines:
+        if m.name == name:
+            return m
+    if import_graph is not None:
+        return import_graph.lookup_machine(name)
+    return None
+
+
+def _eval_parent_expr(expr: str, ctx: dict):
+    """Resolve a bare field `theta` or an indexed element `theta[0]`."""
+    m = re.match(r"^([A-Za-z_]\w*)\[(\d+)\]$", expr)
+    if m:
+        base, idx = m.group(1), int(m.group(2))
+        value = ctx.get(base)
+        if isinstance(value, (list, tuple)) and idx < len(value):
+            return value[idx]
+        return None
+    return ctx.get(expr)
+
+
+def _compute_returns(child, final_ctx, aggregate_counts, shot_batched):
+    returns: dict = {}
+    for r in child.returns:
+        bit_match = _BIT_RETURN_RE.match(r.name)
+        if bit_match:
+            bit_idx = int(bit_match.group(1))
+            prob, hist = _per_bit_stats(aggregate_counts, bit_idx)
+            returns[r.name] = 1 if prob >= 0.5 else 0  # raw (dominant) value
+            if shot_batched and r.statistics:
+                s = _sanitize_return_name(r.name)
+                if "expectation" in r.statistics:
+                    returns[f"prob_{s}"] = prob
+                if "histogram" in r.statistics:
+                    returns[f"hist_{s}"] = hist
+                if "variance" in r.statistics:
+                    returns[f"var_{s}"] = prob * (1.0 - prob)
+        else:
+            returns[r.name] = final_ctx.get(r.name)
+    return returns
+
+
+def _per_bit_stats(aggregate_counts: dict, bit_idx: int) -> tuple[float, dict]:
+    """Marginal P(bit==1) and {0: n0, 1: n1} from full-bitstring shot counts.
+
+    Qiskit counts keys are little-endian (and may contain spaces); reversing
+    aligns position `bit_idx` with clbit `bit_idx` (matching the iterative
+    runtime's convention).
+    """
+    total = sum(aggregate_counts.values())
+    if total == 0:
+        return 0.0, {0: 0, 1: 0}
+    ones = 0
+    for key, count in aggregate_counts.items():
+        bitstr = key.replace(" ", "")[::-1]
+        if bit_idx < len(bitstr) and bitstr[bit_idx] == "1":
+            ones += count
+    return ones / total, {0: total - ones, 1: ones}

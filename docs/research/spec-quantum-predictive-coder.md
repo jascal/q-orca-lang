@@ -3,14 +3,17 @@
 > Generated: 2026-04-18 — research kickoff from user-supplied machine sketch `/tmp/QuantumPredictiveCoder.q.orca.md`
 
 > **Composition status:** the full composed QPC (a classical orchestrator that
-> repeatedly dispatches a quantum forward pass and reads back aggregates)
-> requires three pieces: `add-classical-context-updates` (merged, the
-> quantum→classical bridge), `add-parameterized-invoke` (the classical→quantum
-> bridge: parameterized `invoke:` + typed `## returns` + shot-batched
-> aggregates — landed the grammar, verifier, and diagramming), and the parked
-> `add-composed-runtime` follow-up (the dispatcher that actually executes a
-> composed machine). See `tests/fixtures/composed_predictive_coder.q.orca.md`
-> for a verifiable parent+child sketch.
+> repeatedly dispatches a quantum forward pass and reads back aggregates) is now
+> end-to-end runnable. The three enabling pieces have all shipped:
+> `add-classical-context-updates` (the quantum→classical bridge),
+> `add-parameterized-invoke` (the classical→quantum bridge: parameterized
+> `invoke:` + typed `## returns` + shot-batched aggregates), and
+> `add-composed-runtime` (`q_orca/runtime/composed.py::run_composed` — the
+> dispatcher that executes a composed machine, runs each child, and threads the
+> synthesized `prob_/hist_/var_` aggregates back into the parent context).
+> `tests/fixtures/composed_predictive_coder.q.orca.md` both verifies *and*
+> executes (`q-orca run`), with the forward pass's measured-bit expectation
+> flowing into the trainer's `prob` field.
 
 ---
 

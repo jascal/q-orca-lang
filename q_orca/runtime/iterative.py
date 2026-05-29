@@ -36,14 +36,22 @@ from q_orca.runtime.types import (
 def simulate_iterative(
     machine: QMachineDef,
     options: QIterativeSimulationOptions,
+    initial_context: dict | None = None,
 ) -> QIterativeSimulationResult:
-    """Run one end-to-end iterative simulation of the machine."""
+    """Run one end-to-end iterative simulation of the machine.
+
+    `initial_context`, when given, overrides the corresponding fields of the
+    machine's default context (used by the composed runtime to seed a child's
+    arguments from the parent).
+    """
     action_map = {a.name: a for a in machine.actions}
     guard_map = {g.name: g for g in machine.guards}
     initial_state = _initial_state_name(machine)
     final_states = {s.name for s in machine.states if s.is_final}
 
     ctx = _initial_context(machine)
+    if initial_context:
+        ctx.update(initial_context)
     bits: dict[int, int] = {}
     trace: list[QIterationTrace] = []
     aggregate_counts: dict[str, int] = {}
