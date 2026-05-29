@@ -60,10 +60,14 @@ class TestMarkdownStructure:
         assert len(elements) == 2
         assert all(isinstance(e, MdHeading) for e in elements)
 
-    def test_skips_horizontal_rules(self):
+    def test_horizontal_rule_emits_machine_separator(self):
+        # A standalone `---` is the multi-machine separator: it is emitted as a
+        # level-0 marker that `_split_by_separator` uses to break the element
+        # stream into per-machine chunks.
         source = "# heading\n---\n## heading2"
         elements = parse_markdown_structure(source)
-        assert len(elements) == 2
+        assert len(elements) == 3
+        assert elements[1].level == 0 and elements[1].text == "---"
 
     def test_table_with_ket_notation(self):
         """Pipes inside ket notation (|00>) should not split table cells."""
@@ -1814,3 +1818,122 @@ class TestAssertionPolicy:
         result, m = _parse_state("|x>", policy=policy)
         assert m.assertion_policy.shots_per_assert == 256
         assert not result.errors
+
+
+# Helpers for invoke / returns parsing tests (add-parameterized-invoke §2.5).
+def _parse_machine(src):
+    result = parse_q_orca_markdown(src)
+    return result, (result.file.machines[0] if result.file.machines else None)
+
+
+_INVOKE_TMPL = """# machine Parent
+## state |idle> [initial]
+## state |train> {ann}
+{body}## state |done> [final]
+## transitions
+| Source | Event | Guard | Target | Action |
+| |idle> | go | | |train> | |
+| |train> | next | | |done> | |
+"""
+
+
+def _parse_invoke_state(annotation, body=""):
+    src = _INVOKE_TMPL.format(ann=annotation, body=(body + "\n") if body else "")
+    result, machine = _parse_machine(src)
+    return result, (machine.states[1] if machine else None)
+
+
+class TestInvokeAnnotation:
+    def test_keyword_arg_binding(self):
+        _, state = _parse_invoke_state("[invoke: EpochRunner(epoch=iteration, lr=eta)]")
+        inv = state.invoke
+        assert inv is not None
+        assert inv.child_name == "EpochRunner"
+        assert inv.arg_bindings == {"epoch": "iteration", "lr": "eta"}
+        assert inv.shots is None
+
+    def test_indexed_rhs_and_shots(self):
+        _, state = _parse_invoke_state("[invoke: QForward(seed=theta[0]) shots=1024]")
+        inv = state.invoke
+        assert inv.arg_bindings == {"seed": "theta[0]"}
+        assert inv.shots == 1024
+
+    def test_returns_body_line(self):
+        _, state = _parse_invoke_state(
+            "[invoke: QForward(theta=theta) shots=512]",
+            body="> Forward pass.\n> returns: p=prob_bits_0, h=hist_bits_0",
+        )
+        assert state.invoke.return_bindings == {"p": "prob_bits_0", "h": "hist_bits_0"}
+
+    def test_empty_args(self):
+        _, state = _parse_invoke_state("[invoke: Init()]")
+        assert state.invoke.child_name == "Init"
+        assert state.invoke.arg_bindings == {}
+
+    def test_shots_zero_is_error(self):
+        result, state = _parse_invoke_state("[invoke: Child() shots=0]")
+        assert any("invoke_shots_invalid" in e for e in result.errors)
+        assert state.invoke is None
+
+    def test_initial_plus_invoke_is_error(self):
+        result = parse_q_orca_markdown("# machine P\n## state |s> [initial] [invoke: Init()]\n")
+        assert any("invoke_with_initial_or_final" in e for e in result.errors)
+
+    def test_final_plus_invoke_is_error(self):
+        result, state = _parse_invoke_state("[final] [invoke: Init()]")
+        assert any("invoke_with_initial_or_final" in e for e in result.errors)
+
+
+class TestReturnsSection:
+    def test_classical_simple_return(self):
+        src = (
+            "# machine C\n## state |i> [initial]\n## state |d> [final]\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n"
+            "| |i> | g | | |d> | |\n"
+            "## returns\n| Name | Type | Statistics |\n| converged | bool | |\n"
+        )
+        result, machine = _parse_machine(src)
+        assert not result.errors, result.errors
+        assert len(machine.returns) == 1
+        ret = machine.returns[0]
+        assert ret.name == "converged"
+        assert ret.type.kind == "bool"
+        assert ret.statistics == []
+
+    def test_quantum_return_with_statistics(self):
+        src = (
+            "# machine Q\n## state |i> [initial]\n## state |m> [final]\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n"
+            "| |i> | measure_it | | |m> | meas |\n"
+            "## actions\n| Name | Signature | Effect |\n"
+            "| meas | (qs) -> qs | measure(qs[0]) -> bits[0] |\n"
+            "## returns\n| Name | Type | Statistics |\n"
+            "| bits[0] | bit | expectation, histogram |\n"
+        )
+        result, machine = _parse_machine(src)
+        assert not result.errors, result.errors
+        ret = machine.returns[0]
+        assert ret.name == "bits[0]"
+        assert ret.statistics == ["expectation", "histogram"]
+
+    def test_statistics_on_non_measurement_machine_is_error(self):
+        src = (
+            "# machine C\n## state |i> [initial]\n## state |d> [final]\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n"
+            "| |i> | g | | |d> | |\n"
+            "## returns\n| Name | Type | Statistics |\n| converged | bool | expectation |\n"
+        )
+        result, _ = _parse_machine(src)
+        assert any("statistics_on_non_measurement_machine" in e for e in result.errors)
+
+    def test_unknown_statistic_value_is_error(self):
+        src = (
+            "# machine Q\n## state |i> [initial]\n## state |m> [final]\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n"
+            "| |i> | measure_it | | |m> | meas |\n"
+            "## actions\n| Name | Signature | Effect |\n"
+            "| meas | (qs) -> qs | measure(qs[0]) -> bits[0] |\n"
+            "## returns\n| Name | Type | Statistics |\n| bits[0] | bit | bogus |\n"
+        )
+        result, _ = _parse_machine(src)
+        assert any("invalid_return_statistic" in e and "bogus" in e for e in result.errors)

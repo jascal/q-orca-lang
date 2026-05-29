@@ -14,6 +14,7 @@ from q_orca.verifier import verify, VerifyOptions
 from q_orca.compiler.mermaid import compile_to_mermaid
 from q_orca.compiler.qasm import compile_to_qasm
 from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
+from q_orca.compiler.util import ComposedMachineError
 from q_orca.ast import QMachineDef, QStateDef
 from q_orca.config import load_config
 from q_orca.llm import create_provider, LLMMessage, LLMRequest, LLMProviderConfig
@@ -217,7 +218,7 @@ def verify_skill(input: SkillInput, skip_completeness: bool = False, skip_quantu
 
         machine = parsed.file.machines[0]
         opts = VerifyOptions(skip_completeness=skip_completeness, skip_quantum=skip_quantum, skip_dynamic=skip_dynamic)
-        result = verify(machine, opts)
+        result = verify(machine, opts, file=parsed.file)
 
         def _sanitize_location(loc):
             """Ensure location dict is JSON-serializable."""
@@ -285,7 +286,7 @@ def compile_skill(input: SkillInput, target: str) -> CompileSkillResult:
         machine = parsed.file.machines[0]
 
         if target == "mermaid":
-            output = compile_to_mermaid(machine)
+            output = compile_to_mermaid(machine, file=parsed.file)
         elif target == "qasm":
             output = compile_to_qasm(machine)
         elif target == "qiskit":
@@ -308,7 +309,14 @@ def compile_skill(input: SkillInput, target: str) -> CompileSkillResult:
                 warnings.append({"code": e.code, "message": e.message, "severity": "warning", "location": e.location, "suggestion": e.suggestion})
 
         return CompileSkillResult(status="success", target=target, output=output, warnings=warnings)
-    except Exception as e:
+    except ComposedMachineError as e:
+        return CompileSkillResult(
+            status="error",
+            target=target,
+            output="",
+            warnings=[{"code": e.code, "message": str(e), "severity": "error", "location": None, "suggestion": None}],
+        )
+    except Exception:
         return CompileSkillResult(
             status="error",
             target=target,

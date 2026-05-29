@@ -19,6 +19,7 @@ from q_orca.ast import (
     ActionParameter, BoundArg,
     EncodingDecl, ThetaBlock, ThetaRow,
     Span, QubitSlice, QAssertion, AssertionPolicy,
+    QInvoke, QReturnDef,
 )
 from q_orca.verifier.quantum import KNOWN_UNITARY_GATES
 
@@ -90,7 +91,7 @@ MdElement = MdHeading | MdTable | MdBulletList | MdBlockquote
 _KNOWN_SECTIONS = frozenset({
     "context", "events", "transitions", "guards", "actions", "effects",
     "verification rules", "invariants", "encoding", "theta",
-    "assertion policy",
+    "assertion policy", "returns",
 })
 
 
@@ -131,8 +132,11 @@ def parse_markdown_structure(
                 i += 1
             continue
 
-        # Horizontal rule separator (--- between machines)
+        # Horizontal rule separator (--- between machines). Emit a level-0
+        # marker so `_split_by_separator` can break the element stream into
+        # per-machine chunks (multi-machine files).
         if trimmed == "---":
+            elements.append(MdHeading(level=0, text="---", line=i + 1))
             i += 1
             continue
 
@@ -243,12 +247,41 @@ def parse_q_orca_markdown(source: str) -> QParseResult:
     for chunk in chunks:
         machine = _parse_machine_chunk(chunk, errors)
         if machine:
+            _validate_returns_statistics(machine, errors)
             machines.append(machine)
 
     return QParseResult(file=QOrcaFile(machines=machines), errors=errors)
 
 
+def _machine_has_measurement(machine: QMachineDef) -> bool:
+    """True if any action carries a (mid-circuit or terminal) measurement effect."""
+    return any(
+        a.measurement is not None or a.mid_circuit_measure is not None
+        for a in machine.actions
+    )
+
+
+def _validate_returns_statistics(machine: QMachineDef, errors: list[str]) -> None:
+    """`Statistics` cells are only valid on a measurement-bearing machine."""
+    with_stats = [r.name for r in machine.returns if r.statistics]
+    if with_stats and not _machine_has_measurement(machine):
+        errors.append(
+            f"statistics_on_non_measurement_machine: returns {with_stats} on "
+            f"machine '{machine.name}' declare statistics, but the machine has "
+            f"no measurement effect"
+        )
+
+
 def _split_by_separator(elements: list[MdElement]) -> list[list[MdElement]]:
+    """Break the element stream into one chunk per machine on `---` separators.
+
+    Relies on `parse_markdown_structure` emitting a level-0 `---` marker for a
+    standalone horizontal rule. Before `add-parameterized-invoke`, the structural
+    parser *skipped* standalone `---` lines outright, so this split never fired
+    and every machine in a multi-machine file collapsed into a single chunk
+    (only the last `# machine` heading survived). Multi-machine files therefore
+    never actually worked until the marker was emitted.
+    """
     chunks: list[list[MdElement]] = [[]]
     for el in elements:
         if isinstance(el, MdHeading) and el.level == 0 and el.text == "---":
@@ -312,6 +345,7 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
     encoding: Optional[EncodingDecl] = None
     theta: Optional[ThetaBlock] = None
     assertion_policy = AssertionPolicy()
+    returns: list[QReturnDef] = []
 
     # Pre-scan for the context table so that angle expressions in actions
     # can reference numeric context fields regardless of section order.
@@ -423,6 +457,13 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
                     i += 1
                 continue
 
+            if section_name_lower == "returns":
+                i += 1
+                if i < len(elements) and isinstance(elements[i], MdTable):
+                    returns = _parse_returns_table(elements[i], errors)
+                    i += 1
+                continue
+
         i += 1
 
     if not name:
@@ -452,6 +493,7 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
         encoding=encoding,
         theta=theta,
         assertion_policy=assertion_policy,
+        returns=returns,
     )
 
 
@@ -496,10 +538,12 @@ def _parse_state_heading(
     is_initial = False
     is_final = False
     assertions: list[QAssertion] = []
+    invoke: Optional[QInvoke] = None
 
     # Extract all bracketed annotation groups, e.g. `[initial]`,
-    # `[final, assert: entangled(qs[0], qs[1])]`. Bracket scanning is
-    # nesting-aware because assertion payloads carry `qs[...]` subscripts.
+    # `[final, assert: entangled(qs[0], qs[1])]`,
+    # `[invoke: Child(a=b) shots=N]`. Bracket scanning is nesting-aware because
+    # assertion/invoke payloads carry `qs[...]` / `(...)` subexpressions.
     # Multiple groups and multiple comma-separated tokens within a group are
     # conjunctive and order-independent (per the language spec).
     groups, rest = _extract_bracket_groups(rest)
@@ -516,8 +560,26 @@ def _parse_state_heading(
                 assertions.extend(
                     _parse_assertion_payload(payload, heading_line, errors)
                 )
+            elif low.startswith("invoke:"):
+                payload = tok[tok.find(":") + 1:]
+                parsed = _parse_invoke_annotation(payload, heading_line, errors)
+                if parsed is not None:
+                    if invoke is not None:
+                        if errors is not None:
+                            errors.append(
+                                f"invoke_duplicate: state at line {heading_line} "
+                                f"declares more than one invoke: annotation"
+                            )
+                    else:
+                        invoke = parsed
             # Other bracket tokens (queued `[loop …]`, `[send]`, `[receive]`)
             # are not yet recognized and are left untouched, not errored.
+
+    if invoke is not None and (is_initial or is_final) and errors is not None:
+        errors.append(
+            f"invoke_with_initial_or_final: the invoke state at line "
+            f"{heading_line} cannot also be [initial] or [final]"
+        )
 
     # Parse name and optional expression from the de-annotated remainder
     ket_close = rest.find(">")
@@ -538,6 +600,11 @@ def _parse_state_heading(
         description = elements[next_index].text
         next_index += 1
 
+    # A `returns:` body line binds the child's returns into parent fields; it
+    # only has meaning on an invoke state.
+    if description and invoke is not None:
+        invoke.return_bindings = _parse_return_bindings(description, heading_line, errors)
+
     return (
         QStateDef(
             name=state_name,
@@ -547,9 +614,87 @@ def _parse_state_heading(
             is_initial=is_initial,
             is_final=is_final,
             assertions=assertions,
+            invoke=invoke,
         ),
         next_index,
     )
+
+
+_RETURN_STATISTICS_VOCAB = frozenset({"expectation", "histogram", "variance"})
+
+# `Child(arg=expr, ...)` with an optional trailing `shots=N`.
+_INVOKE_RE = re.compile(
+    r"^\s*([A-Za-z_]\w*)\s*\(([^)]*)\)\s*(?:shots\s*=\s*(-?\d+)\s*)?$"
+)
+
+
+def _parse_invoke_annotation(
+    payload: str, heading_line: int, errors: Optional[list[str]]
+) -> Optional[QInvoke]:
+    """Parse `Child(param=expr, …) [shots=N]` (the text after `invoke:`).
+
+    Returns a `QInvoke` (return bindings filled in later from the state body),
+    or `None` on a malformed annotation or an out-of-range `shots`.
+    """
+    m = _INVOKE_RE.match(payload)
+    if not m:
+        if errors is not None:
+            errors.append(
+                f"invoke_malformed: '{payload.strip()}' at line {heading_line} "
+                f"is not of the form Child(param=expr, …) [shots=N]"
+            )
+        return None
+
+    child = m.group(1)
+    shots: Optional[int] = None
+    if m.group(3) is not None:
+        shots = int(m.group(3))
+        if shots < 1:
+            if errors is not None:
+                errors.append(
+                    f"invoke_shots_invalid: shots must be at least 1 (got "
+                    f"{shots}) at line {heading_line}"
+                )
+            return None
+
+    arg_bindings: dict[str, str] = {}
+    args_str = m.group(2).strip()
+    if args_str:
+        for binding in _split_top_level_commas(args_str):
+            if "=" not in binding:
+                if errors is not None:
+                    errors.append(
+                        f"invoke_arg_malformed: '{binding}' in {child}(…) at line "
+                        f"{heading_line} must be of the form param=expr"
+                    )
+                continue
+            param, expr = binding.split("=", 1)
+            arg_bindings[param.strip()] = expr.strip()
+
+    return QInvoke(child_name=child, arg_bindings=arg_bindings, shots=shots)
+
+
+def _parse_return_bindings(
+    description: str, heading_line: int, errors: Optional[list[str]]
+) -> dict[str, str]:
+    """Extract `returns: parent=child, …` from an invoke state's body."""
+    m = re.search(r"returns:\s*([^\n]*)", description)
+    if not m:
+        return {}
+    bindings: dict[str, str] = {}
+    for binding in _split_top_level_commas(m.group(1).strip()):
+        if not binding:
+            continue
+        if "=" not in binding:
+            if errors is not None:
+                errors.append(
+                    f"invoke_return_malformed: '{binding}' in the returns: line "
+                    f"at line {heading_line} must be of the form parent=child"
+                )
+            continue
+        parent, child = binding.split("=", 1)
+        bindings[parent.strip()] = child.strip()
+    return bindings
 
 
 # Recognized `[assert: …]` category names → expected qubit-target arity.
@@ -1132,6 +1277,51 @@ def _policy_value_error(
             f"assertion_policy_value_error: setting '{setting}' got '{value}'; "
             f"expected {expected}"
         )
+
+
+def _parse_returns_table(
+    table: MdTable, errors: Optional[list[str]] = None
+) -> list[QReturnDef]:
+    """Parse a `## returns` table into `QReturnDef`s.
+
+    Columns: `Name`, `Type`, and optional `Statistics` (comma-separated from
+    {expectation, histogram, variance}). Unknown statistic values append a
+    structured error and are dropped.
+    """
+    returns: list[QReturnDef] = []
+    name_idx = _find_column_index(table.headers, "name")
+    type_idx = _find_column_index(table.headers, "type")
+    stats_idx = _find_column_index(table.headers, "statistics")
+
+    for row in table.rows:
+        name = _strip_backticks(row[name_idx].strip()).strip() if 0 <= name_idx < len(row) else ""
+        if not name:
+            continue
+        type_str = _strip_backticks(row[type_idx].strip()).strip() if 0 <= type_idx < len(row) else ""
+
+        statistics: list[str] = []
+        if 0 <= stats_idx < len(row):
+            for raw in row[stats_idx].split(","):
+                stat = _strip_backticks(raw.strip()).strip().lower()
+                if not stat:
+                    continue
+                if stat not in _RETURN_STATISTICS_VOCAB:
+                    if errors is not None:
+                        errors.append(
+                            f"invalid_return_statistic: '{stat}' for return "
+                            f"'{name}' is not one of "
+                            f"{', '.join(sorted(_RETURN_STATISTICS_VOCAB))}"
+                        )
+                    continue
+                statistics.append(stat)
+
+        returns.append(QReturnDef(
+            name=name,
+            type=_parse_q_type_string(type_str),
+            statistics=statistics,
+        ))
+
+    return returns
 
 
 _RESOURCE_METRIC_NAMES = ("gate_count", "depth", "cx_count", "t_count", "logical_qubits")

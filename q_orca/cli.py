@@ -12,6 +12,7 @@ from q_orca.compiler.mermaid import compile_to_mermaid
 from q_orca.compiler.qasm import compile_to_qasm
 from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
 from q_orca.compiler.cudaq import compile_to_cudaq
+from q_orca.compiler.util import ComposedMachineError
 from q_orca.runtime.python import check_python_dependencies, simulate_machine
 from q_orca.runtime.types import QIterativeSimulationResult
 from q_orca.tools import Q_ORCA_TOOLS
@@ -136,7 +137,7 @@ def _cmd_verify(parsed, args):
             skip_resource_bounds=args.skip_resource_bounds,
             backend=backend,
         )
-        result = verify(machine, opts)
+        result = verify(machine, opts, file=parsed.file)
 
         # Collect backend metadata for JSON output
         backend_meta = _get_backend_meta(backend)
@@ -184,15 +185,18 @@ def _cmd_verify(parsed, args):
 
 def _cmd_compile(parsed, args):
     for machine in parsed.file.machines:
-        if args.format == "mermaid":
-            print(compile_to_mermaid(machine))
-        elif args.format == "qasm":
-            print(compile_to_qasm(machine))
-        elif args.format == "qiskit":
-            opts = QSimulationOptions(analytic=True, run=False)
-            print(compile_to_qiskit(machine, opts))
-        elif args.format == "cudaq":
-            print(compile_to_cudaq(machine))
+        try:
+            if args.format == "mermaid":
+                print(compile_to_mermaid(machine, file=parsed.file))
+            elif args.format == "qasm":
+                print(compile_to_qasm(machine))
+            elif args.format == "qiskit":
+                opts = QSimulationOptions(analytic=True, run=False)
+                print(compile_to_qiskit(machine, opts))
+            elif args.format == "cudaq":
+                print(compile_to_cudaq(machine))
+        except ComposedMachineError as e:
+            print(f"  [ERR] {e.code}: {e}")
 
 
 def _cmd_simulate(parsed, args):

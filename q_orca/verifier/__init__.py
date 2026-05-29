@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from q_orca.ast import QMachineDef
+from q_orca.ast import QMachineDef, QOrcaFile
 from q_orca.verifier.structural import check_structural
 from q_orca.verifier.completeness import check_completeness
 from q_orca.verifier.determinism import check_determinism
@@ -24,11 +24,23 @@ class VerifyOptions:
     skip_classical_context: bool = False
     skip_resource_bounds: bool = False
     skip_state_assertions: bool = False
+    skip_composition: bool = False
     backend: str = "qutip"
 
 
-def verify(machine: QMachineDef, options: Optional[VerifyOptions] = None) -> QVerificationResult:
-    """Run the full verification pipeline on a quantum machine definition."""
+def verify(
+    machine: QMachineDef,
+    options: Optional[VerifyOptions] = None,
+    file: Optional[QOrcaFile] = None,
+    _visited: Optional[frozenset] = None,
+) -> QVerificationResult:
+    """Run the full verification pipeline on a quantum machine definition.
+
+    `file` supplies the surrounding `QOrcaFile` so the composition stage can
+    resolve sibling machines for `[invoke: …]` states; it is optional and the
+    composition stage is skipped when it is absent. `_visited` is an internal
+    guard against unbounded recursion during nested composition verification.
+    """
     opts = options or VerifyOptions()
     all_errors: list[QVerificationError] = []
 
@@ -52,6 +64,17 @@ def verify(machine: QMachineDef, options: Optional[VerifyOptions] = None) -> QVe
     if not opts.skip_classical_context:
         classical = check_classical_context(machine)
         all_errors.extend(classical.errors)
+
+    # Stage 3c: Composition (multi-machine invoke/return checks). Runs only
+    # when a surrounding file is supplied and the machine has invoke states.
+    if (
+        not opts.skip_composition
+        and file is not None
+        and any(s.invoke is not None for s in machine.states)
+    ):
+        from q_orca.verifier.composition import check_composition
+        composition = check_composition(file, machine, opts, _visited=_visited)
+        all_errors.extend(composition.errors)
 
     # Stage 4: Quantum-specific checks
     if not opts.skip_quantum:

@@ -1646,3 +1646,220 @@ class TestHeaTierOrderingInvariant:
         ]
         assert "HEA_TIER_INVARIANT_VIOLATED" not in error_codes
         assert "HEA_TIER_UNDEFINED" not in error_codes
+
+
+# ---------------------------------------------------------------------------
+# Composition stage (add-parameterized-invoke §3.9)
+# ---------------------------------------------------------------------------
+
+from q_orca.verifier.composition import check_composition
+
+_CHILD_CLASSICAL = """
+---
+# machine EpochRunner
+## context
+| Field | Type | Default |
+| epoch | int | 0 |
+| lr | float | 0.1 |
+## state |run> [initial]
+## state |out> [final]
+## transitions
+| Source | Event | Guard | Target | Action |
+| |run> | step | | |out> | |
+## returns
+| Name | Type | Statistics |
+| converged | bool | |
+"""
+
+_CHILD_QUANTUM = """
+---
+# machine QForward
+## context
+| Field | Type | Default |
+| theta | float | 0.5 |
+## state |q0> [initial]
+## state |qm> [final]
+## transitions
+| Source | Event | Guard | Target | Action |
+| |q0> | measure_it | | |qm> | meas |
+## actions
+| Name | Signature | Effect |
+| meas | (qs) -> qs | measure(qs[0]) -> bits[0] |
+## returns
+| Name | Type | Statistics |
+| bits[0] | bit | expectation, histogram |
+"""
+
+
+def _parent(ctx_rows, annotation, body=""):
+    return (
+        "# machine Parent\n## context\n| Field | Type | Default |\n"
+        + ctx_rows
+        + "## state |idle> [initial]\n## state |train> "
+        + annotation
+        + "\n"
+        + ((body + "\n") if body else "")
+        + "## state |fin> [final]\n## transitions\n"
+        + "| Source | Event | Guard | Target | Action |\n"
+        + "| |idle> | g | | |train> | |\n| |train> | n | | |fin> | |\n"
+    )
+
+
+def _composition_codes(src, machine_name="Parent"):
+    result = parse_q_orca_markdown(src)
+    assert not result.errors, result.errors
+    by_name = {m.name: m for m in result.file.machines}
+    res = check_composition(result.file, by_name[machine_name])
+    return [d.code for d in res.errors]
+
+
+_INVOKE_ERROR_CODES = {
+    "UNRESOLVED_CHILD_MACHINE", "INVOKE_ARG_UNDECLARED", "INVOKE_ARG_TYPE_MISMATCH",
+    "INVOKE_RETURN_UNDECLARED", "INVOKE_RETURN_TYPE_MISMATCH",
+    "SHOTS_ON_CLASSICAL_CHILD", "INVOKE_CYCLE",
+}
+
+
+class TestComposition:
+    def test_happy_classical_child(self):
+        src = _parent(
+            "| iteration | int | 0 |\n| eta | float | 0.1 |\n| done | bool | false |\n",
+            "[invoke: EpochRunner(epoch=iteration, lr=eta)]",
+            "> returns: done=converged",
+        ) + _CHILD_CLASSICAL
+        assert [c for c in _composition_codes(src) if c in _INVOKE_ERROR_CODES] == []
+
+    def test_happy_quantum_child_shots_aggregate(self):
+        src = _parent(
+            "| theta | float | 0.5 |\n| p | float | 0.0 |\n",
+            "[invoke: QForward(theta=theta) shots=1024]",
+            "> returns: p=prob_bits_0",
+        ) + _CHILD_QUANTUM
+        assert [c for c in _composition_codes(src) if c in _INVOKE_ERROR_CODES] == []
+
+    def test_unresolved_child(self):
+        src = _parent("| x | int | 0 |\n", "[invoke: Missing(a=x)]")
+        assert "UNRESOLVED_CHILD_MACHINE" in _composition_codes(src)
+
+    def test_arg_undeclared(self):
+        src = _parent("| iteration | int | 0 |\n", "[invoke: EpochRunner(zzz=iteration)]") + _CHILD_CLASSICAL
+        assert "INVOKE_ARG_UNDECLARED" in _composition_codes(src)
+
+    def test_arg_type_mismatch(self):
+        src = _parent("| theta | list<float> | [] |\n", "[invoke: QForward(theta=theta) shots=8]") + _CHILD_QUANTUM
+        assert "INVOKE_ARG_TYPE_MISMATCH" in _composition_codes(src)
+
+    def test_indexed_rhs_unifies_against_element_type(self):
+        # theta[0] of a parent list<float> unifies with the child's float param.
+        src = _parent("| theta | list<float> | [] |\n", "[invoke: QForward(theta=theta[0]) shots=8]") + _CHILD_QUANTUM
+        assert "INVOKE_ARG_TYPE_MISMATCH" not in _composition_codes(src)
+
+    def test_return_undeclared_aggregate(self):
+        # QForward declares expectation+histogram for bits[0] but not variance.
+        src = _parent(
+            "| theta | float | 0.5 |\n| v | float | 0.0 |\n",
+            "[invoke: QForward(theta=theta) shots=8]",
+            "> returns: v=var_bits_0",
+        ) + _CHILD_QUANTUM
+        assert "INVOKE_RETURN_UNDECLARED" in _composition_codes(src)
+
+    def test_shots_on_classical_child(self):
+        src = _parent("| iteration | int | 0 |\n", "[invoke: EpochRunner(epoch=iteration) shots=100]") + _CHILD_CLASSICAL
+        assert "SHOTS_ON_CLASSICAL_CHILD" in _composition_codes(src)
+
+    def test_default_shots_on_quantum_child_is_clean(self):
+        src = _parent("| theta | float | 0.5 |\n", "[invoke: QForward(theta=theta)]") + _CHILD_QUANTUM
+        assert [c for c in _composition_codes(src) if c in _INVOKE_ERROR_CODES] == []
+
+    def test_direct_self_invoke_cycle(self):
+        src = (
+            "# machine Loop\n## context\n| Field | Type | Default |\n| x | int | 0 |\n"
+            "## state |a> [initial]\n## state |b> [invoke: Loop(x=x)]\n## state |c> [final]\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n"
+            "| |a> | g | | |b> | |\n| |b> | n | | |c> | |\n"
+        )
+        assert "INVOKE_CYCLE" in _composition_codes(src, "Loop")
+
+    def test_transitive_cycle_on_both(self):
+        src = (
+            "# machine A\n## context\n| Field | Type | Default |\n| x | int | 0 |\n"
+            "## state |a0> [initial]\n## state |a1> [invoke: B(x=x)]\n## state |a2> [final]\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n"
+            "| |a0> | g | | |a1> | |\n| |a1> | n | | |a2> | |\n"
+            "\n---\n\n"
+            "# machine B\n## context\n| Field | Type | Default |\n| x | int | 0 |\n"
+            "## state |b0> [initial]\n## state |b1> [invoke: A(x=x)]\n## state |b2> [final]\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n"
+            "| |b0> | g | | |b1> | |\n| |b1> | n | | |b2> | |\n"
+        )
+        assert "INVOKE_CYCLE" in _composition_codes(src, "A")
+        assert "INVOKE_CYCLE" in _composition_codes(src, "B")
+
+    def test_child_error_bubbles_up_with_path(self):
+        src = (
+            _parent("| x | int | 0 |\n", "[invoke: Broken(y=x)]")
+            + "\n---\n# machine Broken\n## context\n| Field | Type | Default |\n| y | int | 0 |\n"
+            + "## events\n- run\n- other\n"
+            + "## state |idle> [initial]\n## state |done> [final]\n"
+            + "## transitions\n| Source | Event | Guard | Target | Action |\n| |idle> | run | | |done> | |\n"
+        )
+        result = parse_q_orca_markdown(src)
+        by_name = {m.name: m for m in result.file.machines}
+        errs = check_composition(result.file, by_name["Parent"]).errors
+        bubbled = [e for e in errs if (e.location or {}).get("child_machine") == "Broken"]
+        assert bubbled, "expected at least one bubbled child error"
+        assert all("invoke_state" in e.location and "child_path" in e.location for e in bubbled)
+
+    def test_nested_chain_a_b_c(self):
+        # A invokes B invokes C; a valid chain produces no invoke errors.
+        src = (
+            "# machine A\n## context\n| Field | Type | Default |\n| x | int | 0 |\n"
+            "## state |a0> [initial]\n## state |a1> [invoke: B(y=x)]\n## state |a2> [final]\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n| |a0> | g | | |a1> | |\n| |a1> | n | | |a2> | |\n"
+            "\n---\n\n"
+            "# machine B\n## context\n| Field | Type | Default |\n| y | int | 0 |\n"
+            "## state |b0> [initial]\n## state |b1> [invoke: C(z=y)]\n## state |b2> [final]\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n| |b0> | g | | |b1> | |\n| |b1> | n | | |b2> | |\n"
+            "\n---\n\n"
+            "# machine C\n## context\n| Field | Type | Default |\n| z | int | 0 |\n"
+            "## state |c0> [initial]\n## state |c1> [final]\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n| |c0> | g | | |c1> | |\n"
+        )
+        assert "INVOKE_CYCLE" not in _composition_codes(src, "A")
+        assert [c for c in _composition_codes(src, "A") if c in _INVOKE_ERROR_CODES] == []
+
+    def test_three_machine_cycle_reports_path(self):
+        # A -> B -> C -> A: every machine is flagged, and the INVOKE_CYCLE
+        # error carries a representative cycle path for debugging.
+        def m(name, child):
+            return (
+                f"# machine {name}\n## context\n| Field | Type | Default |\n| x | int | 0 |\n"
+                f"## state |s0> [initial]\n## state |s1> [invoke: {child}(x=x)]\n## state |s2> [final]\n"
+                "## transitions\n| Source | Event | Guard | Target | Action |\n"
+                "| |s0> | g | | |s1> | |\n| |s1> | n | | |s2> | |\n"
+            )
+        src = m("A", "B") + "\n---\n\n" + m("B", "C") + "\n---\n\n" + m("C", "A")
+        result = parse_q_orca_markdown(src)
+        assert not result.errors, result.errors
+        by_name = {mm.name: mm for mm in result.file.machines}
+        for name in ("A", "B", "C"):
+            errs = check_composition(result.file, by_name[name]).errors
+            cyc = [e for e in errs if e.code == "INVOKE_CYCLE"]
+            assert cyc, f"{name} should report INVOKE_CYCLE"
+            path = cyc[0].location["cycle_path"]
+            assert path[0] == name and path[-1] == name and len(path) == 4
+
+    def test_pipeline_runs_composition_before_quantum_static(self):
+        # An unresolved child surfaces from composition while verify() still runs.
+        src = _parent("| x | int | 0 |\n", "[invoke: Missing(a=x)]")
+        result = parse_q_orca_markdown(src)
+        machine = result.file.machines[0]
+        res = verify(machine, VerifyOptions(skip_dynamic=True), file=result.file)
+        assert any(e.code == "UNRESOLVED_CHILD_MACHINE" for e in res.errors)
+
+    def test_skip_composition_flag(self):
+        src = _parent("| x | int | 0 |\n", "[invoke: Missing(a=x)]")
+        result = parse_q_orca_markdown(src)
+        machine = result.file.machines[0]
+        res = verify(machine, VerifyOptions(skip_dynamic=True, skip_composition=True), file=result.file)
+        assert not any(e.code == "UNRESOLVED_CHILD_MACHINE" for e in res.errors)
