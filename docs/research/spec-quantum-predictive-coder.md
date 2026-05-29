@@ -2,6 +2,16 @@
 
 > Generated: 2026-04-18 — research kickoff from user-supplied machine sketch `/tmp/QuantumPredictiveCoder.q.orca.md`
 
+> **Composition status:** the full composed QPC (a classical orchestrator that
+> repeatedly dispatches a quantum forward pass and reads back aggregates)
+> requires three pieces: `add-classical-context-updates` (merged, the
+> quantum→classical bridge), `add-parameterized-invoke` (the classical→quantum
+> bridge: parameterized `invoke:` + typed `## returns` + shot-batched
+> aggregates — landed the grammar, verifier, and diagramming), and the parked
+> `add-composed-runtime` follow-up (the dispatcher that actually executes a
+> composed machine). See `tests/fixtures/composed_predictive_coder.q.orca.md`
+> for a verifiable parent+child sketch.
+
 ---
 
 **Summary:** This document is a *research proposal*, not a queued feature. It sketches what a scientifically honest q-orca machine for a **quantum predictive coder** (QPC) would look like — a variational quantum circuit that (1) maintains a generative model of some target distribution on a "model" register, (2) interacts that model with a "data" register, (3) extracts a prediction-error signal via ancilla measurement, and (4) updates the model via a classical feedback loop that minimizes the extracted error. The proposal identifies why the four-state sketch the user supplied is *not* viable as written, names the q-orca features required to express a real QPC (all already on the roadmap or shipped), and grounds the design in the arXiv literature available through q-orca-kb. It also explicitly names the literature gap — no existing arXiv work bridges Friston-style predictive coding / active inference to native quantum circuits — which is what makes this a research project rather than a port of a known result.

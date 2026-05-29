@@ -119,25 +119,35 @@
 
 ## 5. Spec + docs sync
 
-- [ ] 5.1 Run `openspec validate add-parameterized-invoke --strict`
+- [x] 5.1 Run `openspec validate add-parameterized-invoke --strict`
   and address any issues.
-- [ ] 5.2 Add a one-line back-reference in
+  Valid.
+- [x] 5.2 Add a one-line back-reference in
   `docs/research/spec-quantum-predictive-coder.md` flagging that
   the full composed QPC requires this change plus
   `add-classical-context-updates` plus the
   `add-composed-runtime` follow-up.
+  Added a "Composition status" callout naming all three pieces and pointing at
+  the `tests/fixtures/composed_predictive_coder.q.orca.md` sketch.
 
 ## 6. End-to-end verification
 
-- [ ] 6.1 Write a fixture multi-machine file combining a
+- [x] 6.1 Write a fixture multi-machine file combining a
   classical-orchestrator parent and a quantum-forward-pass
   child. Confirm parse + verify + Mermaid render all pass, and
   QASM/Qiskit refuse cleanly.
-- [ ] 6.2 Run `.venv/bin/python -m pytest tests/ -q
+  `tests/fixtures/composed_predictive_coder.q.orca.md` + `tests/test_composed_invoke.py`
+  (5 tests). Both machines verify clean; Mermaid renders the nested child;
+  QASM/Qiskit raise `ComposedMachineError`. Wired `verify_skill`, `compile_skill`,
+  and the CLI verify/compile commands to pass the surrounding file so composition
+  runs end-to-end (and compile surfaces the refusal gracefully).
+- [x] 6.2 Run `.venv/bin/python -m pytest tests/ -q
   --ignore=tests/test_cuquantum_backend.py
   --ignore=tests/test_cudaq_backend.py` and confirm green.
-- [ ] 6.3 Run `.venv/bin/q-orca verify` on all examples in
+  1094 passed, 20 skipped.
+- [x] 6.3 Run `.venv/bin/q-orca verify` on all examples in
   `examples/` to confirm no regressions.
+  All 20 examples pass `--strict`.
 
 ## 7. Parked follow-ups (NOT this change)
 
