@@ -42,38 +42,55 @@
 
 ## 3. Verifier — composition stage
 
-- [ ] 3.1 Create `q_orca/verifier/composition.py` with
+- [x] 3.1 Create `q_orca/verifier/composition.py` with
   `check_composition(file: QOrcaFile, machine: QMachineDef) ->
   QVerificationResult`. Takes the whole file so it can resolve
   sibling machines.
-- [ ] 3.2 Implement child resolution: `UNRESOLVED_CHILD_MACHINE`.
-- [ ] 3.3 Implement arg typing: `INVOKE_ARG_UNDECLARED`,
+- [x] 3.2 Implement child resolution: `UNRESOLVED_CHILD_MACHINE`.
+- [x] 3.3 Implement arg typing: `INVOKE_ARG_UNDECLARED`,
   `INVOKE_ARG_TYPE_MISMATCH`. Type unification follows existing
   `QType` rules; indexed RHS (`theta[0]`) unifies against
   element type of the parent's `list<float>`.
-- [ ] 3.4 Implement return typing: `INVOKE_RETURN_UNDECLARED`,
+  Unification compares canonical `_type_key` strings; indexed RHS resolves
+  to the parent list's `element_type`.
+- [x] 3.4 Implement return typing: `INVOKE_RETURN_UNDECLARED`,
   `INVOKE_RETURN_TYPE_MISMATCH`. Under `shots>1`, synthesize
   aggregate field names/types (`prob_bits_0: float`,
   `hist_bits_0: dict[int, int]`, `var_bits_0: float`) and
   unify against them instead of the raw return type.
-- [ ] 3.5 Implement shots-flag rules: `SHOTS_ON_CLASSICAL_CHILD`.
+  `_synthesized_aggregates` builds the name→type-key map; `shots>1` switches
+  the available-returns set from raw returns to aggregates.
+- [x] 3.5 Implement shots-flag rules: `SHOTS_ON_CLASSICAL_CHILD`.
   Determine "classical" as "no transition action has a
   measurement or mid-circuit-measure effect" — reuse the helper
   added in `harden-completeness-detection`.
-- [ ] 3.6 Implement recursive verification: run the child's full
+  Used a local `_machine_has_measurement` (any action with measurement /
+  mid_circuit_measure) rather than the event-based completeness helper.
+- [x] 3.6 Implement recursive verification: run the child's full
   pipeline (same `verify()` entry point) and wrap returned
   errors with the `child_path` breadcrumb in the `location`
   dict.
-- [ ] 3.7 Implement cycle detection: DFS over the
+  `verify(child, opts, file=file, _visited=…)`; each child error re-wrapped
+  with `{invoke_state, child_machine, child_path:[err.location]}`.
+- [x] 3.7 Implement cycle detection: DFS over the
   invoke-reference graph, emit `INVOKE_CYCLE` on back-edges.
   Cycle detection runs before recursive verification to prevent
   infinite recursion.
-- [ ] 3.8 Wire the stage into `q_orca/verifier/__init__.py::verify()`
+  `_machines_in_cycle` (reachability: node that can reach itself). On a cycle
+  the machine emits `INVOKE_CYCLE` and skips recursion; `_visited` is a
+  secondary recursion guard.
+- [x] 3.8 Wire the stage into `q_orca/verifier/__init__.py::verify()`
   between classical-context and quantum-static. Add
   `VerifyOptions.skip_composition` flag.
-- [ ] 3.9 Unit tests in `tests/test_verifier.py` covering each
+  `verify()` gained `file` and `_visited` params; composition runs only when a
+  `file` is supplied and the machine has invoke states. NOTE: required fixing a
+  latent bug — standalone `---` was *skipped* by the structural parser, so
+  `_split_by_separator` never split multi-machine files. Now emitted as a
+  level-0 separator (no existing file used a standalone `---`).
+- [x] 3.9 Unit tests in `tests/test_verifier.py` covering each
   error code and the happy paths for both classical and quantum
   children, including nested invocation (A → B → C).
+  `TestComposition` (15 tests).
 
 ## 4. Compiler — Mermaid + refusal
 

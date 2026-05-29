@@ -132,8 +132,11 @@ def parse_markdown_structure(
                 i += 1
             continue
 
-        # Horizontal rule separator (--- between machines)
+        # Horizontal rule separator (--- between machines). Emit a level-0
+        # marker so `_split_by_separator` can break the element stream into
+        # per-machine chunks (multi-machine files).
         if trimmed == "---":
+            elements.append(MdHeading(level=0, text="---", line=i + 1))
             i += 1
             continue
 

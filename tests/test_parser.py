@@ -60,10 +60,14 @@ class TestMarkdownStructure:
         assert len(elements) == 2
         assert all(isinstance(e, MdHeading) for e in elements)
 
-    def test_skips_horizontal_rules(self):
+    def test_horizontal_rule_emits_machine_separator(self):
+        # A standalone `---` is the multi-machine separator: it is emitted as a
+        # level-0 marker that `_split_by_separator` uses to break the element
+        # stream into per-machine chunks.
         source = "# heading\n---\n## heading2"
         elements = parse_markdown_structure(source)
-        assert len(elements) == 2
+        assert len(elements) == 3
+        assert elements[1].level == 0 and elements[1].text == "---"
 
     def test_table_with_ket_notation(self):
         """Pipes inside ket notation (|00>) should not split table cells."""
