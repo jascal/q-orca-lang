@@ -12,6 +12,12 @@ This is the Huang–Martonosi (ISCA 2019) *statistical assertion* approach: clai
 are checked by sampling, not by symbolic projection, so they survive
 destructive measurement and quantum non-determinism.
 
+> **Debug- and verification-time only.** Assertions never emit gates,
+> measurements, or any other instruction into the compiled circuit — they are
+> checked by the verifier and carried through the compilers as comments. Adding
+> or removing an assertion leaves the executable artifact byte-for-byte
+> identical, so real-hardware runs are completely unaffected.
+
 ## Syntax
 
 Add an `[assert: …]` annotation to a state heading, alongside `[initial]` /
@@ -48,6 +54,15 @@ as metadata, but no checking runs.
 | `superposition(qs[k])`, `superposition(qs[a..b])` | one qubit or a range | **at least one** qubit in the slice shows both Z-basis outcomes |
 | `entangled(qs[i], qs[j])` | exactly two single qubits | qubits `i` and `j` are entangled with each other |
 | `separable(qs[i], qs[j])` | exactly two single qubits | the joint state of `i` and `j` factorizes |
+
+### When to use which
+
+| You want to confirm that… | Use |
+|---|---|
+| a register holds a definite codeword / a measurement collapsed an ancilla | `classical(qs[a..b])` |
+| a Hadamard / mixer layer actually put a qubit into superposition | `superposition(qs[a..b])` |
+| a Bell/EPR pair formed (e.g. after `H` + `CNOT`) | `entangled(qs[i], qs[j])` |
+| two qubits are *not* yet correlated (e.g. before the entangling gate) | `separable(qs[i], qs[j])` |
 
 ### The `superposition` "some qubit" rule
 

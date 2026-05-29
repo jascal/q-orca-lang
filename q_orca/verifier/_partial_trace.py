@@ -40,9 +40,10 @@ def reduced_density_matrix(
 
     psi = np.asarray(state_vector, dtype=complex).reshape([2] * n_qubits)
 
-    # Assign einsum indices. Traced qubits share an index between the ket and
-    # the (conjugated) bra so they get summed; kept qubits get a fresh bra
-    # index so they survive into the output.
+    # A single einsum expresses the whole partial trace in one pass (clearer and
+    # faster than an explicit per-amplitude loop): traced qubits share an index
+    # between the ket and the (conjugated) bra so they get summed, while kept
+    # qubits get a fresh bra index so they survive into the output ρ.
     letters = string.ascii_letters
     ket_idx = list(range(n_qubits))
     bra_idx = list(range(n_qubits))
