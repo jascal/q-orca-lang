@@ -4,7 +4,30 @@ from __future__ import annotations
 
 import re
 
-from q_orca.ast import QMachineDef, QTypeList, QTypeQubit, QTypeScalar
+from q_orca.ast import QAssertion, QMachineDef, QTypeList, QTypeQubit, QTypeScalar
+
+
+def format_assertion_expr(assertion: QAssertion, register: str = "qs") -> str:
+    """Render an assertion as ``category(reg[a..b], …)`` for compiler comments.
+
+    `register` is the qubit-register name to print (``qs`` for Q-Orca-source
+    style, ``q`` for OpenQASM where the register is named ``q``).
+    """
+    parts = []
+    for sl in assertion.targets:
+        parts.append(
+            f"{register}[{sl.start}]" if sl.is_single else f"{register}[{sl.start}..{sl.end}]"
+        )
+    return f"{assertion.category}({', '.join(parts)})"
+
+
+def state_label(name: str) -> str:
+    """Strip ket delimiters from a state name for human-readable comments.
+
+    ``|encoded>`` → ``encoded``; ``|ψ>`` → ``ψ``; a non-ket name is returned
+    stripped of surrounding whitespace only.
+    """
+    return name.strip().lstrip("|").rstrip(">").strip() or name.strip()
 
 
 def infer_qubit_count(machine: QMachineDef) -> int:

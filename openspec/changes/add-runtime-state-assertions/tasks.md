@@ -182,32 +182,45 @@
 
 ## 8. Compiler — Qiskit metadata
 
-- [ ] 8.1 Extend the per-state metadata block emitted by
+- [x] 8.1 Extend the per-state metadata block emitted by
       `q_orca/compiler/qiskit.py` to include
       `assertion_probe: list[QAssertion]` for any state with a
       non-empty `assertions` list.
-- [ ] 8.2 Confirm via test that the Bell-pair Qiskit script's gate
+      The Qiskit backend emits a Python *script* (text), so the metadata is a
+      `# assertion_probe @ state <name>: <category>(qs[…])` comment emitted
+      before the annotated state's first outgoing transition (final/no-outgoing
+      states flushed after the sequence). Shared formatting via new
+      `q_orca/compiler/util.py::format_assertion_expr` + `state_label`.
+- [x] 8.2 Confirm via test that the Bell-pair Qiskit script's gate
       sequence is byte-identical between the asserted and
       unasserted versions of the same machine.
+      `TestQiskitAssertionMetadata` in `tests/test_state_assertions.py`.
 
 ## 9. Compiler — QASM comments
 
-- [ ] 9.1 Update `q_orca/compiler/qasm.py` to emit a comment line
+- [x] 9.1 Update `q_orca/compiler/qasm.py` to emit a comment line
       `// assert: <category>(<qubit-slice>...) @ state <state-name>`
       immediately before the gate sequence for the next outgoing
       transition out of an annotated state. Source order of
       assertions within a single state SHALL be preserved.
-- [ ] 9.2 Confirm via test that the emitted QASM contains no
+      Uses the OpenQASM register name `q` (e.g. `q[0..2]`) per the compiler
+      spec scenario, and the ket-stripped state label (`encoded`).
+- [x] 9.2 Confirm via test that the emitted QASM contains no
       assertion-derived instructions — only comment lines.
+      `TestQasmAssertionComments` (comment presence + source order +
+      instruction byte-identity).
 
 ## 10. Compiler — Mermaid pass-through
 
-- [ ] 10.1 Update `q_orca/compiler/mermaid.py` to optionally append a
+- [x] 10.1 Update `q_orca/compiler/mermaid.py` to optionally append a
       brief `assert:` summary to the description of a state node
       that has assertions. No new state nodes, transitions, or
       labels SHALL be introduced.
-- [ ] 10.2 Confirm via test that the Mermaid node count and
+      Appended as ` — assert: <expr>; <expr>` to the existing state
+      description line.
+- [x] 10.2 Confirm via test that the Mermaid node count and
       transition count match the unasserted version of the machine.
+      `TestMermaidAssertionPassThrough`.
 
 ## 11. Tests — parser
 

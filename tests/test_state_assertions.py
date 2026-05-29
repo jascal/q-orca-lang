@@ -234,3 +234,91 @@ class TestUnreachableState:
 """
         # |island> is unreachable from |0>; its assertion must not be evaluated.
         assert _codes(_machine(source)) == []
+
+
+# ---------------------------------------------------------------------------
+# §8-10 compiler metadata pass-through (no new instructions / nodes)
+# ---------------------------------------------------------------------------
+
+from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
+from q_orca.compiler.qasm import compile_to_qasm
+from q_orca.compiler.mermaid import compile_to_mermaid
+
+_COMPILER_TMPL = """# machine Bell
+## context
+| Field | Type | Default |
+| qubits | list<qubit> | [q0, q1] |
+## state |00> [initial]
+## state |encoded> {a}
+## transitions
+| Source | Event | Guard | Target | Action |
+| |00> | h | | |encoded> | apply_H |
+| |encoded> | e | | |00> | apply_CNOT |
+## actions
+| Name | Signature | Effect |
+| apply_H | (qs) -> qs | Hadamard(qs[0]) |
+| apply_CNOT | (qs) -> qs | CNOT(qs[0], qs[1]) |
+"""
+
+
+def _compiler_machine(annotation=""):
+    return _machine(_COMPILER_TMPL.format(a=annotation))
+
+
+class TestQiskitAssertionMetadata:
+    OPTS = QSimulationOptions(analytic=True, skip_qutip=True)
+
+    def test_assertion_probe_present(self):
+        m = _compiler_machine("[assert: entangled(qs[0], qs[1])]")
+        script = compile_to_qiskit(m, self.OPTS)
+        assert "assertion_probe @ state encoded: entangled(qs[0], qs[1])" in script
+
+    def test_gate_lines_byte_identical(self):
+        plain = compile_to_qiskit(_compiler_machine(), self.OPTS)
+        asserted = compile_to_qiskit(
+            _compiler_machine("[assert: entangled(qs[0], qs[1])]"), self.OPTS
+        )
+
+        def gate_lines(s):
+            return [ln for ln in s.splitlines() if not ln.lstrip().startswith("#")]
+
+        assert gate_lines(plain) == gate_lines(asserted)
+
+
+class TestQasmAssertionComments:
+    def test_comment_per_assertion_in_source_order(self):
+        m = _compiler_machine(
+            "[assert: superposition(qs[0..2]); entangled(qs[0], qs[1])]"
+        )
+        qasm = compile_to_qasm(m)
+        assert "// assert: superposition(q[0..2]) @ state encoded" in qasm
+        assert "// assert: entangled(q[0], q[1]) @ state encoded" in qasm
+        # source order preserved
+        assert qasm.index("superposition(q[0..2])") < qasm.index("entangled(q[0], q[1])")
+
+    def test_no_assertion_instructions(self):
+        plain = compile_to_qasm(_compiler_machine())
+        asserted = compile_to_qasm(
+            _compiler_machine("[assert: entangled(qs[0], qs[1])]")
+        )
+
+        def instructions(s):
+            return [ln for ln in s.splitlines() if not ln.strip().startswith("//")]
+
+        assert instructions(plain) == instructions(asserted)
+
+
+class TestMermaidAssertionPassThrough:
+    def test_node_and_transition_counts_unchanged(self):
+        plain = compile_to_mermaid(_compiler_machine())
+        asserted = compile_to_mermaid(
+            _compiler_machine("[assert: entangled(qs[0], qs[1])]")
+        )
+
+        def counts(s):
+            nodes = sum(1 for ln in s.splitlines() if " : " in ln)
+            transitions = sum(1 for ln in s.splitlines() if "-->" in ln)
+            return nodes, transitions
+
+        assert counts(plain) == counts(asserted)
+        assert "assert: entangled(qs[0], qs[1])" in asserted

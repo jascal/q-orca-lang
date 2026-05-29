@@ -3,7 +3,11 @@
 from q_orca.ast import QMachineDef, QuantumGate
 from q_orca.compiler.qiskit import _build_angle_context, _parse_effect_string, _infer_bit_count
 from q_orca.compiler.parametric import expand_action_call
-from q_orca.compiler.util import infer_qubit_count as _infer_qubit_count
+from q_orca.compiler.util import (
+    infer_qubit_count as _infer_qubit_count,
+    format_assertion_expr as _format_assertion_expr,
+    state_label as _state_label,
+)
 
 
 def compile_to_qasm(machine: QMachineDef) -> str:
@@ -47,8 +51,27 @@ def compile_to_qasm(machine: QMachineDef) -> str:
 
     action_map = {a.name: a for a in machine.actions}
     gate_sequence = _extract_gate_sequence(machine)
+
+    # Per-state assertion comments (out-of-band; no instructions). Emitted
+    # immediately before the gate sequence of the first outgoing transition out
+    # of each annotated state; states with no outgoing transition are flushed
+    # after the sequence.
+    assertions_by_state = {s.name: s.assertions for s in machine.states if s.assertions}
+    emitted_probes: set[str] = set()
+
+    def _emit_qasm_assert(state_name: str) -> None:
+        for a in assertions_by_state[state_name]:
+            lines.append(
+                f"// assert: {_format_assertion_expr(a, 'q')} "
+                f"@ state {_state_label(state_name)}"
+            )
+        emitted_probes.add(state_name)
+
     lines.append("// Gate sequence derived from state machine transitions")
     for action_name, gates, comment in gate_sequence:
+        source = comment.split(" --", 1)[0] if comment and " --" in comment else None
+        if source in assertions_by_state and source not in emitted_probes:
+            _emit_qasm_assert(source)
         if comment:
             lines.append(f"// {comment}")
         action = action_map.get(action_name)
@@ -72,6 +95,12 @@ def compile_to_qasm(machine: QMachineDef) -> str:
         else:
             for gate in gates:
                 lines.append(_gate_to_qasm(gate, qubit_count))
+
+    # Flush assertions for annotated states never visited as a transition
+    # source (e.g. [final] states).
+    for s in machine.states:
+        if s.name in assertions_by_state and s.name not in emitted_probes:
+            _emit_qasm_assert(s.name)
 
     # Emit terminal measurement block only when there are no mid-circuit
     # measurements (which are emitted inline in the gate sequence above).

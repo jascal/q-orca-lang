@@ -6,7 +6,11 @@ from typing import Mapping
 
 from q_orca.ast import QMachineDef, QuantumGate, QTypeScalar, QTypeList, NoiseModel
 from q_orca.compiler.parametric import expand_action_call
-from q_orca.compiler.util import infer_qubit_count as _infer_qubit_count
+from q_orca.compiler.util import (
+    infer_qubit_count as _infer_qubit_count,
+    format_assertion_expr as _format_assertion_expr,
+    state_label as _state_label,
+)
 from q_orca.effect_parser import (
     ParsedGate,
     parse_effect_string as _shared_parse_effect_string,
@@ -232,8 +236,26 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
     gate_sequence = _extract_gate_sequence(machine)
 
     action_map = {a.name: a for a in machine.actions}
+
+    # Per-state assertion-probe metadata (out-of-band; comments only, no gates).
+    # Emitted immediately before the first outgoing transition of each annotated
+    # state; states with no outgoing transition are flushed after the sequence.
+    assertions_by_state = {s.name: s.assertions for s in machine.states if s.assertions}
+    emitted_probes: set[str] = set()
+
+    def _emit_qiskit_probe(state_name: str) -> None:
+        for a in assertions_by_state[state_name]:
+            lines.append(
+                f"# assertion_probe @ state {_state_label(state_name)}: "
+                f"{_format_assertion_expr(a, 'qs')}"
+            )
+        emitted_probes.add(state_name)
+
     lines.append("# Gate sequence from state machine")
     for action_name, gates, comment in gate_sequence:
+        source = comment.split(" --", 1)[0] if comment and " --" in comment else None
+        if source in assertions_by_state and source not in emitted_probes:
+            _emit_qiskit_probe(source)
         if comment:
             lines.append(f"# {comment}")
         action = action_map.get(action_name)
@@ -253,6 +275,12 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
         elif gates:
             for gate in gates:
                 lines.append(_gate_to_qiskit(gate))
+
+    # Flush probes for annotated states never visited as a transition source
+    # (e.g. [final] states or states with no outgoing transition).
+    for s in machine.states:
+        if s.name in assertions_by_state and s.name not in emitted_probes:
+            _emit_qiskit_probe(s.name)
 
     if options.analytic:
         lines.append("")

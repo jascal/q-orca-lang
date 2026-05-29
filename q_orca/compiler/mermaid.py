@@ -3,6 +3,7 @@
 import re
 
 from q_orca.ast import QMachineDef, QStateDef
+from q_orca.compiler.util import format_assertion_expr
 
 
 def compile_to_mermaid(machine: QMachineDef) -> str:
@@ -18,11 +19,15 @@ def compile_to_mermaid(machine: QMachineDef) -> str:
     def state_id(s: QStateDef) -> str:
         return sanitize(s.name)
 
-    # Add state descriptions
+    # Add state descriptions. Assertions are appended to the description text
+    # only — no new state nodes, transitions, or labels are introduced.
     for state in machine.states:
         label = state.name
         if state.state_expression:
             label += f" = {state.state_expression}"
+        if state.assertions:
+            summary = "; ".join(format_assertion_expr(a, "qs") for a in state.assertions)
+            label += f" — assert: {summary}"
         lines.append(f"  {sanitize(state.name)} : {label}")
     lines.append("")
 
