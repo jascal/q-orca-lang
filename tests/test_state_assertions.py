@@ -9,6 +9,9 @@ mid-circuit measurement, and unreachable-state skip).
 import numpy as np
 import pytest
 
+from q_orca.compiler.mermaid import compile_to_mermaid
+from q_orca.compiler.qasm import compile_to_qasm
+from q_orca.compiler.qiskit import QSimulationOptions, compile_to_qiskit
 from q_orca.parser.markdown_parser import parse_q_orca_markdown
 from q_orca.verifier import dynamic as dyn
 from q_orca.verifier._partial_trace import purity, reduced_density_matrix
@@ -239,10 +242,6 @@ class TestUnreachableState:
 # ---------------------------------------------------------------------------
 # §8-10 compiler metadata pass-through (no new instructions / nodes)
 # ---------------------------------------------------------------------------
-
-from q_orca.compiler.qiskit import compile_to_qiskit, QSimulationOptions
-from q_orca.compiler.qasm import compile_to_qasm
-from q_orca.compiler.mermaid import compile_to_mermaid
 
 _COMPILER_TMPL = """# machine Bell
 ## context

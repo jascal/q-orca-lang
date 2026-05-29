@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import statistics
 from collections import Counter
-from typing import Any, Optional
+from typing import Optional
 
 import numpy as np
 
