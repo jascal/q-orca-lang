@@ -293,6 +293,11 @@
 
 ## 14. Spec sync
 
-- [ ] 14.1 At archive time, sync the three delta specs into
+- [x] 14.1 At archive time, sync the three delta specs into
       `openspec/specs/{language,verifier,compiler}/spec.md` per the
       OpenSpec workflow.
+      Done by `openspec archive` on 2026-05-29: +3 added (Assertion Policy
+      Section → language, State Assertions Stage → verifier, Assertion Metadata
+      Pass-Through → compiler) and ~3 modified (State Headings + Verification
+      Rules → language, Pipeline Ordering → verifier). No header mismatch — the
+      MODIFIED deltas matched their existing canonical requirements.
