@@ -58,6 +58,13 @@ def main():
     im.add_argument("imports_command", choices=["show"], help="imports subcommand")
     im.add_argument("file", nargs="?", help="Path to .q.orca.md file")
 
+    # run
+    r = sub.add_parser("run", help="Execute a composed (or single) machine and print its final context")
+    r.add_argument("file", nargs="?", help="Path to .q.orca.md file (or use --stdin)")
+    r.add_argument("--shots", type=int, default=1024, help="Inner shots for shot-batched quantum children")
+    r.add_argument("--seed", type=int, default=None, help="Simulator seed for reproducible runs")
+    r.add_argument("--json", action="store_true", help="Output the final context as JSON")
+
     # simulate
     s = sub.add_parser("simulate", help="Simulate a quantum machine with Qiskit")
     s.add_argument("file", nargs="?", help="Path to .q.orca.md file (or use --stdin)")
@@ -111,6 +118,8 @@ def main():
         _cmd_simulate(parsed, args)
     elif args.command == "imports":
         _cmd_imports(parsed, args)
+    elif args.command == "run":
+        _cmd_run(parsed, args)
 
 
 def _resolve_backend(args, config=None) -> str:
@@ -215,6 +224,47 @@ def _cmd_imports(parsed, args):
         sys.exit(1)
     graph = resolve_imports(parsed.file, file_path)
     print(compile_import_graph_to_mermaid(graph, root_label=Path(file_path).name))
+
+
+def _cmd_run(parsed, args):
+    """Verify, then execute a composed (or single) machine; print final context."""
+    import json as _json
+
+    from q_orca.runtime.composed import run_composed
+    from q_orca.runtime.types import QIterativeSimulationOptions
+
+    machine = parsed.file.machines[0]
+    import_graph = _build_import_graph(parsed, args)
+
+    # Refuse to run a machine that does not verify.
+    result = verify(machine, VerifyOptions(skip_dynamic=True), file=parsed.file, import_graph=import_graph)
+    if not result.valid:
+        print("Error: machine does not verify; refusing to run:", file=sys.stderr)
+        for e in result.errors:
+            if e.severity == "error":
+                print(f"  [ERR] {e.code}: {e.message}", file=sys.stderr)
+        sys.exit(1)
+
+    opts = QIterativeSimulationOptions(inner_shots=args.shots, seed_simulator=args.seed)
+    base_path = getattr(args, "file", None)
+    run_result = run_composed(parsed.file, machine, opts, base_path=base_path, import_graph=import_graph)
+
+    if args.json:
+        print(_json.dumps({
+            "machine": run_result.machine,
+            "final_state": run_result.final_state,
+            "final_context": run_result.final_context,
+            "child_runs": run_result.child_runs,
+        }, indent=2, default=str))
+    else:
+        print(f"\n  Machine: {run_result.machine}")
+        print(f"  Final state: {run_result.final_state}")
+        print("  Final context:")
+        for k, v in run_result.final_context.items():
+            print(f"    {k} = {v}")
+        for c in run_result.child_runs:
+            shots = c["shots"] if c["shots"] is not None else 1
+            print(f"  ↳ invoke {c['invoke_state']} → {c['child']} (shots={shots})")
 
 
 def _cmd_compile(parsed, args):
