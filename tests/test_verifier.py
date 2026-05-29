@@ -1863,3 +1863,67 @@ class TestComposition:
         machine = result.file.machines[0]
         res = verify(machine, VerifyOptions(skip_dynamic=True, skip_composition=True), file=result.file)
         assert not any(e.code == "UNRESOLVED_CHILD_MACHINE" for e in res.errors)
+
+
+# ---------------------------------------------------------------------------
+# Composition with cross-file imports (add-machine-imports §4.6)
+# ---------------------------------------------------------------------------
+
+from q_orca.loader.import_resolver import resolve_imports
+
+_IMPORT_CHILD = """# machine PrepareBellPair
+## context
+| Field | Type | Default |
+| seed | int | 0 |
+## state |a> [initial]
+## state |b> [final]
+## transitions
+| Source | Event | Guard | Target | Action |
+| |a> | g | | |b> | |
+"""
+
+
+def _import_parent(child_ref):
+    return (
+        "# machine Parent\n## context\n| Field | Type | Default |\n| iteration | int | 0 |\n"
+        "## imports\n| Path | Aliases |\n| ./lib/bell-pair.q.orca.md | PrepareBellPair |\n"
+        f"## state |idle> [initial]\n## state |prep> [invoke: {child_ref}(seed=iteration)]\n## state |done> [final]\n"
+        "## transitions\n| Source | Event | Guard | Target | Action |\n"
+        "| |idle> | g | | |prep> | |\n| |prep> | n | | |done> | |\n"
+    )
+
+
+def _verify_with_imports(tmp_path, parent_src, follow=True):
+    (tmp_path / "lib").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "lib" / "bell-pair.q.orca.md").write_text(_IMPORT_CHILD)
+    ppath = tmp_path / "parent.q.orca.md"
+    ppath.write_text(parent_src)
+    pf = parse_q_orca_markdown(parent_src)
+    assert not pf.errors, pf.errors
+    graph = resolve_imports(pf.file, str(ppath)) if follow else None
+    res = verify(pf.file.machines[0], VerifyOptions(skip_dynamic=True), file=pf.file, import_graph=graph)
+    return [e.code for e in res.errors]
+
+
+class TestCompositionImports:
+    def test_imported_child_resolves_clean(self, tmp_path):
+        codes = _verify_with_imports(tmp_path, _import_parent("PrepareBellPair"))
+        invoke_codes = [c for c in codes if c in _INVOKE_ERROR_CODES or c.startswith("IMPORT")]
+        assert invoke_codes == []
+
+    def test_typo_gets_edit_distance_suggestion(self, tmp_path):
+        (tmp_path / "lib").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "lib" / "bell-pair.q.orca.md").write_text(_IMPORT_CHILD)
+        ppath = tmp_path / "parent.q.orca.md"
+        src = _import_parent("PrepareBelPair")  # typo
+        ppath.write_text(src)
+        pf = parse_q_orca_markdown(src)
+        graph = resolve_imports(pf.file, str(ppath))
+        res = verify(pf.file.machines[0], VerifyOptions(skip_dynamic=True), file=pf.file, import_graph=graph)
+        unresolved = [e for e in res.errors if e.code == "UNRESOLVED_CHILD_MACHINE"]
+        assert unresolved
+        assert "PrepareBellPair" in unresolved[0].message  # suggestion
+
+    def test_no_follow_imports_leaves_child_unresolved(self, tmp_path):
+        codes = _verify_with_imports(tmp_path, _import_parent("PrepareBellPair"), follow=False)
+        assert "UNRESOLVED_CHILD_MACHINE" in codes

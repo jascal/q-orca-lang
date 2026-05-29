@@ -455,8 +455,29 @@ class QMachineDef:
 
 
 @dataclass
+class QImport:
+    """A cross-file import row (`## imports`): bind machines from another file.
+
+    `path` is relative (`./`, `../`) or project-relative (`q_orca:…`) — absolute
+    paths are rejected at parse time. `aliases` are the names by which machines
+    from the imported file may be referenced in `invoke:`.
+    """
+    path: str
+    aliases: list[str] = field(default_factory=list)
+
+
+@dataclass
+class QReexport:
+    """A re-export row (`## reexports`): republish an (imported) machine alias."""
+    alias: str
+    source: str
+
+
+@dataclass
 class QOrcaFile:
     machines: list[QMachineDef] = field(default_factory=list)
+    imports: list[QImport] = field(default_factory=list)
+    reexports: list[QReexport] = field(default_factory=list)
 
 
 @dataclass

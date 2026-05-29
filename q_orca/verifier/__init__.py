@@ -32,6 +32,7 @@ def verify(
     machine: QMachineDef,
     options: Optional[VerifyOptions] = None,
     file: Optional[QOrcaFile] = None,
+    import_graph=None,
     _visited: Optional[frozenset] = None,
 ) -> QVerificationResult:
     """Run the full verification pipeline on a quantum machine definition.
@@ -73,7 +74,8 @@ def verify(
         and any(s.invoke is not None for s in machine.states)
     ):
         from q_orca.verifier.composition import check_composition
-        composition = check_composition(file, machine, opts, _visited=_visited)
+        composition = check_composition(
+            file, machine, opts, import_graph=import_graph, _visited=_visited)
         all_errors.extend(composition.errors)
 
     # Stage 4: Quantum-specific checks
