@@ -1,35 +1,44 @@
 ## 1. AST
 
-- [ ] 1.1 Add `QInvoke` dataclass in `q_orca/ast.py` with fields
+- [x] 1.1 Add `QInvoke` dataclass in `q_orca/ast.py` with fields
   `child_name: str`, `arg_bindings: dict[str, str]`,
   `return_bindings: dict[str, str]`, `shots: Optional[int]`.
-- [ ] 1.2 Add `QReturnDef` dataclass with fields `name: str`,
+- [x] 1.2 Add `QReturnDef` dataclass with fields `name: str`,
   `type: QType`, `statistics: list[str]`.
-- [ ] 1.3 Add `invoke: Optional[QInvoke] = None` to `QStateDef`.
-- [ ] 1.4 Add `returns: list[QReturnDef] = []` to `QMachineDef`.
+- [x] 1.3 Add `invoke: Optional[QInvoke] = None` to `QStateDef`.
+- [x] 1.4 Add `returns: list[QReturnDef] = []` to `QMachineDef`.
 
 ## 2. Parser
 
-- [ ] 2.1 Extend state-heading parser in
+- [x] 2.1 Extend state-heading parser in
   `q_orca/parser/markdown_parser.py` to recognize
   `[invoke: Child(args) shots=N]`. Parse arg bindings
   (comma-separated kwargs) and the optional `shots=` modifier.
-- [ ] 2.2 Extend state-body parsing to detect a `returns:` line
+  Reused the assertion-era bracket-group machinery; `invoke:` is a new
+  token kind alongside `initial`/`final`/`assert:`. `_INVOKE_RE` matches
+  `Child(args) [shots=N]`; args split with `_split_top_level_commas`.
+- [x] 2.2 Extend state-body parsing to detect a `returns:` line
   and attach its bindings to the invoke `QInvoke`.
-- [ ] 2.3 Add `_parse_returns_table` that handles the
+  `_parse_return_bindings` scans the blockquote for `returns: …` and
+  fills `QInvoke.return_bindings` (only when the state has an invoke).
+- [x] 2.3 Add `_parse_returns_table` that handles the
   `## returns` section with Name/Type/Statistics columns, parses
   `Statistics` as a comma-separated vocabulary filter
   (`expectation`, `histogram`, `variance`).
-- [ ] 2.4 Parse-time validation: `shots >= 1`; no `[initial]`-or-
+  Unknown statistic values emit `invalid_return_statistic` and are dropped.
+- [x] 2.4 Parse-time validation: `shots >= 1`; no `[initial]`-or-
   `[final]`+invoke combos; at most one invoke per state; statistics
   vocabulary only on measurement-bearing machines (requires
   post-parse check — do it right after machine assembly in
   `parse_q_orca_markdown`).
-- [ ] 2.5 Unit tests in `tests/test_parser.py` covering: keyword
+  Errors: `invoke_shots_invalid`, `invoke_with_initial_or_final`,
+  `invoke_duplicate`, `statistics_on_non_measurement_machine`.
+- [x] 2.5 Unit tests in `tests/test_parser.py` covering: keyword
   arg binding, indexed RHS (`seed=theta[0]`), shots parsing,
   returns-section with and without statistics, malformed cases
   (shots=0, initial+invoke, non-measurement machine with
   statistics).
+  `TestInvokeAnnotation` (7) + `TestReturnsSection` (4).
 
 ## 3. Verifier — composition stage
 

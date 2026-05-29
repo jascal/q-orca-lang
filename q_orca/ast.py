@@ -156,6 +156,36 @@ class AssertionPolicy:
 
 
 @dataclass
+class QInvoke:
+    """A state's delegation to another machine (`[invoke: Child(args)]`).
+
+    `arg_bindings` maps each child context-field name to the parent-side
+    expression bound to it (a bare field or an indexed reference like
+    `theta[0]`), as written. `return_bindings` maps each parent context-field
+    name to the child-side return it receives. `shots` is the shot-batched
+    execution count (None → single-shot run-to-completion; forbidden for
+    classical children — enforced by the composition verifier).
+    """
+    child_name: str
+    arg_bindings: dict[str, str] = field(default_factory=dict)
+    return_bindings: dict[str, str] = field(default_factory=dict)
+    shots: Optional[int] = None
+
+
+@dataclass
+class QReturnDef:
+    """One value a machine exposes to a caller via its `## returns` section.
+
+    `name` is a context-field identifier or an indexed reference (`bits[0]`).
+    `statistics` is a subset of {expectation, histogram, variance} and is only
+    valid on measurement-bearing machines.
+    """
+    name: str
+    type: QType
+    statistics: list[str] = field(default_factory=list)
+
+
+@dataclass
 class QStateDef:
     name: str  # raw ket notation, e.g. "|00>"
     display_name: str  # cleaned identifier, e.g. "ket_00"
@@ -166,6 +196,7 @@ class QStateDef:
     on_entry: Optional[str] = None
     on_exit: Optional[str] = None
     assertions: list[QAssertion] = field(default_factory=list)
+    invoke: Optional["QInvoke"] = None
 
 
 @dataclass
@@ -420,6 +451,7 @@ class QMachineDef:
     encoding: Optional[EncodingDecl] = None
     theta: Optional[ThetaBlock] = None
     assertion_policy: AssertionPolicy = field(default_factory=AssertionPolicy)
+    returns: list[QReturnDef] = field(default_factory=list)
 
 
 @dataclass
