@@ -123,45 +123,61 @@
 
 ## 6. Verifier — assertion-checker module
 
-- [ ] 6.1 Create `q_orca/verifier/assertions.py` exposing
+- [x] 6.1 Create `q_orca/verifier/assertions.py` exposing
       `check_state_assertions(machine: QMachine, backend) ->
       list[Diagnostic]`.
-- [ ] 6.2 Implement `_circuit_prefix_for_state(machine, state_name) ->
+      `backend` is an optional name hint; `assertion_policy.backend` wins
+      unless `auto`. Returns `list[QVerificationError]` (the codebase's
+      diagnostic type).
+- [x] 6.2 Implement `_circuit_prefix_for_state(machine, state_name) ->
       list[QuantumGate]` that walks the transition graph from
       `[initial]` to the target state along its actions. For machines
       with branching, choose the *first* path in declaration order
       and return it; document this in a docstring.
-- [ ] 6.3 Implement four predicate evaluators:
-      `_eval_classical(state_vec, slice, shots, confidence)`,
-      `_eval_superposition(state_vec, slice, shots, confidence)`,
-      `_eval_entangled(state_vec, qi, qj)`, and
-      `_eval_separable(state_vec, qi, qj)`. The classical /
-      superposition pair MUST use Z-basis sampling with binomial /
-      Wilson-score bounds. The entangled / separable pair MUST use
-      `reduced_density_matrix` from §5.
-- [ ] 6.4 Wire the dispatcher in `check_state_assertions` to:
-      (a) skip states flagged unreachable by the structural stage;
-      (b) emit a single `ASSERTION_BACKEND_MISSING` and bail when the
-      requested backend is unavailable;
-      (c) for each remaining assertion, evaluate the predicate and
-      append exactly one of `ASSERTION_PASSED`, `ASSERTION_FAILED`,
-      `ASSERTION_INCONCLUSIVE` to the diagnostics list.
-- [ ] 6.5 Honour `assertion_policy.on_failure`: `error` → severity
+      Returns a list of op dicts (`gate` / `measure` / `cond`), not bare
+      gates, so the simulator can honour mid-circuit measurement +
+      feedforward. DFS with a per-path visited set takes the first
+      declaration-order transition that reaches the target.
+- [x] 6.3 Implement four predicate evaluators ... classical /
+      superposition use Z-basis sampling with Wilson bounds; entangled /
+      separable use `reduced_density_matrix` from §5.
+      DEVIATION (recorded in module docstring): entangled/separable use the
+      **PPT / negativity criterion** on the reduced 2-qubit matrix, not the
+      design's `Tr(ρ²)<1−ε` pair-purity (which is wrong for a 2-qubit Bell
+      state — pair purity is exactly 1 — and false-positives on GHZ pairs).
+      classical/superposition treat `confidence` as the Wilson *level* and
+      decide against a fixed definiteness threshold (0.90); sampling uses a
+      fixed seed for reproducibility.
+- [x] 6.4 Wire the dispatcher: (a) skip unreachable states (computed via
+      BFS from initial); (b) single `ASSERTION_BACKEND_MISSING` + bail when
+      the simulator is unavailable; (c) one of `ASSERTION_PASSED` /
+      `ASSERTION_FAILED` / `ASSERTION_INCONCLUSIVE` per assertion.
+- [x] 6.5 Honour `assertion_policy.on_failure`: `error` → severity
       error; `warn` → severity warning. `INCONCLUSIVE` and
       `BACKEND_MISSING` are always warnings.
-- [ ] 6.6 Add `ASSERTIONS_SKIPPED_NO_SIMULATOR` info diagnostic when
+- [x] 6.6 Add `ASSERTIONS_SKIPPED_NO_SIMULATOR` info diagnostic when
       the backend dispatcher reports a real-device target.
+      Real-device detection via `_REAL_DEVICE_BACKENDS` name set (no real
+      backend ships today; forward-looking contract).
+      Mid-circuit measurement is handled by deterministic dominant-outcome
+      collapse + feedforward (the design's "Stage 4b already replays
+      measurements" is not true of the current code).
 
 ## 7. Verifier — wire stage into pipeline
 
-- [ ] 7.1 Add `skip_state_assertions: bool = False` to
+- [x] 7.1 Add `skip_state_assertions: bool = False` to
       `VerifyOptions` in `q_orca/verifier/__init__.py`.
-- [ ] 7.2 Insert the state-assertions stage at the end of the pipeline
+- [x] 7.2 Insert the state-assertions stage at the end of the pipeline
       (after `superposition_leak`). Skip when:
       (a) `VerifyOptions.skip_state_assertions` is set;
       (b) no `state_assertions` verification rule is declared;
       (c) no state carries any assertions.
-- [ ] 7.3 Merge stage diagnostics into the main
+      Gate is `not skip and _has_state_assertions_rule(machine)`; condition
+      (c) is handled inside `check_state_assertions` (returns `[]` when no
+      state is annotated), so a rule-declared-but-unannotated machine runs
+      trivially. Import is lazy to avoid touching the QuTiP-importing
+      `dynamic` module on the no-assertions path.
+- [x] 7.3 Merge stage diagnostics into the main
       `QVerificationResult` exactly like the other stages.
 
 ## 8. Compiler — Qiskit metadata
@@ -195,33 +211,41 @@
 
 ## 11. Tests — parser
 
-- [ ] 11.1 Add `tests/test_parser.py::TestAssertionAnnotations` with
+- [x] 11.1 Add `tests/test_parser.py::TestAssertionAnnotations` with
       coverage for: single-category assertion, multi-category
       semicolon-separated assertion, slice form, range form,
       conjunctive `[final, assert: …]`, unknown category error.
-- [ ] 11.2 Add `tests/test_parser.py::TestAssertionPolicy` with
+      Plus separate-bracket-groups conjunction, invalid-target error, and
+      the §4.2 `state_assertions` verification-rule kind test.
+- [x] 11.2 Add `tests/test_parser.py::TestAssertionPolicy` with
       coverage for: default policy, single-setting override, all-four
       override, unknown setting error, out-of-range value error,
       notes column accepted-and-ignored.
 
 ## 12. Tests — verifier (one per category + edge cases)
 
-- [ ] 12.1 Create `tests/test_state_assertions.py`. Add a passing test
+- [x] 12.1 Create `tests/test_state_assertions.py`. Add a passing test
       per category (`classical`, `superposition`, `entangled`,
       `separable`) using minimal hand-built machines.
-- [ ] 12.2 Add a failing-assertion test confirming
+      Also includes the §5.2-5.3 partial-trace tests (Bell marginals,
+      product purity, GHZ pairwise mixedness).
+- [x] 12.2 Add a failing-assertion test confirming
       `ASSERTION_FAILED` at error severity by default and at warning
       severity when `on_failure='warn'`.
-- [ ] 12.3 Add an inconclusive test using `shots_per_assert=16` that
+- [x] 12.3 Add an inconclusive test using `shots_per_assert=16` that
       confirms `ASSERTION_INCONCLUSIVE` at warning severity.
-- [ ] 12.4 Add a backend-missing test (mock QuTiP unavailable) that
+      Uses `Ry(qs[0], 0.5)` (p(|0>)≈0.94) — borderline vs the 0.90
+      definiteness threshold at 16 shots with the fixed seed.
+- [x] 12.4 Add a backend-missing test (mock QuTiP unavailable) that
       confirms exactly one `ASSERTION_BACKEND_MISSING` warning and no
       per-assertion diagnostics.
-- [ ] 12.5 Add a real-device-target test confirming a single
+- [x] 12.5 Add a real-device-target test confirming a single
       `ASSERTIONS_SKIPPED_NO_SIMULATOR` info diagnostic.
-- [ ] 12.6 Add a mid-circuit-measurement test asserting on a state
+- [x] 12.6 Add a mid-circuit-measurement test asserting on a state
       that lives downstream of a `measure` action.
-- [ ] 12.7 Add an unreachable-state test confirming the assertion
+      Two cases: `classical(qs[0])` PASSES post-collapse, and
+      `superposition(qs[0])` FAILS post-collapse.
+- [x] 12.7 Add an unreachable-state test confirming the assertion
       checker emits no diagnostic for assertions on a state already
       flagged unreachable.
 
