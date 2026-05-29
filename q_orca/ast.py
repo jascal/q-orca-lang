@@ -1,7 +1,7 @@
 """Q-Orca AST type definitions — dataclass equivalents of the TypeScript AST."""
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 
 # ============================================================
@@ -95,6 +95,67 @@ class EventDef:
 
 
 @dataclass
+class Span:
+    """Lightweight source location for diagnostics.
+
+    The Markdown parser tracks a `line` per structural element; `text` carries
+    the original source fragment (e.g. an assertion category expression) so a
+    verifier or compiler diagnostic can cite what the author actually wrote.
+    """
+    line: int = 0
+    text: str = ""
+
+
+@dataclass
+class QubitSlice:
+    """An inclusive qubit range `qs[start..end]`, or a single qubit `qs[start]`.
+
+    A single qubit may be constructed as `QubitSlice(k)` (with `end=None`); it
+    is normalized to `end == start` so `QubitSlice(k)` and `QubitSlice(k, k)`
+    compare equal. A range `qs[a..b]` is `QubitSlice(a, b)` with `b >= a`.
+    """
+    start: int
+    end: Optional[int] = None
+
+    def __post_init__(self):
+        if self.end is None:
+            self.end = self.start
+
+    @property
+    def is_single(self) -> bool:
+        return self.start == self.end
+
+    def indices(self) -> list[int]:
+        """All qubit indices covered by this slice, inclusive."""
+        return list(range(self.start, self.end + 1))
+
+
+AssertionCategory = Literal["classical", "superposition", "entangled", "separable"]
+
+
+@dataclass
+class QAssertion:
+    """A runtime state-category assertion declared via `[assert: …]` on a state.
+
+    Evaluated by the Stage-4b assertion checker against statistical samples of
+    the circuit prefix reaching the annotated state. See
+    `q_orca/verifier/assertions.py`.
+    """
+    category: AssertionCategory
+    targets: list[QubitSlice]
+    source_span: Span = field(default_factory=Span)
+
+
+@dataclass
+class AssertionPolicy:
+    """Per-machine policy for the state-assertions stage (`## assertion policy`)."""
+    shots_per_assert: int = 512
+    confidence: float = 0.99
+    on_failure: Literal["error", "warn"] = "error"
+    backend: str = "auto"
+
+
+@dataclass
 class QStateDef:
     name: str  # raw ket notation, e.g. "|00>"
     display_name: str  # cleaned identifier, e.g. "ket_00"
@@ -104,6 +165,7 @@ class QStateDef:
     is_final: bool = False
     on_entry: Optional[str] = None
     on_exit: Optional[str] = None
+    assertions: list[QAssertion] = field(default_factory=list)
 
 
 @dataclass
@@ -357,6 +419,7 @@ class QMachineDef:
     resource_metrics: list[str] = field(default_factory=list)
     encoding: Optional[EncodingDecl] = None
     theta: Optional[ThetaBlock] = None
+    assertion_policy: AssertionPolicy = field(default_factory=AssertionPolicy)
 
 
 @dataclass

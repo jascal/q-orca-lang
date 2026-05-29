@@ -23,6 +23,7 @@ class VerifyOptions:
     skip_dynamic: bool = False
     skip_classical_context: bool = False
     skip_resource_bounds: bool = False
+    skip_state_assertions: bool = False
     backend: str = "qutip"
 
 
@@ -76,10 +77,22 @@ def verify(machine: QMachineDef, options: Optional[VerifyOptions] = None) -> QVe
     superposition = check_superposition_leaks(machine)
     all_errors.extend(superposition.errors)
 
+    # Stage 6: State-category assertions (opt-in via the `state_assertions`
+    # verification rule + at least one `[assert: …]` annotation). Skipped
+    # entirely when the rule is absent so annotated-but-not-opted-in machines
+    # emit no assertion diagnostics.
+    if not opts.skip_state_assertions and _has_state_assertions_rule(machine):
+        from q_orca.verifier.assertions import check_state_assertions
+        all_errors.extend(check_state_assertions(machine, opts.backend))
+
     return QVerificationResult(
         valid=not any(e.severity == "error" for e in all_errors),
         errors=all_errors,
     )
+
+
+def _has_state_assertions_rule(machine: QMachineDef) -> bool:
+    return any(r.kind == "state_assertions" for r in machine.verification_rules)
 
 
 def _run_dynamic_backend(machine: QMachineDef, backend_name: str):

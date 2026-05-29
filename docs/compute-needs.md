@@ -158,7 +158,7 @@ graph TD
 
 ## Current status
 
-- All 19 example machines pass the full 5-stage verification pipeline on every
+- All 20 example machines pass the full 5-stage verification pipeline on every
   commit (Python 3.10–3.13, CI via GitHub Actions)
 - CUDA-Q backend: wired for single-qubit examples; GPU-parallel statevector in
   progress (blocked on hardware access)

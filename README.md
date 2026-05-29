@@ -9,7 +9,7 @@
 
 Q-Orca is a quantum-aware dialect of [Orca](https://github.com/jascal/orca-lang), a state machine language written in Markdown. It extends Orca with Dirac ket notation for quantum states, unitary gate actions, entanglement verification, and simulation via Qiskit.
 
-All 19 bundled example machines — from the original Bell / GHZ / Deutsch-Jozsa / Teleportation / VQE set through QAOA, predictive-coder, and LARQL polysemantic / HEA circuits — pass the full 5-stage verification pipeline on every commit, across Python 3.10–3.13.
+All 20 bundled example machines — from the original Bell / GHZ / Deutsch-Jozsa / Teleportation / VQE set through QAOA, predictive-coder, runtime state assertions, and LARQL polysemantic / HEA circuits — pass the full 5-stage verification pipeline on every commit, across Python 3.10–3.13.
 
 ---
 

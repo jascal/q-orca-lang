@@ -2,6 +2,14 @@
 
 > Generated: 2026-04-17 — weekly feature spec session
 
+**Status:** In flight — being implemented under
+`openspec/changes/add-runtime-state-assertions/`. User-facing documentation
+lives at `docs/language/assertions.md`. Two recipes in this research spec were
+revised during implementation: `entangled`/`separable` use the PPT/negativity
+criterion (exact for two qubits) rather than pair-purity, and `confidence` is
+the Wilson-interval level (not the probability threshold). See the change's
+`design.md` and `tasks.md` for the full rationale.
+
 ---
 
 **Summary:** Add runtime-checked assertions to q-orca that let a machine author annotate any state with an expected *category* of quantum-register configuration — `classical`, `superposition`, or `entangled(qs[i], qs[j])` — and have that claim validated by repeated statistical sampling on a simulator. This is the Huang–Martonosi–style "coarse-grained" assertion approach, which trades the expressiveness of QHL-style full-projection assertions for a verification method that works around destructive measurement and non-determinism. The feature closes the loop between q-orca's existing static verifier (which checks unitarity, coherence, and reachability) and the actual quantum-state behaviour of a compiled circuit by giving the user a way to say "here, at state |ψ⟩, the register `qs[0]` should be in a superposition, and `qs[0]–qs[1]` should be entangled" and to have that assertion mechanically verified by the Stage 4b QuTiP / cuQuantum backend.

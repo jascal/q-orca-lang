@@ -15,6 +15,7 @@ from q_orca.parser.markdown_parser import (
     MdBulletList,
     MdBlockquote,
 )
+from q_orca.ast import AssertionPolicy, QubitSlice
 from tests.fixtures.effect_strings import EFFECT_STRING_CASES
 
 
@@ -1689,3 +1690,127 @@ class TestTierSeparationInvariant:
             "invariant_value_out_of_range" in e and value in e
             for e in result.errors
         )
+
+
+# Helpers for the assertion-annotation / policy tests below. A state heading's
+# `[assert: …]` annotation needs a minimal surrounding machine to parse.
+_ASSERT_TMPL = """# machine M
+## context
+| Field | Type | Default |
+| qubits | list<qubit> | [q0, q1, q2, q3, q4] |
+## state |a> [initial]
+## state {heading}
+## transitions
+| Source | Event | Guard | Target | Action |
+| |a> | go | | {target} | |
+{policy}
+"""
+
+
+def _parse_state(heading, policy=""):
+    src = _ASSERT_TMPL.format(
+        heading=heading,
+        target=heading.split(" [", 1)[0] if " [" in heading else heading,
+        policy=policy,
+    )
+    result = parse_q_orca_markdown(src)
+    return result, result.file.machines[0] if result.file.machines else None
+
+
+class TestAssertionAnnotations:
+    def test_single_category(self):
+        _, m = _parse_state("|bell> [assert: entangled(qs[0], qs[1])]")
+        a = m.states[1].assertions
+        assert len(a) == 1
+        assert a[0].category == "entangled"
+        assert a[0].targets == [QubitSlice(0), QubitSlice(1)]
+
+    def test_multi_category_semicolon(self):
+        _, m = _parse_state(
+            "|enc> [assert: superposition(qs[0..2]); entangled(qs[0], qs[1]); entangled(qs[1], qs[2])]"
+        )
+        a = m.states[1].assertions
+        assert [x.category for x in a] == ["superposition", "entangled", "entangled"]
+        assert a[0].targets == [QubitSlice(0, 2)]
+
+    def test_slice_form_single_qubit(self):
+        _, m = _parse_state("|c> [assert: superposition(qs[0])]")
+        assert m.states[1].assertions[0].targets == [QubitSlice(start=0, end=0)]
+
+    def test_range_form(self):
+        _, m = _parse_state("|j> [assert: classical(qs[3..4])]")
+        assert m.states[1].assertions[0].targets == [QubitSlice(start=3, end=4)]
+
+    def test_conjunctive_with_final(self):
+        _, m = _parse_state("|measured> [final, assert: classical(qs[3..4])]")
+        s = m.states[1]
+        assert s.is_final
+        assert len(s.assertions) == 1 and s.assertions[0].category == "classical"
+
+    def test_conjunctive_separate_bracket_groups(self):
+        _, m = _parse_state("|x> [final] [assert: superposition(qs[0])]")
+        s = m.states[1]
+        assert s.is_final and len(s.assertions) == 1
+
+    def test_unknown_category_error(self):
+        result, m = _parse_state("|u> [assert: thermalised(qs[0])]")
+        assert any(
+            "unknown_assertion_category" in e and "thermalised" in e
+            for e in result.errors
+        )
+        assert m.states[1].assertions == []
+
+    def test_invalid_target_error(self):
+        result, _ = _parse_state("|u> [assert: entangled(qs[0])]")
+        assert any("invalid_assertion_target" in e for e in result.errors)
+
+    def test_state_assertions_verification_rule(self):
+        # §4.2: `- state_assertions: …` parses to a known rule kind.
+        src = (
+            "# machine M\n## state |a> [initial]\n"
+            "## verification rules\n- state_assertions: check mid-circuit states\n"
+        )
+        result = parse_q_orca_markdown(src)
+        kinds = [r.kind for r in result.file.machines[0].verification_rules]
+        assert "state_assertions" in kinds
+
+
+class TestAssertionPolicy:
+    def test_default_policy_when_absent(self):
+        _, m = _parse_state("|x>")
+        assert m.assertion_policy == AssertionPolicy(512, 0.99, "error", "auto")
+
+    def test_single_setting_override(self):
+        _, m = _parse_state("|x>", policy="## assertion policy\n| Setting | Value |\n| shots_per_assert | 128 |\n")
+        assert m.assertion_policy.shots_per_assert == 128
+        assert m.assertion_policy.confidence == 0.99
+
+    def test_all_four_overridden(self):
+        policy = (
+            "## assertion policy\n| Setting | Value |\n"
+            "| shots_per_assert | 256 |\n| confidence | 0.95 |\n"
+            "| on_failure | warn |\n| backend | qutip |\n"
+        )
+        _, m = _parse_state("|x>", policy=policy)
+        assert m.assertion_policy == AssertionPolicy(256, 0.95, "warn", "qutip")
+
+    def test_unknown_setting_error(self):
+        result, _ = _parse_state("|x>", policy="## assertion policy\n| Setting | Value |\n| basis_pref | Z |\n")
+        assert any(
+            "unknown_assertion_policy_setting" in e and "basis_pref" in e
+            for e in result.errors
+        )
+
+    def test_out_of_range_confidence_error(self):
+        result, m = _parse_state("|x>", policy="## assertion policy\n| Setting | Value |\n| confidence | 1.5 |\n")
+        assert any("assertion_policy_value_error" in e and "1.5" in e for e in result.errors)
+        assert m.assertion_policy.confidence == 0.99  # left at default
+
+    def test_notes_column_accepted_and_ignored(self):
+        policy = (
+            "## assertion policy\n| Setting | Value | Notes |\n"
+            "| shots_per_assert | 256 | fast for CI |\n"
+        )
+        result, m = _parse_state("|x>", policy=policy)
+        assert m.assertion_policy.shots_per_assert == 256
+        assert not result.errors

@@ -25,17 +25,20 @@
 
 > Data qubits in |000⟩, ancilla in |00⟩
 
-## state |entangled>
+## state |entangled> [assert: classical(qs[0..2])]
 
-> Ancilla qubits entangled with data for syndrome extraction
+> Ancilla qubits coupled to data for syndrome extraction. On the no-error
+> path the data register stays in the definite codeword |000⟩, so the data
+> qubits are classical (not in superposition) at this point.
 
 ## state |s0_measured>
 
 > First syndrome bit captured: bits[0] = measure(q3)
 
-## state |s1_measured>
+## state |s1_measured> [assert: classical(qs[3..4])]
 
-> Second syndrome bit captured: bits[1] = measure(q4)
+> Second syndrome bit captured: bits[1] = measure(q4). Both ancilla qubits
+> have been measured, so they sit in a definite classical Z-basis state.
 
 ## state |q0_corrected>
 
@@ -77,3 +80,10 @@
 
 - mid_circuit_coherence: ancilla qubits q3 and q4 are not reused after measurement
 - feedforward_completeness: every syndrome measurement drives a correction gate
+- state_assertions: sample-check the data-codeword and syndrome-ancilla state categories
+
+## assertion policy
+
+| Setting          | Value | Notes             |
+|------------------|-------|-------------------|
+| shots_per_assert | 256   | small for fast CI |
