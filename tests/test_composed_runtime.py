@@ -125,3 +125,79 @@ class TestComposedRuntime:
         f = _file(src)
         with pytest.raises(QIterativeRuntimeError):
             run_composed(f, f.machines[0], _opts(), depth_ceiling=3)
+
+
+# ---------------------------------------------------------------------------
+# Parent gate/measurement transitions around invokes (extend-composed-gate-parents)
+# ---------------------------------------------------------------------------
+
+_QCHILD_ROT = """
+---
+# machine QChild
+## context
+| Field | Type | Default |
+| theta | float | 0.5 |
+## state |q0> [initial]
+## state |prepared>
+## state |qm> [final]
+## transitions
+| Source | Event | Guard | Target | Action |
+| |q0> | p | | |prepared> | rotate |
+| |prepared> | m | | |qm> | meas |
+## actions
+| Name | Signature | Effect |
+| rotate | (qs) -> qs | Ry(qs[0], 0.5) |
+| meas | (qs) -> qs | measure(qs[0]) -> bits[0] |
+## returns
+| Name | Type | Statistics |
+| bits[0] | bit | expectation, histogram |
+"""
+
+
+class TestComposedGateParents:
+    def test_parent_gates_execute_around_invoke(self):
+        # The parent applies its OWN H/CNOT before the invoke — previously this
+        # raised "classical-orchestrator parents only"; now it runs.
+        src = (
+            "# machine Parent\n## context\n| Field | Type | Default |\n"
+            "| qubits | list<qubit> | [q0, q1] |\n| theta | float | 0.5 |\n| prob | float | 0.0 |\n"
+            "## state |g0> [initial]\n## state |entangled>\n"
+            "## state |step> [invoke: QChild(theta=theta) shots=512]\n"
+            "> returns: prob=prob_bits_0\n"
+            "## state |done> [final]\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n"
+            "| |g0> | prep | | |entangled> | make_bell |\n"
+            "| |entangled> | inv | | |step> | |\n| |step> | next | | |done> | |\n"
+            "## actions\n| Name | Signature | Effect |\n"
+            "| make_bell | (qs) -> qs | Hadamard(qs[0]); CNOT(qs[0], qs[1]) |\n"
+            + _QCHILD_ROT
+        )
+        f = _file(src)
+        res = run_composed(f, f.machines[0], _opts())
+        assert res.final_state == "|done>"
+        assert res.final_context["prob"] > 0.0  # child's Ry → non-trivial expectation
+        assert res.child_runs[0]["child"] == "QChild"
+
+    def test_parent_measurement_segment_flushes_before_invoke(self):
+        # Parent applies X then measures into bits[0] before invoking; the
+        # measurement segment must flush (not raise) and the run reaches final.
+        src = (
+            "# machine Parent\n## context\n| Field | Type | Default |\n"
+            "| qubits | list<qubit> | [q0] |\n| theta | float | 0.5 |\n| prob | float | 0.0 |\n"
+            "## state |s0> [initial]\n## state |flipped>\n## state |measured>\n"
+            "## state |step> [invoke: QChild(theta=theta) shots=256]\n"
+            "> returns: prob=prob_bits_0\n"
+            "## state |done> [final]\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n"
+            "| |s0> | x | | |flipped> | flip |\n"
+            "| |flipped> | m | | |measured> | meas_p |\n"
+            "| |measured> | inv | | |step> | |\n| |step> | next | | |done> | |\n"
+            "## actions\n| Name | Signature | Effect |\n"
+            "| flip | (qs) -> qs | X(qs[0]) |\n"
+            "| meas_p | (qs) -> qs | measure(qs[0]) -> bits[0] |\n"
+            + _QCHILD_ROT
+        )
+        f = _file(src)
+        res = run_composed(f, f.machines[0], _opts())
+        assert res.final_state == "|done>"
+        assert res.child_runs[0]["child"] == "QChild"

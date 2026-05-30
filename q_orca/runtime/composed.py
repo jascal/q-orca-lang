@@ -21,7 +21,9 @@ from typing import Optional
 from q_orca.ast import QMachineDef, QOrcaFile
 from q_orca.runtime import context_ops
 from q_orca.runtime.iterative import (
+    _PendingTransition,
     _enabled_transitions,
+    _flush_segment,
     _initial_context,
     _initial_state_name,
     simulate_iterative,
@@ -93,6 +95,20 @@ def _walk_composed(file, machine, opts, base_path, import_graph, foreign_runners
         ctx.update(overrides)
     bits: dict[int, int] = {}
     child_runs: list[dict] = []
+    # The parent may carry its own gate/measurement transitions interleaved with
+    # invokes; accumulate them into a segment and flush (build + run the circuit)
+    # around invoke / context-update / final boundaries, reusing the iterative
+    # runtime's segment machinery.
+    segment: list = []
+    aggregate_counts: dict = {}
+    trace: list = []
+
+    def flush():
+        nonlocal bits, segment
+        bits = _flush_segment(
+            machine, opts, ctx, bits, segment, trace, aggregate_counts, steps
+        )
+        segment = []
 
     current = _initial_state_name(machine)
     steps = 0
@@ -103,41 +119,44 @@ def _walk_composed(file, machine, opts, base_path, import_graph, foreign_runners
                 f"iteration ceiling {opts.iteration_ceiling} exceeded in {machine.name!r}"
             )
         if current in final_states:
+            flush()  # run any trailing parent gate segment
             break
 
         state = state_map[current]
         if state.invoke is not None:
+            flush()  # parent bits observable to the invoke bindings + later guards
             summary, ctx = _run_invoke(
                 file, state, ctx, opts, base_path, import_graph, foreign_runners,
                 depth_ceiling, depth,
             )
             child_runs.append(summary)
+            enabled = _enabled_transitions(machine, current, ctx, bits, guard_map)
+            if not enabled:
+                break  # invoke state with no outgoing transition → fall through
+            current = enabled[0].target
+            continue
 
         enabled = _enabled_transitions(machine, current, ctx, bits, guard_map)
         if not enabled:
-            if state.invoke is not None:
-                break  # invoke state with no outgoing transition → fall through
             raise QIterativeRuntimeError(
                 f"stuck state {current!r} in {machine.name!r}: no guarded transition enabled"
             )
         transition = enabled[0]
 
-        # Only advance through the action for non-invoke states; an invoke
-        # state's outgoing transition fires *after* the child completed above.
-        if state.invoke is None and transition.action:
+        if transition.action:
             action = action_map.get(transition.action)
             if action is not None and action.context_update is not None:
+                flush()  # measured bits observable to branch selection
                 ctx = context_ops.apply(action.context_update, ctx, bits)
             elif action is not None and (
-                action.gate is not None
+                action.effect
+                or action.gate is not None
                 or action.mid_circuit_measure is not None
                 or action.measurement is not None
                 or action.conditional_gate is not None
             ):
-                raise QIterativeRuntimeError(
-                    f"run_composed v1 supports classical-orchestrator parents; "
-                    f"gate/measurement action {transition.action!r} on the "
-                    f"invoke-bearing machine {machine.name!r} is not yet supported"
+                segment.append(
+                    _PendingTransition(transition=transition, action=action, iteration=steps)
                 )
         current = transition.target
 
