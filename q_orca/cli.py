@@ -64,6 +64,8 @@ def main():
     r.add_argument("--shots", type=int, default=1024, help="Inner shots for shot-batched quantum children")
     r.add_argument("--seed", type=int, default=None, help="Simulator seed for reproducible runs")
     r.add_argument("--json", action="store_true", help="Output the final context as JSON")
+    r.add_argument("--bridge", action="store_true",
+                   help="Cross-tool inbound: read a bridge invocation envelope from stdin and emit a result envelope")
 
     # simulate
     s = sub.add_parser("simulate", help="Simulate a quantum machine with Qiskit")
@@ -227,11 +229,26 @@ def _cmd_imports(parsed, args):
 
 
 def _cmd_run(parsed, args):
-    """Verify, then execute a composed (or single) machine; print final context."""
+    """Verify, then execute a composed (or single) machine; print final context.
+
+    With `--bridge`, instead acts as the cross-tool inbound entry point: read an
+    invocation envelope from stdin and emit a result envelope to stdout.
+    """
     import json as _json
 
     from q_orca.runtime.composed import run_composed
     from q_orca.runtime.types import QIterativeSimulationOptions
+
+    if args.bridge:
+        from q_orca.bridge.dispatch import run_inbound
+        from q_orca.bridge.protocol import BridgeError, make_result
+        try:
+            invocation = _json.loads(sys.stdin.read())
+            result = run_inbound(parsed.file, invocation, seed=args.seed)
+        except BridgeError as exc:
+            result = make_result("", {}, error={"code": exc.code, "message": str(exc)})
+        print(_json.dumps(result, default=str))
+        return
 
     machine = parsed.file.machines[0]
     import_graph = _build_import_graph(parsed, args)
