@@ -54,6 +54,7 @@ def run_composed(
     options: Optional[QIterativeSimulationOptions] = None,
     base_path: Optional[str] = None,
     import_graph=None,
+    foreign_runners: Optional[dict] = None,
     depth_ceiling: int = _DEFAULT_DEPTH_CEILING,
     _depth: int = 0,
     _initial_overrides: Optional[dict] = None,
@@ -76,11 +77,12 @@ def run_composed(
         )
 
     return _walk_composed(
-        file, machine, opts, base_path, import_graph, depth_ceiling, _depth, _initial_overrides
+        file, machine, opts, base_path, import_graph, foreign_runners,
+        depth_ceiling, _depth, _initial_overrides,
     )
 
 
-def _walk_composed(file, machine, opts, base_path, import_graph, depth_ceiling, depth, overrides):
+def _walk_composed(file, machine, opts, base_path, import_graph, foreign_runners, depth_ceiling, depth, overrides):
     action_map = {a.name: a for a in machine.actions}
     guard_map = {g.name: g for g in machine.guards}
     state_map = {s.name: s for s in machine.states}
@@ -106,7 +108,8 @@ def _walk_composed(file, machine, opts, base_path, import_graph, depth_ceiling, 
         state = state_map[current]
         if state.invoke is not None:
             summary, ctx = _run_invoke(
-                file, state, ctx, opts, base_path, import_graph, depth_ceiling, depth
+                file, state, ctx, opts, base_path, import_graph, foreign_runners,
+                depth_ceiling, depth,
             )
             child_runs.append(summary)
 
@@ -147,13 +150,16 @@ def _walk_composed(file, machine, opts, base_path, import_graph, depth_ceiling, 
     )
 
 
-def _run_invoke(file, state, ctx, opts, base_path, import_graph, depth_ceiling, depth):
+def _run_invoke(file, state, ctx, opts, base_path, import_graph, foreign_runners, depth_ceiling, depth):
     inv = state.invoke
     child = _resolve_child(file, inv.child_name, import_graph)
     if child is None:
+        # Foreign child: not resolvable in-tool but declared as the other tool's.
+        if foreign_runners and inv.child_name in foreign_runners:
+            return _run_foreign_invoke(state, inv, ctx, foreign_runners[inv.child_name])
         raise QIterativeRuntimeError(
             f"invoke state {state.name}: child {inv.child_name!r} did not resolve "
-            f"(was the machine verified?)"
+            f"(not in this file/import graph, and no foreign runner registered)"
         )
 
     child_init = {
@@ -169,8 +175,9 @@ def _run_invoke(file, state, ctx, opts, base_path, import_graph, depth_ceiling, 
         # Nested composition: recurse (aggregate stats unavailable through a
         # composed child in v1 — nested children are classical/single-shot).
         child_result = run_composed(
-            file, child, child_opts, base_path, import_graph,
-            depth_ceiling, depth + 1, child_init,
+            file, child, child_opts, base_path=base_path, import_graph=import_graph,
+            foreign_runners=foreign_runners, depth_ceiling=depth_ceiling,
+            _depth=depth + 1, _initial_overrides=child_init,
         )
         aggregate_counts = {}
     else:
@@ -188,6 +195,34 @@ def _run_invoke(file, state, ctx, opts, base_path, import_graph, depth_ceiling, 
         "invoke_state": state.name,
         "child": child.name,
         "shots": inv.shots,
+        "returns": returns,
+    }
+    return summary, new_ctx
+
+
+def _run_foreign_invoke(state, inv, ctx, runner_argv):
+    """Dispatch an invoke to a foreign (other-tool) child over the bridge."""
+    from q_orca.bridge.dispatch import dispatch_foreign
+    from q_orca.bridge.protocol import build_invocation
+
+    args = {param: _eval_parent_expr(expr, ctx) for param, expr in inv.arg_bindings.items()}
+    envelope = build_invocation(inv.child_name, args, inv.shots, dict(inv.return_bindings))
+    result = dispatch_foreign(list(runner_argv), envelope)  # raises BridgeError on transport failure
+    if result.get("error"):
+        raise QIterativeRuntimeError(
+            f"invoke state {state.name}: foreign child {inv.child_name!r} returned an "
+            f"error: {result['error']}"
+        )
+    returns = result["returns"]
+    new_ctx = dict(ctx)
+    for parent_field, child_return in inv.return_bindings.items():
+        if child_return in returns:
+            new_ctx[parent_field] = returns[child_return]
+    summary = {
+        "invoke_state": state.name,
+        "child": inv.child_name,
+        "shots": inv.shots,
+        "foreign": True,
         "returns": returns,
     }
     return summary, new_ctx
