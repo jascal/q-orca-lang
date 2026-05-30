@@ -201,3 +201,85 @@ class TestComposedGateParents:
         res = run_composed(f, f.machines[0], _opts())
         assert res.final_state == "|done>"
         assert res.child_runs[0]["child"] == "QChild"
+
+
+# ---------------------------------------------------------------------------
+# Nested shot-batched aggregation (extend-nested-shot-aggregation)
+# ---------------------------------------------------------------------------
+
+_NESTED = """# machine Grandparent
+## context
+| Field | Type | Default |
+| qubits | list<qubit> | [q0] |
+| prob | float | 0.0 |
+## state |g0> [initial]
+## state |step> [invoke: Mid() shots=512]
+> returns: prob=prob_bits_0
+## state |gdone> [final]
+## transitions
+| Source | Event | Guard | Target | Action |
+| |g0> | go | | |step> | |
+| |step> | d | | |gdone> | |
+
+---
+
+# machine Mid
+## context
+| Field | Type | Default |
+| qubits | list<qubit> | [q0] |
+## state |m0> [initial]
+## state |flipped>
+## state |measured>
+## state |sub> [invoke: Leaf()]
+## state |mdone> [final]
+## transitions
+| Source | Event | Guard | Target | Action |
+| |m0> | x | | |flipped> | flip |
+| |flipped> | meas | | |measured> | meas |
+| |measured> | s | | |sub> | |
+| |sub> | d | | |mdone> | |
+## actions
+| Name | Signature | Effect |
+| flip | (qs) -> qs | X(qs[0]) |
+| meas | (qs) -> qs | measure(qs[0]) -> bits[0] |
+## returns
+| Name | Type | Statistics |
+| bits[0] | bit | expectation |
+
+---
+
+# machine Leaf
+## context
+| Field | Type | Default |
+| z | int | 0 |
+## state |l0> [initial]
+## state |l1> [final]
+## transitions
+| Source | Event | Guard | Target | Action |
+| |l0> | g | | |l1> | |
+"""
+
+
+class TestNestedShotAggregation:
+    def test_composed_child_surfaces_aggregates(self):
+        # Mid is composed (invokes Leaf) AND measurement-bearing (own X+measure).
+        # Before this change its aggregate_counts was discarded → prob would be 0;
+        # now the grandparent receives the real expectation (X→measure ⇒ 1.0).
+        f = _file(_NESTED)
+        res = run_composed(f, f.machines[0], _opts())
+        assert res.final_context["prob"] == 1.0
+        assert res.child_runs[0]["aggregate_counts"]  # non-empty distribution
+
+    def test_leaf_child_aggregate_unchanged(self):
+        # Regression: a leaf quantum child still aggregates as before.
+        fixture = Path(__file__).parent / "fixtures" / "composed_predictive_coder.q.orca.md"
+        f = _file(fixture.read_text())
+        res = run_composed(f, f.machines[0], _opts())
+        assert 0.0 <= res.final_context["prob"] <= 1.0
+        assert res.child_runs[0]["returns"]["hist_bits_0"][0] + \
+            res.child_runs[0]["returns"]["hist_bits_0"][1] == 1024
+
+    def test_run_result_exposes_aggregate_counts(self):
+        f = _file(_NESTED)
+        res = run_composed(f, f.machines[0], _opts())
+        assert isinstance(res.aggregate_counts, dict) and res.aggregate_counts

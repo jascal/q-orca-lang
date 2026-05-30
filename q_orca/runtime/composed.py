@@ -76,6 +76,7 @@ def run_composed(
             success=result.success,
             final_state=result.final_state,
             final_context=result.final_context,
+            aggregate_counts=getattr(result, "aggregate_counts", {}) or {},
         )
 
     return _walk_composed(
@@ -129,6 +130,8 @@ def _walk_composed(file, machine, opts, base_path, import_graph, foreign_runners
                 file, state, ctx, opts, base_path, import_graph, foreign_runners,
                 depth_ceiling, depth,
             )
+            for key, count in (summary.get("aggregate_counts") or {}).items():
+                aggregate_counts[key] = aggregate_counts.get(key, 0) + count
             child_runs.append(summary)
             enabled = _enabled_transitions(machine, current, ctx, bits, guard_map)
             if not enabled:
@@ -166,6 +169,7 @@ def _walk_composed(file, machine, opts, base_path, import_graph, foreign_runners
         final_state=current,
         final_context=ctx,
         child_runs=child_runs,
+        aggregate_counts=aggregate_counts,
     )
 
 
@@ -191,17 +195,17 @@ def _run_invoke(file, state, ctx, opts, base_path, import_graph, foreign_runners
 
     child_has_invokes = any(s.invoke is not None for s in child.states)
     if child_has_invokes:
-        # Nested composition: recurse (aggregate stats unavailable through a
-        # composed child in v1 — nested children are classical/single-shot).
+        # Nested composition: recurse. The composed child surfaces its own
+        # measured-bit distribution on its result, so aggregation is identical
+        # whether the child is a leaf or composed.
         child_result = run_composed(
             file, child, child_opts, base_path=base_path, import_graph=import_graph,
             foreign_runners=foreign_runners, depth_ceiling=depth_ceiling,
             _depth=depth + 1, _initial_overrides=child_init,
         )
-        aggregate_counts = {}
     else:
         child_result = simulate_iterative(child, child_opts, initial_context=child_init)
-        aggregate_counts = getattr(child_result, "aggregate_counts", {}) or {}
+    aggregate_counts = getattr(child_result, "aggregate_counts", {}) or {}
 
     returns = _compute_returns(child, child_result.final_context, aggregate_counts, shot_batched)
 
@@ -215,6 +219,7 @@ def _run_invoke(file, state, ctx, opts, base_path, import_graph, foreign_runners
         "child": child.name,
         "shots": inv.shots,
         "returns": returns,
+        "aggregate_counts": aggregate_counts,  # for upward accumulation
     }
     return summary, new_ctx
 
