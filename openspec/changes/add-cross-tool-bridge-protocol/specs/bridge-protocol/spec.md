@@ -14,9 +14,16 @@ classical-orca and q-orca can produce and consume without sharing AST types. A
   `args` (a `param → JSON-value` map), `shots` (integer or null), and
   `return_bindings` (a `parent_field → child_return` map).
 - A **result envelope** SHALL carry `final_state` and `returns` (a
-  `name → JSON-value` map). For a shot-batched, measurement-bearing child the
-  `returns` map SHALL also include the synthesized `prob_<r>` / `hist_<r>` /
-  `var_<r>` fields under the same sanitized names q-orca uses in-tool.
+  `name → JSON-value` map), and an optional `error` field (absent on success).
+  For a shot-batched, measurement-bearing child the `returns` map SHALL also
+  include the synthesized `prob_<r>` / `hist_<r>` / `var_<r>` fields under the
+  same sanitized names q-orca uses in-tool.
+
+The descriptor's `measurement_bearing` flag SHALL be a property of the child
+machine derived from its definition — it is `true` iff the machine contains a
+measurement effect (a `measure(...)` / mid-circuit-measure action). It SHALL NOT
+be inferred from whether any invocation sets `shots`. This is the flag the
+verifier uses to reject `shots` on a classical child.
 
 Only JSON scalars and arrays SHALL cross the boundary; qubit / state-vector
 values SHALL NOT (composition is classical at the boundary).
@@ -27,6 +34,13 @@ values SHALL NOT (composition is classical at the boundary).
   `expectation, histogram`
 - **THEN** its machine descriptor lists that return with
   `statistics = ["expectation", "histogram"]` and `measurement_bearing = true`
+
+#### Scenario: Classical machine reports measurement_bearing false
+
+- **WHEN** a machine with no measurement effect (a classical orca orchestrator)
+  emits its descriptor
+- **THEN** `measurement_bearing` is `false` regardless of any caller's `shots`,
+  and a `shots`-bearing invocation of it is rejected
 
 #### Scenario: Result envelope carries aggregates for a shot-batched child
 
@@ -93,3 +107,29 @@ as the inbound entry point when a foreign (orca) parent invokes a q-orca child.
 - **WHEN** an external caller runs `q-orca run --json` on a q-orca child with an
   invocation envelope's args supplied
 - **THEN** stdout is a result envelope another tool can consume
+
+### Requirement: Error Reporting Across the Bridge
+
+The bridge SHALL distinguish two failure modes and map both to the caller's
+existing error-handling so an author can tell a child rejecting input from the
+bridge itself failing. A **child error** (the child ran but reached an error
+final state, or its runner reported a domain error) SHALL be conveyed in the
+result envelope's `error` field with a structured code and message; the caller
+treats it like any child-completion error (e.g. orca emits its `on_error`
+event). A **bridge error** (the foreign runner could not be invoked, timed out,
+produced non-JSON output, or returned an unsupported `protocol_version`) SHALL be
+raised distinctly, carrying a `bridge`-category code, so it is not confused with
+a child error. On either error the caller SHALL NOT bind partial returns into the
+parent context.
+
+#### Scenario: Child error surfaces in the result envelope
+
+- **WHEN** a foreign child runs but reaches an error final state
+- **THEN** the result envelope carries an `error` with a structured code and the
+  caller routes it through its child-error handling, binding no returns
+
+#### Scenario: Bridge transport failure is distinct from a child error
+
+- **WHEN** the foreign runner cannot be launched or returns non-JSON
+- **THEN** the bridge raises a `bridge`-category error distinct from a child
+  error, and no returns are bound into the parent context
