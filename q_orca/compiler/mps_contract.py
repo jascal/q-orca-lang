@@ -164,13 +164,16 @@ def _apply_cnot(np_module, A_c, A_t):
         discarded = S[_MAX_BOND_DIM:]
         max_discarded = float(discarded.max())
         if max_discarded > _BOND_TRUNCATION_ATOL:
+            effective_rank = int(
+                np_module.count_nonzero(S > _BOND_TRUNCATION_ATOL)
+            )
             raise MpsBondTruncationError(
                 f"_apply_cnot: SVD truncation would lose amplitude — "
                 f"largest discarded singular value {max_discarded:.3e} "
                 f"exceeds atol {_BOND_TRUNCATION_ATOL:.0e}. The CNOT-"
                 f"staircase contract guarantees rank <= {_MAX_BOND_DIM} "
                 f"at this cut; received tensors with effective rank "
-                f"{len([s for s in S if s > _BOND_TRUNCATION_ATOL])} "
+                f"{effective_rank} "
                 f"(kept {len(S[:_MAX_BOND_DIM])} of {len(S)} singular "
                 f"values)."
             )
