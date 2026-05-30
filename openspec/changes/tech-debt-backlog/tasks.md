@@ -1329,3 +1329,238 @@ picked up.
   module docstring as documentation. Size: [M] half-day.
   (Source: 2026-05-15 PR #70 review log,
   `logs/pr-review-2026-05-15.log` run-2, item 3.)
+
+## Feedback triage — 2026-05-29
+
+Items surfaced from `logs/pr-review-*.log` for PRs merged in the
+seven days ending 2026-05-29 (PRs #72, #73, #74, #76, #78, #79,
+#80, #81, #82, #83, #84, #85, #86, #87, #88, #89, #91, #92, #93,
+#94). PRs #79, #81, #84, #86, #89 are spec-sync / housekeeping
+archives with no reviewer comments to capture. PRs #80, #83, #85,
+#87, #88, #91, #92, #93, #94 merged on the same day as their
+review (or were not reviewed in this window per the visible
+pr-review logs) and yielded no captured non-blocking feedback in
+the available logs. Numbered in the §7.x range continuing from
+the 2026-05-15 triage; promote into an area section when one is
+picked up.
+
+- [ ] 7.8 **Lift the `n_plus_ancilla` machine source string to a
+  class-level constant in `TestInferQubitCountPublicHelper`.**
+  Severity: LOW. Surface: `tests/test_compiler.py` around lines
+  385-420 and 448-485. After PR #72 landed the new
+  `test_dynamic_alias_resolves_n_plus_ancilla` behavioural test
+  next to `test_public_helper_resolves_n_plus_ancilla`, both
+  methods carry their own copy of the same ~30-line `# machine
+  ThreePlusAncilla` Markdown source. A future edit (e.g. renaming
+  a field, adjusting verification rules) has to land in both
+  copies and there is nothing to flag a drift. Fix shape: lift
+  the source to a `_N_PLUS_ANCILLA_SOURCE` class-level constant
+  inside `TestInferQubitCountPublicHelper` and reference it from
+  both methods plus any future addition. Size: [XS] <30 min.
+  (Source: 2026-05-22 PR #72 review log,
+  `logs/pr-review-2026-05-22.log`, "minor non-blocking nit".)
+
+- [ ] 7.9 **Vectorise the effective-rank reduction in the
+  `MpsBondTruncationError` message.** Severity: LOW. Surface:
+  `q_orca/compiler/mps_contract.py:173`. The error string
+  computes the effective rank with a Python list comprehension
+  (`len([s for s in S if s > _BOND_TRUNCATION_ATOL])`) inside the
+  raise path. The path runs only on a guard failure so the cost
+  is negligible, but the rest of the contraction module has been
+  systematically vectorised under PR #68 / §3.12 and this is the
+  one remaining stray Python loop on `S`. Fix shape: replace
+  with `int(np.count_nonzero(S > _BOND_TRUNCATION_ATOL))` (already
+  imported `numpy as np` at module scope). Size: [XS] <30 min.
+  (Source: 2026-05-22 PR #73 review log,
+  `logs/pr-review-2026-05-22.log`, "vectorise effective-rank
+  computation in error string".)
+
+- [ ] 7.10 **Simplify the `U_oracle` / `Vh_oracle` Q-R scaffolding
+  in `test_rank_three_input_raises_with_named_discard`.**
+  Severity: LOW. Surface:
+  `tests/test_concept_gram_mps_contraction.py` around lines
+  336-345. The rank-3 truncation test builds its oracle joint
+  matrix `M = U_oracle @ S_oracle @ Vh_oracle` from two
+  `np.linalg.qr` calls and an explicit diagonal `S_oracle`. The
+  Q-R machinery is over-built for the test's actual claim:
+  any (4×4) complex Gaussian with `S[2] > 1e-3` after SVD will
+  do, and a simpler `np.random.default_rng(seed).normal(...)`
+  with a sanity assertion that the third singular value exceeds
+  the threshold is equally precise and ~12 lines shorter. Fix
+  shape: replace the Q-R block with a seeded Gaussian + an SVD
+  assertion at construction. Keep the oracle SVD that the test
+  body compares against unchanged so the magnitude regression
+  pin survives. Size: [XS] <30 min.
+  (Source: 2026-05-22 PR #73 review log,
+  `logs/pr-review-2026-05-22.log`, "simplify unused
+  `U_oracle`/`Vh_oracle` setup in test 3".)
+
+- [ ] 7.11 **Remove the unused `import os` in
+  `tests/test_mcp_server.py`.** Severity: LOW. Surface:
+  `tests/test_mcp_server.py:18`. PR #74 added this file and the
+  module imports `os` but does not use it; `ruff check` flags
+  `F401: 'os' imported but unused`. Confirmed still present on
+  `main` at HEAD. Fix shape: delete the line. Size: [XS] <30 min.
+  (Source: 2026-05-27 PR #74 review log,
+  `logs/pr-review-2026-05-27.log`, called out as the "1 lint
+  blocker" but not actioned before merge.)
+
+- [ ] 7.12 **Trim the dead `Boom` / `monkeypatch` scaffolding
+  inside the skipped `TestOuterErrorEnvelope` test.** Severity:
+  LOW. Surface: `tests/test_mcp_server.py`, around the
+  `TestOuterErrorEnvelope` class (line 181 in the merged shape)
+  before its `pytest.skip(...)`. PR #74's review flagged ~60
+  lines of exploratory `Boom` exception class definitions and
+  `monkeypatch` fixture stand-ups that precede the skip
+  statement and never execute. Cost: noise for any reader trying
+  to understand the outer-envelope code path. Fix shape: collapse
+  the class to either (a) a single `pytest.skip(...)` at class
+  level with a one-paragraph comment naming the open question,
+  or (b) a single representative test wrapped in `@pytest.mark.skip`
+  with the rest of the scaffolding deleted. Size: [S] <2h.
+  (Source: 2026-05-27 PR #74 review log,
+  `logs/pr-review-2026-05-27.log`, "trim the ~60-line
+  exploration comment in the skipped outer-envelope test".)
+
+- [ ] 7.13 **Replace the dead `if False else` branch in the
+  `_run` test helper with the live path.** Severity: LOW.
+  Surface: `tests/test_mcp_server.py:86`. The helper reads
+  `return asyncio.get_event_loop().run_until_complete(coro) if
+  False else asyncio.run(coro)` — the `if False` makes the
+  first arm dead code. Fix shape: drop the ternary and return
+  `asyncio.run(coro)` directly; remove any now-orphaned import.
+  Size: [XS] <30 min.
+  (Source: 2026-05-27 PR #74 review log,
+  `logs/pr-review-2026-05-27.log`, "dead `if False else` branch
+  in `_run` helper".)
+
+- [ ] 7.14 **Document that the MCP path-scrubbing regex is
+  ASCII-only.** Severity: LOW. Surface:
+  `q_orca/mcp_server.py` sanitizer regex (the implementation
+  PR #74 added). The character classes in the regex assume
+  POSIX-ASCII path components and silently pass through
+  non-ASCII path segments. This is intentional for v1 (the
+  shipped tooling paths are all ASCII), but the constraint is
+  invisible. Fix shape: add a one-paragraph comment immediately
+  above the regex definition naming the ASCII-only assumption
+  and the known follow-ups in §7.15. Size: [XS] <30 min.
+  (Source: 2026-05-27 PR #74 review log,
+  `logs/pr-review-2026-05-27.log`, "add a one-line note that the
+  path regex is ASCII-only".)
+
+- [ ] 7.15 **Extend the MCP path-scrubbing regex to cover the
+  five residual-leak shapes.** Severity: LOW. Surface:
+  `q_orca/mcp_server.py` sanitizer regex. The PR #74 review
+  identified five path shapes the current regex misses:
+  (1) multi-slash numerics like `1/2/3` (no current
+  pattern matches because each segment is purely digits);
+  (2) home-relative paths like `~/...` (tilde anchor not in
+  the alphabet); (3) Windows UNC paths like `\\server\share\...`
+  (no double-backslash anchor); (4) `file://` URI paths (scheme
+  not recognised); (5) paths-with-spaces (the regex stops at the
+  first whitespace). Fix shape: extend the regex's path-prefix
+  alternation to cover all five shapes, with a focused test in
+  `tests/test_mcp_server.py::TestSanitizer` for each. Coordinate
+  with §7.14: each new alternation gets a comment naming the
+  shape it catches. Size: [M] half-day.
+  (Source: 2026-05-27 PR #74 review log,
+  `logs/pr-review-2026-05-27.log`, "residual-leak edge cases in
+  the path-scrubbing regex".)
+
+- [ ] 7.16 **Forward-link the README `### Trust Boundary`
+  subsection to the §4.3 sanitization story.** Severity: LOW.
+  Surface: `README.md`, the `### Trust Boundary` block added by
+  PR #76 (commit 606f74f, around line 866 of README.md on HEAD).
+  The reviewer noted that the trust-boundary discussion stands
+  alone but a reader following the threat model would benefit
+  from a forward-link to the sanitization machinery that landed
+  next door (§4.3 / PR #74). Fix shape: append one short
+  sentence at the end of the `### Trust Boundary` subsection
+  along the lines of "Exception messages on the
+  `tools/call` error path are scrubbed of filesystem paths
+  before being returned to the caller (see the MCP error
+  handling section)." Add a corresponding anchor in the error
+  handling docs so the link resolves. Size: [XS] <30 min.
+  (Source: 2026-05-28 PR #76 review log,
+  `logs/pr-review-2026-05-28.log`, "forward-link to §4.3".)
+
+- [ ] 7.17 **Gloss `tools/call` as MCP jargon on first use in
+  the README.** Severity: LOW. Surface: `README.md`, the
+  `### Trust Boundary` subsection ("There is no auth check on
+  `tools/call` — any client that can connect…"). A reader new
+  to the MCP protocol does not necessarily know that
+  `tools/call` is the JSON-RPC method name the MCP spec uses
+  for tool invocation. Fix shape: change the first occurrence
+  to "There is no auth check on the JSON-RPC `tools/call` method
+  (the MCP-standard tool-invocation entry point) — any client
+  …". One-sentence change; no behavioural impact. Size: [XS]
+  <30 min.
+  (Source: 2026-05-28 PR #76 review log,
+  `logs/pr-review-2026-05-28.log`, "gloss `tools/call` as MCP
+  jargon".)
+
+- [ ] 7.18 **Tighten the prior-Claude-review check from
+  substring to author identity in `pr-review-prompt.txt`.**
+  Severity: LOW. Surface:
+  `scripts/pr-review-prompt.txt` step 2.b (and the matching
+  scan logic in any tooling that consumes the prompt). The
+  current rule says "any entry whose `body` contains
+  `"Claude"`". A human reviewer who writes "Claude tells me…"
+  in a normal review body trips the skip-check and prevents
+  the automated review from running on that PR. Fix shape:
+  replace the substring check with one of: (a) the review's
+  `author.login` matches a known automation identity (e.g.
+  `github-actions[bot]`), (b) the review body begins with the
+  required header line (`## Code Review — Claude Sonnet
+  4.6` per step 3.e), or (c) the review carries a
+  hidden HTML-comment marker the automation always emits.
+  Option (b) is the lowest-friction since the header is
+  already required. Size: [S] <2h.
+  (Source: 2026-05-28 PR #78 review log,
+  `logs/pr-review-2026-05-28.log`, "the `"Claude"` substring
+  check is still loose (false positive if a human mentions
+  Claude in a comment)".)
+
+- [ ] 7.19 **Add a direct `change-name → headRefName` comparison
+  to the nightly's open-PR cross-check.** Severity: LOW. Surface:
+  `scripts/nightly-prompt.txt` (the open-PR cross-check
+  introduced by PR #78). Today the nightly's "is there already
+  a PR for this OpenSpec change" check works by scanning for
+  `§N.M`-style anchors in PR titles and bodies; an OpenSpec
+  change that does not carry a `§N.M`-style anchor (e.g. a brand
+  new top-level change that isn't a tech-debt-backlog item) can
+  slip through the scan and yield a duplicate task. Fix shape:
+  in addition to the existing anchor scan, compare the
+  `<change-name>` the nightly is about to start work on against
+  every open PR's `headRefName` (which by convention matches
+  the change directory). Skip the task if any open PR's
+  `headRefName` equals the change name. Size: [S] <2h.
+  (Source: 2026-05-28 PR #78 review log,
+  `logs/pr-review-2026-05-28.log`, "section-identifier scan is
+  example-driven (could miss tasks without `§N.M`-style
+  anchors)".)
+
+- [ ] 7.20 **Re-tier the heatmap legend in the larql-polysemantic-
+  hierarchical demo to disambiguate the 0.055 rows.** Severity:
+  LOW. Surface:
+  `demos/larql_polysemantic_hierarchical/demo.py:85,99`. The
+  ASCII heatmap legend uses a four-tier cutoff
+  (`# ≥ 0.7`, `o ∈ [0.3, 0.7)`, `. ∈ [0.05, 0.3)`, blank
+  `< 0.05`). The tabulated table that PR #82 clarified contains
+  `strawberry`/`blueberry`/`car`/`bike` rows at `0.063` and
+  `0.055`, which sit just above the `0.05` display threshold,
+  so they render as `.` in the heatmap and `0.063`/`0.055` in
+  the table — correct, but a reader cross-checking the two
+  representations may briefly misread "just above the dot
+  threshold" as "should have been blank". Fix shape: either
+  (a) lift the blank/`.` boundary to `0.07` so the
+  `0.063`/`0.055` rows clearly land in the dot tier, or (b)
+  add a one-sentence legend note explaining that the dot tier
+  includes values arbitrarily close to the blank threshold and
+  that the tabulated decimal is the source of truth. Option
+  (b) is the lower-risk fix (no demo regression). Size: [XS]
+  <30 min.
+  (Source: 2026-05-29 PR #82 review log,
+  `logs/pr-review-2026-05-29.log`, "the 0.055 rows sit just
+  above the heatmap's 0.05 display tier, which could briefly
+  confuse a cross-checking reader".)
