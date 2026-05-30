@@ -13,13 +13,23 @@ with no invoke states SHALL execute identically to the existing single-machine
 runtime. The runtime SHALL assume the machine has already passed verification
 and SHALL NOT re-verify.
 
-When the walk reaches an invoke state, the runtime SHALL: (1) resolve the child
-(a same-file machine, or via the import graph when `base_path` is supplied);
-(2) build the child's initial context by seeding each child field named on an
-argument binding's LHS from the bound parent expression's value; (3) execute the
-child; (4) write each return binding's parent field from the child's
-corresponding return value; (5) resume the parent walk from the invoke state's
-outgoing transitions.
+An invoke-bearing parent MAY carry its own gate- and measurement-bearing
+transitions interleaved with invoke states. The runtime SHALL accumulate the
+parent's gate-bearing transitions into circuit segments and flush them (building
+and running the circuit, updating the parent's measured bits) on three
+boundaries: before a context-update action, before an invoke, and on reaching a
+final state. The parent's quantum register and a child's are independent; only
+the child's declared returns cross the invoke boundary, as classical values. An
+invoke SHALL NOT perturb the parent's accumulated quantum state.
+
+When the walk reaches an invoke state, the runtime SHALL: (0) flush any pending
+parent gate segment so its measured bits are observable to the invoke's
+bindings and to subsequent guards; (1) resolve the child (a same-file machine,
+or via the import graph when `base_path` is supplied); (2) build the child's
+initial context by seeding each child field named on an argument binding's LHS
+from the bound parent expression's value; (3) execute the child; (4) write each
+return binding's parent field from the child's corresponding return value;
+(5) resume the parent walk from the invoke state's outgoing transitions.
 
 Recursion depth SHALL be bounded by a configurable ceiling (default 32); a run
 exceeding it SHALL raise a structured runtime error. Invoke cycles are rejected
@@ -46,6 +56,21 @@ statically and SHALL NOT be re-detected at run time.
 
 - **WHEN** composition nesting exceeds the configured depth ceiling
 - **THEN** `run_composed` raises a structured runtime error naming the ceiling
+
+#### Scenario: Parent gates execute around an invoke
+
+- **WHEN** an invoke-bearing parent applies its own `H(qs[0]); CNOT(qs[0], qs[1])`
+  before an invoke state and a further gate after it
+- **THEN** `run_composed` executes the parent's gate segments (rather than
+  raising an unsupported-action error) and the parent's measured bits reflect
+  its own circuit, independent of the child's register
+
+#### Scenario: Parent measurement before an invoke feeds a later guard
+
+- **WHEN** a parent measures a qubit into a bit, then invokes a child, then has
+  two guarded outgoing transitions selecting on that bit
+- **THEN** the bit measured before the invoke is observable to the guard
+  evaluated after the invoke completes
 
 ### Requirement: Shot-Batched Quantum Child Aggregation
 
