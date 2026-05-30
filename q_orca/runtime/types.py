@@ -87,4 +87,8 @@ class ComposedRunResult:
     final_context: dict = field(default_factory=dict)
     # One entry per invoke executed: {invoke_state, child, shots, returns}
     child_runs: list = field(default_factory=list)
+    # Per-measured-bit shot-count distribution accumulated across this machine's
+    # own gate segments and its invoked children — so a composed (non-leaf) child
+    # surfaces aggregates upward identically to a leaf child.
+    aggregate_counts: dict = field(default_factory=dict)
     error: Optional[str] = None
