@@ -5,6 +5,11 @@
   `q_orca/bridge/protocol.py`.
 - [ ] 1.2 Define the type-mapping table between q-orca and orca type grammars;
   unmappable types raise a structured bridge error.
+- [ ] 1.3 Define the result-envelope error contract: an `error` field for
+  child errors vs a distinct `bridge`-category error for transport failures
+  (unlaunchable runner, timeout, non-JSON, unsupported `protocol_version`);
+  neither binds partial returns. Derive `measurement_bearing` from the child's
+  measurement effects (not from `shots`).
 
 ## 2. Descriptor + envelopes (q-orca side)
 
