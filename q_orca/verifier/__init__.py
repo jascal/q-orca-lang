@@ -25,7 +25,9 @@ class VerifyOptions:
     skip_resource_bounds: bool = False
     skip_state_assertions: bool = False
     skip_composition: bool = False
+    skip_noise_model: bool = False
     backend: str = "qutip"
+    compile_target: Optional[str] = None  # noise backend-compatibility checks key off this
 
 
 def verify(
@@ -65,6 +67,14 @@ def verify(
     if not opts.skip_classical_context:
         classical = check_classical_context(machine)
         all_errors.extend(classical.errors)
+
+    # Stage 3d: Noise model (## noise_model section + deprecated alias). Runs
+    # only when a noise model resolves; backend-compatibility keys off
+    # opts.compile_target (None in a plain verify).
+    if not opts.skip_noise_model:
+        from q_orca.verifier.noise_model import check_noise_model
+        noise = check_noise_model(machine, target=opts.compile_target)
+        all_errors.extend(noise.errors)
 
     # Stage 3c: Composition (multi-machine invoke/return checks). Runs only
     # when a surrounding file is supplied and the machine has invoke states.

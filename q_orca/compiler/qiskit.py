@@ -5,6 +5,9 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from q_orca.ast import QMachineDef, QuantumGate, QTypeScalar, QTypeList, NoiseModel
+from q_orca.noise import (
+    ALL_GATES, SINGLE_QUBIT_GATES, TWO_QUBIT_GATES, resolve_noise_section,
+)
 from q_orca.compiler.parametric import expand_action_call
 from q_orca.compiler.util import (
     infer_qubit_count as _infer_qubit_count,
@@ -121,49 +124,127 @@ def _get_noise_models_from_context(machine: QMachineDef) -> list[NoiseModel]:
     return noise_models
 
 
-def _emit_qiskit_noise_model_code(noise_model: NoiseModel, qubit_count: int) -> list[str]:
-    """Generate Qiskit noise model code lines."""
-    lines = []
-    lines.append("# Noise model")
-    lines.append("try:")
-    lines.append("    from qiskit_aer import noise")
-    lines.append("    HAS_AER = True")
-    lines.append("except ImportError:")
-    lines.append("    HAS_AER = False")
-    lines.append("    noise_model = None")
-    lines.append("")
-    lines.append("if HAS_AER:")
+def _noise_gate_time_ns(machine: QMachineDef) -> float:
+    """Single-qubit gate time for time-domain (T1/T2) → Kraus conversion.
 
-    if noise_model.kind == "depolarizing":
-        p = noise_model.parameter
-        lines.append(f"    depolarizing_error = noise.depolarizing_error({p}, 1)")
-        lines.append("    noise_model = noise.NoiseModel()")
-        lines.append("    noise_model.add_all_qubit_quantum_error(depolarizing_error, ['h', 'x', 'y', 'z', 'rx', 'ry', 'rz', 't', 's', 'cnot', 'cx', 'cz', 'swap'])")
+    Reads an optional `gate_duration_ns` context field; defaults to 50ns (the
+    historical assumption). `## resources` declares only metric names, not
+    durations, so this convention is the v1 source of a gate duration.
+    """
+    for f in machine.context:
+        if f.name == "gate_duration_ns" and f.default_value:
+            try:
+                return float(f.default_value)
+            except ValueError:
+                pass
+    return 50.0
 
-    elif noise_model.kind == "amplitude_damping":
-        gamma = noise_model.parameter
-        lines.append(f"    ad_error = noise.amplitude_damping_error({gamma})")
-        lines.append("    noise_model = noise.NoiseModel()")
-        lines.append("    noise_model.add_all_qubit_quantum_error(ad_error, ['h', 'x', 'y', 'z', 'rx', 'ry', 'rz', 't', 's', 'cnot', 'cx', 'cz', 'swap'])")
 
-    elif noise_model.kind == "phase_damping":
-        gamma = noise_model.parameter
-        lines.append(f"    pd_error = noise.phase_damping_error({gamma})")
-        lines.append("    noise_model = noise.NoiseModel()")
-        lines.append("    noise_model.add_all_qubit_quantum_error(pd_error, ['h', 'x', 'y', 'z', 'rx', 'ry', 'rz', 't', 's', 'cnot', 'cx', 'cz', 'swap'])")
+def _noise_gate_class(target) -> list | None:
+    """Resolve a gate-class/list target selector to a list of gate names."""
+    if target.kind == "all_gates":
+        return list(ALL_GATES)
+    if target.kind == "single_qubit_gates":
+        return list(SINGLE_QUBIT_GATES)
+    if target.kind == "two_qubit_gates":
+        return list(TWO_QUBIT_GATES)
+    if target.kind == "gate_list":
+        return [g.lower() for g in target.gates]
+    return None
 
-    elif noise_model.kind == "thermal":
-        t1 = noise_model.parameter
-        t2 = noise_model.parameter2 if noise_model.parameter2 > 0 else t1
-        gate_time = 50  # ns — assumed single-qubit gate time
-        lines.append(f"    thermal_error = noise.thermal_relaxation_error({t1}, {t2}, {gate_time})")
-        lines.append("    noise_model = noise.NoiseModel()")
-        lines.append("    # thermal_relaxation_error is a single-qubit channel; applied to single-qubit gates only")
-        lines.append("    noise_model.add_all_qubit_quantum_error(thermal_error, ['h', 'x', 'y', 'z', 'rx', 'ry', 'rz', 't', 's'])")
 
+def _emit_noise_channel(channel, machine: QMachineDef) -> list[str]:
+    """Emit indented Qiskit code installing one `NoiseChannel` onto `noise_model`."""
+    p = channel.parameters
+    kind = channel.kind
+    tgt = channel.target
+    out: list[str] = []
+
+    def add(s: str) -> None:
+        out.append("    " + s)
+
+    add(f"# {kind} on {tgt.raw}")
+
+    if kind == "readout_error":
+        p0g1 = float(p.get("p0given1", 0.0))
+        p1g0 = float(p.get("p1given0", 0.0))
+        add(f"_ro = ReadoutError([[{1 - p1g0}, {p1g0}], [{p0g1}, {1 - p0g1}]])")
+        if tgt.kind in ("all_measurements", "all_qubits"):
+            add("noise_model.add_all_qubit_readout_error(_ro)")
+        elif tgt.kind == "qubit_index":
+            add(f"noise_model.add_readout_error(_ro, [{tgt.index}])")
+        else:
+            add(f"# readout_error target {tgt.raw!r} not installed")
+        return out
+
+    single_qubit_only = kind in ("thermal", "amplitude_damping", "phase_damping")
+    arity = 2 if tgt.kind == "two_qubit_gates" else 1
+
+    if kind == "depolarizing":
+        err = f"noise.depolarizing_error({float(p.get('p', 0.0))}, {arity})"
+    elif kind == "amplitude_damping":
+        err = f"noise.amplitude_damping_error({float(p.get('gamma', 0.0))})"
+    elif kind == "phase_damping":
+        err = f"noise.phase_damping_error({float(p.get('gamma', 0.0))})"
+    elif kind == "thermal":
+        t1 = float(p.get("T1", 0.0))
+        t2 = float(p.get("T2", t1)) or t1
+        err = f"noise.thermal_relaxation_error({t1}, {t2}, {_noise_gate_time_ns(machine)})"
+    elif kind == "bit_flip":
+        pp = float(p.get("p", 0.0))
+        err = f"noise.pauli_error([('X', {pp}), ('I', {1 - pp})])"
+    elif kind == "phase_flip":
+        pp = float(p.get("p", 0.0))
+        err = f"noise.pauli_error([('Z', {pp}), ('I', {1 - pp})])"
+    elif kind == "pauli":
+        probs = p.get("probabilities", [])
+        if len(probs) == 4:
+            terms = ", ".join(f"('{lbl}', {float(pr)})" for lbl, pr in zip("IXYZ", probs))
+            err = f"noise.pauli_error([{terms}])"
+        else:
+            add(f"# pauli with {len(probs)} probabilities not emitted "
+                f"(v1 supports the 4-element single-qubit form)")
+            return out
     else:
-        lines.append("    noise_model = None")
+        add(f"# channel {kind!r} not emitted")
+        return out
 
+    add(f"_err = {err}")
+    gate_class = _noise_gate_class(tgt)
+    if gate_class is not None:
+        gates = [g for g in gate_class if g in SINGLE_QUBIT_GATES] if single_qubit_only else gate_class
+        add(f"noise_model.add_all_qubit_quantum_error(_err, {gates!r})")
+    elif tgt.kind == "all_qubits":
+        gates = list(SINGLE_QUBIT_GATES) if single_qubit_only else list(ALL_GATES)
+        add(f"noise_model.add_all_qubit_quantum_error(_err, {gates!r})")
+    elif tgt.kind == "qubit_index":
+        gates = SINGLE_QUBIT_GATES if (single_qubit_only or arity == 1) else TWO_QUBIT_GATES
+        for g in gates:
+            add(f"noise_model.add_quantum_error(_err, '{g}', [{tgt.index}])")
+    elif tgt.kind == "qubit_role":
+        add(f"# {tgt.raw} skipped (role selectors require qubit-role-types)")
+    else:
+        add(f"# target {tgt.raw!r} not installed")
+    return out
+
+
+def _emit_qiskit_noise_section_code(section, machine: QMachineDef) -> list[str]:
+    """Generate Qiskit code building a NoiseModel from a `## noise_model` section."""
+    lines = [
+        "# Noise model (## noise_model section)",
+        "try:",
+        "    from qiskit_aer import noise",
+        "    from qiskit_aer.noise import ReadoutError",
+        "    HAS_AER = True",
+        "except ImportError:",
+        "    HAS_AER = False",
+        "    noise_model = None",
+        "",
+        "if HAS_AER:",
+        "    noise_model = noise.NoiseModel()",
+    ]
+    for channel in section.channels:
+        lines.extend(_emit_noise_channel(channel, machine))
     return lines
 
 
@@ -224,12 +305,11 @@ def compile_to_qiskit(machine: QMachineDef, options: QSimulationOptions) -> str:
     # Noise model from context
     has_noise_model = False
     if not options.skip_noise:
-        noise_models = _get_noise_models_from_context(machine)
-        if noise_models:
-            for nm in noise_models:
-                lines.extend(_emit_qiskit_noise_model_code(nm, qubit_count))
-                lines.append("")
-                has_noise_model = True
+        noise_section = resolve_noise_section(machine)
+        if noise_section is not None and noise_section.channels:
+            lines.extend(_emit_qiskit_noise_section_code(noise_section, machine))
+            lines.append("")
+            has_noise_model = True
 
     # Always define HAS_AER (needed by shots branch)
     if not has_noise_model:

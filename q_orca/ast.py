@@ -74,11 +74,68 @@ class QTypeCustom(QType):
 
 @dataclass
 class NoiseModel:
-    """Quantum noise model specification."""
+    """Legacy flat noise model (deprecated `noise:` context-field alias).
+
+    Retained as the intermediate the deprecated context-field path parses into;
+    `add-noise-model-section` wraps it in a single-row `NoiseModelSection`. New
+    code uses `NoiseChannel` / `NoiseModelSection`.
+    """
     kind: str = ""  # 'depolarizing' | 'amplitude_damping' | 'phase_damping' | 'thermal'
     parameter: float = 0.0  # noise probability / damping rate / T1 relaxation time (ns)
     parameter2: float = 0.0  # T2 relaxation time (ns); 0.0 means default to T1
     qubits: list[int] = field(default_factory=list)  # target qubits (empty = all)
+
+
+# --- Declarative `## noise_model` section (add-noise-model-section) ----------
+
+# Closed target-selector kinds.
+NOISE_TARGET_KINDS = frozenset({
+    "all_gates", "single_qubit_gates", "two_qubit_gates", "all_measurements",
+    "all_qubits", "qubit_index", "qubit_role", "gate_list",
+})
+
+# Closed channel-kind enum.
+NOISE_CHANNEL_KINDS = frozenset({
+    "depolarizing", "amplitude_damping", "phase_damping", "thermal",
+    "readout_error", "bit_flip", "phase_flip", "pauli",
+})
+
+
+@dataclass
+class NoiseTarget:
+    """Parsed target selector for a noise channel row.
+
+    `kind` is one of `NOISE_TARGET_KINDS`; the optional fields carry the operand
+    for the parameterized selectors (`qubit_index` → `index`, `qubit_role` →
+    `role`, `gate_list` → `gates`). `raw` preserves the source cell text.
+    """
+    kind: str
+    index: Optional[int] = None
+    role: Optional[str] = None
+    gates: list[str] = field(default_factory=list)
+    raw: str = ""
+
+
+@dataclass
+class NoiseChannel:
+    """One row of a `## noise_model` section: a channel applied to a target.
+
+    `parameters` maps parameter name → value; time-domain values are normalized
+    to nanoseconds at parse time. `raw_parameters` keeps the source text. The
+    parser does not enforce per-channel schemas — the verifier does.
+    """
+    kind: str
+    target: NoiseTarget
+    parameters: dict = field(default_factory=dict)
+    raw_parameters: str = ""
+
+
+@dataclass
+class NoiseModelSection:
+    """A machine's declarative noise model: an ordered list of channel rows."""
+    channels: list["NoiseChannel"] = field(default_factory=list)
+    default_units: str = "ns"
+    from_legacy_field: bool = False  # True when built from the deprecated `noise:` alias
 
 
 @dataclass
@@ -452,6 +509,7 @@ class QMachineDef:
     theta: Optional[ThetaBlock] = None
     assertion_policy: AssertionPolicy = field(default_factory=AssertionPolicy)
     returns: list[QReturnDef] = field(default_factory=list)
+    noise_model: Optional[NoiseModelSection] = None
 
 
 @dataclass
