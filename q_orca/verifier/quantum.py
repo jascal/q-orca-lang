@@ -199,13 +199,32 @@ def check_no_cloning(machine: QMachineDef) -> QVerificationResult:
 
         effect_lower = action.effect.lower()
         if any(kw in effect_lower for kw in ["copy", "clone", "duplicate"]):
-            errors.append(QVerificationError(
-                code="NO_CLONING_VIOLATION",
-                message=f"Action '{action.name}' appears to clone quantum state: '{action.effect}'",
-                severity="error",
-                location={"action": action.name},
-                suggestion="Quantum states cannot be copied (no-cloning theorem). Use entanglement or teleportation instead.",
-            ))
+            from q_orca.roles import qubits_with_role
+            comm = set(qubits_with_role(machine, "communication"))
+            refs = {int(m) for m in re.findall(r"qs\[(\d+)\]", action.effect)}
+            if comm and (refs & comm):
+                errors.append(QVerificationError(
+                    code="COMMUNICATION_NO_CLONING_VIOLATION",
+                    message=(
+                        f"Action '{action.name}' copies a `communication` qubit: "
+                        f"'{action.effect}'"
+                    ),
+                    severity="error",
+                    location={"action": action.name},
+                    suggestion=(
+                        "A communication qubit may not be copied; route it through a "
+                        "single owner or transfer it explicitly (the eventual idiom is a "
+                        "[send: q -> X] protocol annotation)."
+                    ),
+                ))
+            else:
+                errors.append(QVerificationError(
+                    code="NO_CLONING_VIOLATION",
+                    message=f"Action '{action.name}' appears to clone quantum state: '{action.effect}'",
+                    severity="error",
+                    location={"action": action.name},
+                    suggestion="Quantum states cannot be copied (no-cloning theorem). Use entanglement or teleportation instead.",
+                ))
         elif "fanout" in effect_lower and "cnot" not in effect_lower:
             errors.append(QVerificationError(
                 code="NO_CLONING_VIOLATION",

@@ -229,7 +229,15 @@ def _emit_noise_channel(channel, machine: QMachineDef) -> list[str]:
         for g in gates:
             add(f"noise_model.add_quantum_error(_err, '{g}', [{tgt.index}])")
     elif tgt.kind == "qubit_role":
-        add(f"# {tgt.raw} skipped (role selectors require qubit-role-types)")
+        from q_orca.roles import qubits_with_role
+        indices = qubits_with_role(machine, tgt.role)
+        if not indices:
+            add(f"# {tgt.raw}: no qubit with that role")
+        else:
+            gates = SINGLE_QUBIT_GATES if (single_qubit_only or arity == 1) else TWO_QUBIT_GATES
+            for qi in indices:
+                for g in gates:
+                    add(f"noise_model.add_quantum_error(_err, '{g}', [{qi}])")
     else:
         add(f"# target {tgt.raw!r} not installed")
     return out

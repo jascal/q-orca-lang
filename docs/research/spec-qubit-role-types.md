@@ -1,6 +1,6 @@
 # Spec: Qubit Role Types in `## context`
 
-**Status:** Draft
+**Status:** ✅ Delivered (scoped) — `add-qubit-role-types` shipped roles `data/ancilla/syndrome/communication` with rules 1–3 (`ancilla_reset`, `syndrome_completeness` via SCC fallback, `communication_no_cloning`), range shorthand, the `qs[role:R]` noise-selector resolution, and the migrated `bit-flip-syndrome` example. User docs: `docs/language/qubit-roles.md`. Deferred as designed: `coin`/`position` roles + rules 4–5 (gated on the walk-primitives spec; reserved-but-rejected for now), role queries in runtime guards / `## invariants`, and role propagation across `invoke:`. Correction to this draft: roles live on a per-qubit `QMachineDef.qubit_roles`, **not** `QTypeQubit.kind` (a shared type discriminator); the `qubits` default was a raw string.
 **Date:** 2026-05-08
 **Priority:** High
 

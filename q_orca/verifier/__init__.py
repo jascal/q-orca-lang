@@ -26,6 +26,7 @@ class VerifyOptions:
     skip_state_assertions: bool = False
     skip_composition: bool = False
     skip_noise_model: bool = False
+    skip_qubit_roles: bool = False
     backend: str = "qutip"
     compile_target: Optional[str] = None  # noise backend-compatibility checks key off this
 
@@ -75,6 +76,12 @@ def verify(
         from q_orca.verifier.noise_model import check_noise_model
         noise = check_noise_model(machine, target=opts.compile_target)
         all_errors.extend(noise.errors)
+
+    # Stage 3e: Qubit-role structural rules (ancilla reset, syndrome
+    # completeness). Fire automatically when any non-`data` role is declared.
+    if not opts.skip_qubit_roles:
+        from q_orca.verifier.roles import check_qubit_roles
+        all_errors.extend(check_qubit_roles(machine).errors)
 
     # Stage 3c: Composition (multi-machine invoke/return checks). Runs only
     # when a surrounding file is supplied and the machine has invoke states.

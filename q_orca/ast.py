@@ -492,6 +492,14 @@ class ThetaBlock:
     rows: list[ThetaRow] = field(default_factory=list)
 
 
+# Qubit role vocabulary (add-qubit-role-types). `data` is the default for any
+# untagged qubit. `coin`/`position` are reserved-but-not-yet-supported: the
+# parser rejects them (their rules ship with the walk-primitives spec).
+QUBIT_ROLES = frozenset({"data", "ancilla", "syndrome", "communication"})
+RESERVED_QUBIT_ROLES = frozenset({"coin", "position"})
+DEFAULT_QUBIT_ROLE = "data"
+
+
 @dataclass
 class QMachineDef:
     name: str
@@ -510,6 +518,9 @@ class QMachineDef:
     assertion_policy: AssertionPolicy = field(default_factory=AssertionPolicy)
     returns: list[QReturnDef] = field(default_factory=list)
     noise_model: Optional[NoiseModelSection] = None
+    # Per-qubit role, index-aligned with the `qubits` register (declaration
+    # order). Empty when no `qubits` list is declared; all `data` when untagged.
+    qubit_roles: list[str] = field(default_factory=list)
 
 
 @dataclass
