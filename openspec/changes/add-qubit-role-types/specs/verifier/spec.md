@@ -4,7 +4,9 @@
 
 The verifier SHALL enforce, automatically for every qubit tagged `ancilla` (no `## verification rules` opt-in required), that the qubit starts in `|0⟩` and is explicitly `reset` between successive mid-circuit measurements, emitting `ANCILLA_NOT_RESET` at error severity otherwise.
 
-For each `ancilla` qubit the verifier walks the per-state gate sequence and checks (a) no gate acts on it before its first appearance, and (b) some `reset(qs[k])` action occurs between every pair of mid-circuit measurements on it. The diagnostic names the offending state and the gate/measurement index.
+For each `ancilla` qubit the verifier walks the per-state gate sequence and checks (a) no gate acts on it before its first appearance, and (b) some `reset(qs[k])` action occurs between every pair of mid-circuit measurements on it. The diagnostic names the offending state and the gate/measurement index, and SHALL carry an actionable suggestion (e.g. `insert reset(qs[k]) before reusing ancilla q_k after its measurement`).
+
+This rule supersedes a hand-declared `mid_circuit_coherence` rule for `ancilla`-tagged qubits: it is the same check made mandatory and automatic, so an author no longer needs the opt-in line; an explicitly-declared `mid_circuit_coherence` rule remains honored and does not conflict.
 
 #### Scenario: Reused ancilla without reset fails
 
@@ -20,7 +22,7 @@ For each `ancilla` qubit the verifier walks the per-state gate sequence and chec
 
 The verifier SHALL enforce, automatically for every qubit tagged `syndrome`, that the qubit is measured on every cyclic path it participates in, emitting `SYNDROME_NOT_MEASURED` at error severity for a cycle that prepares but never measures it.
 
-Until bounded-loop annotations are available, the check uses the strongly-connected-component fallback: every cyclic SCC of the transition graph in which the syndrome qubit is acted upon SHALL contain at least one `measure(qs[k])` on it. When `[loop …]` annotations land, the check tightens to per-iteration completeness over the annotated loop body.
+Until bounded-loop annotations are available, the check uses the strongly-connected-component fallback: every cyclic SCC of the transition graph in which the syndrome qubit is acted upon SHALL contain at least one `measure(qs[k])` on it. When `[loop …]` annotations land, the check tightens to per-iteration completeness over the annotated loop body. The diagnostic SHALL carry an actionable suggestion (e.g. `measure the syndrome qubit q_k on every cycle before it repeats`).
 
 #### Scenario: Cycle without a syndrome measure fails
 
@@ -34,7 +36,9 @@ Until bounded-loop annotations are available, the check uses the strongly-connec
 
 ### Requirement: Communication No-Cloning Escalation
 
-The verifier SHALL escalate a no-cloning violation to `COMMUNICATION_NO_CLONING_VIOLATION` at error severity when the duplicated qubit is tagged `communication`, with a fix suggestion referencing `[send: q -> X]` protocol annotations; a non-`communication` qubit SHALL continue to emit the generic `NO_CLONING_VIOLATION` unchanged.
+The verifier SHALL escalate a no-cloning violation to `COMMUNICATION_NO_CLONING_VIOLATION` at error severity when the duplicated qubit is tagged `communication`; a non-`communication` qubit SHALL continue to emit the generic `NO_CLONING_VIOLATION` unchanged.
+
+The suggestion SHALL be actionable on its own today (e.g. `a communication qubit may not be copied; route it through a single owner or transfer it explicitly`) and additionally point at `[send: q -> X]` protocol annotations as the eventual idiom — so the message is useful before the protocol-state-annotations spec lands.
 
 #### Scenario: Cloning a communication qubit escalates
 

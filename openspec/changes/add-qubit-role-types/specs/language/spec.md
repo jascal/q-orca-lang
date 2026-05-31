@@ -25,3 +25,8 @@ Roles are stored as a per-qubit structure on the machine (one role per declared 
 
 - **WHEN** an element is tagged with an unknown keyword, or with the reserved `coin` / `position` (not yet supported)
 - **THEN** the parser raises `UNKNOWN_QUBIT_ROLE` naming the offending element
+
+#### Scenario: Malformed range rejected
+
+- **WHEN** a range is not a shared alphabetic prefix with inclusive integer suffixes (e.g. `q0..q5a:data`, `q0..x9:data`, or a descending `q5..q0:data`)
+- **THEN** the parser raises a structured parse error for the offending element rather than silently producing a partial register

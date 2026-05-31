@@ -19,6 +19,13 @@
 
 ## 4. Examples + tests + docs
 
-- [ ] 4.1 Migrate shipped ancilla-using examples to role tags: `bit-flip-syndrome` (`syndrome`), `quantum-teleportation` and `deutsch-jozsa` as applicable; confirm they verify
-- [ ] 4.2 Tests: backward-compat (untagged → `data`, `bell-entangler` report unchanged); ancilla-reset pass/fail; syndrome-completeness pass/fail (SCC fallback); communication no-cloning escalation; range shorthand; `UNKNOWN_QUBIT_ROLE` for unknown + reserved; `qs[role:R]` noise selector now resolves (no `NOISE_TARGET_NO_MATCH`)
-- [ ] 4.3 Docs: `docs/language/qubit-roles.md` (vocabulary, range syntax, the three rules, deferred `coin`/`position`); mark `docs/research/spec-qubit-role-types.md` delivered (scoped to rules 1–3)
+- [ ] 4.1 Migrate shipped ancilla-using examples to role tags: `bit-flip-syndrome` (`syndrome`), `quantum-teleportation` and `deutsch-jozsa` as applicable; add a short comment block in each explaining the role choices; confirm they verify
+- [ ] 4.2 Tests: backward-compat (untagged → `data`, `bell-entangler` report unchanged); ancilla-reset pass/fail; syndrome-completeness pass/fail (SCC fallback); communication no-cloning escalation; range shorthand; malformed range rejected; `UNKNOWN_QUBIT_ROLE` for unknown + reserved; diagnostics carry actionable suggestions; `qs[role:R]` noise selector now resolves (no `NOISE_TARGET_NO_MATCH`)
+- [ ] 4.3 Docs: `docs/language/qubit-roles.md` — vocabulary with a role-taxonomy table (`data` = computational payload, `ancilla` = scratch/reusable, `syndrome` = error-info via measurement, `communication` = inter-module transfer), range syntax, the three rules, the SCC-fallback limitation, and the deferred `coin`/`position`; mark `docs/research/spec-qubit-role-types.md` delivered (scoped to rules 1–3)
+
+## 5. Recorded follow-ups (not implemented in this change)
+
+- A `role(qs[k])` query / `qs[i:role=R]` slice usable in `## invariants` (Open Question 2) — desirable but expands the invariant grammar; revisit after this lands.
+- Tighten `syndrome_completeness` from the SCC fallback to per-iteration completeness once `bounded-loop-annotation` ships.
+- Role propagation across `invoke:` boundaries (parent roles matching child parameters) once `add-parameterized-invoke` interplay is designed.
+- `coin` / `position` roles + `coin_unitary` / `position_bounded` rules with the walk-primitives spec; deprecation-warning→error escalation for untagged-used-as-ancilla qubits.
