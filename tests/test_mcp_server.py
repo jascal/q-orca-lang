@@ -15,7 +15,6 @@ wire it in.
 """
 
 import asyncio
-import os
 
 import pytest
 
