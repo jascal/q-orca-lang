@@ -2,14 +2,14 @@
 
 ### Requirement: QASM Noise Annotation
 
-The QASM backend SHALL emit the `## noise_model` section as a `// noise:` comment block at the top of the generated program, one comment line per channel row, with no semantic effect on the circuit.
+The QASM backend SHALL emit the `## noise_model` section as a `// noise:` comment block at the top of the generated program, one comment line per channel row in a stable machine-parseable `key=value` format, with no semantic effect on the circuit. Each line SHALL have the form `// noise: channel=<kind> target=<selector> <param>=<value> ...` so downstream tooling can recover the section without re-reading the source.
 
 Because QASM 3 has no native noise grammar, the channels cannot be simulated from the QASM output; the comment block preserves the declaration for human readers and round-trip tooling, and pairs with the verifier's `NOISE_DROPPED_FOR_BACKEND` warning.
 
 #### Scenario: Section emitted as comments
 
 - **WHEN** a machine with a two-row `## noise_model` section is compiled with `--target=qasm3`
-- **THEN** the generated QASM begins with a `// noise:` comment block containing one line per channel row, and the circuit body is otherwise the noiseless program
+- **THEN** the generated QASM begins with a `// noise:` comment block of two `key=value` lines (`channel=… target=… …`), and the circuit body is otherwise the noiseless program
 
 ## MODIFIED Requirements
 

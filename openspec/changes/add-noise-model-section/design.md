@@ -36,7 +36,10 @@ The legacy `noise: noise_model = <kind>(<params>)` context field is retained for
 A row mixing time-domain and probability-domain parameters for the same effect (e.g. `amplitude_damping` with both `gamma=` and `T1=`) is `NOISE_PARAMETER_AMBIGUOUS`. Silent auto-conversion would hide user mistakes (Open Question 2).
 
 ### D6 — Idle-qubit noise heuristic
-When `thermal` is declared on `all_qubits`, the compiler inserts idle thermal-relaxation per gate-time on otherwise-idle qubits (the physically-correct behaviour Aer needs an explicit duration for); otherwise it does not. Documented clearly (Open Question 3).
+When `thermal` is declared on `all_qubits`, the compiler inserts idle thermal-relaxation per gate-time on otherwise-idle qubits (the physically-correct behaviour Aer needs an explicit duration for); otherwise it does not. This heuristic can surprise an author who expected idle noise from a non-`all_qubits` thermal row, so the generated code and `docs/language/noise-model.md` SHALL state it explicitly, and a future explicit override (e.g. an `idle_thermal=true` parameter or column) is noted as a follow-up rather than inferred behaviour.
+
+### D10 — Two-qubit `pauli` channel ordering
+The `pauli` channel's `probabilities` list adopts Aer's `PauliError` ordering: 4 entries `[I, X, Y, Z]` for single-qubit, and the 16 two-qubit tensor-product terms in Aer's lexicographic order `[II, IX, IY, IZ, XI, XX, XY, XZ, YI, YX, YY, YZ, ZI, ZX, ZY, ZZ]` (first label = qubit 0). The spec documents this ordering and the well-formedness test pins it, so a 16-element list is never silently mis-mapped.
 
 ### D7 — Backend behaviour when a backend can't model a channel
 - **Qiskit/Aer:** full support.
@@ -64,4 +67,4 @@ Additive + alias. New section + AST + verifier rules + compiler builder; the con
 
 1. **Per-qubit T1/T2 inhomogeneity at scale** — v1 ships the one-row-per-qubit form; a `from_calibration_file:` annotation is revisited only on user demand.
 2. **Stabilizer channel mapping details** — finalized when `stabilizer-fast-path-backend` lands; the rejection diagnostic is defined here.
-3. **`pauli` two-qubit 16-element ordering** — adopt Aer's `PauliError` ordering; pin it in the well-formedness test.
+3. **`pauli` two-qubit 16-element ordering** — resolved in D10 (Aer `PauliError` lexicographic order, pinned by the well-formedness test).

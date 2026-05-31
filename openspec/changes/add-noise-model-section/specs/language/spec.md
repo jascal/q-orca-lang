@@ -33,7 +33,7 @@ The parser SHALL recognize a context field with type `noise_model` as a valid `Q
 - `thermal(<float>)` — T1 relaxation time in ns; T2 defaults to T1
 - `thermal(<float>, <float>)` — T1 and T2 relaxation times in ns
 
-The field name SHALL be `noise` by convention, but the parser does not enforce the name. An unrecognized kind string SHALL result in a `None` noise model (no noise applied), not a parse error, to preserve forward compatibility. When a machine uses this field form, the verifier SHALL emit exactly one `NOISE_CONTEXT_FIELD_DEPRECATED` diagnostic (warning severity) pointing at the `## noise_model` section form; the field is slated for removal in v0.8.
+The field name SHALL be `noise` by convention, but the parser does not enforce the name. An unrecognized kind string SHALL result in a `None` noise model (no noise applied), not a parse error, to preserve forward compatibility. When a machine uses this field form, the verifier SHALL emit exactly one `NOISE_CONTEXT_FIELD_DEPRECATED` diagnostic (warning severity) whose suggestion shows the equivalent `## noise_model` section for the author's actual channel (e.g. for `depolarizing(0.01)`, the suggestion renders the one-row table `| depolarizing | all_gates | p=0.01 |`); the field is slated for removal in v0.8.
 
 #### Scenario: Depolarizing field parses to a single-row section
 
@@ -53,4 +53,4 @@ The field name SHALL be `noise` by convention, but the parser does not enforce t
 #### Scenario: Using the field emits a deprecation diagnostic
 
 - **WHEN** a machine declares the `noise` context field in any accepted form
-- **THEN** the verifier emits exactly one `NOISE_CONTEXT_FIELD_DEPRECATED` diagnostic at warning severity naming the `## noise_model` section as the replacement
+- **THEN** the verifier emits exactly one `NOISE_CONTEXT_FIELD_DEPRECATED` diagnostic at warning severity whose suggestion contains the equivalent one-row `## noise_model` table for that channel

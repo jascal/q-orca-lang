@@ -36,7 +36,7 @@
 
 ## 6. Tests
 
-- [ ] 6.1 Round-trip a Kandala-shaped model: emitted `NoiseModel.to_dict()` equals a pinned reference; Stage-4b energy estimate within 0.05 of analytic across 10_000 shots
+- [ ] 6.1 Round-trip a Kandala-shaped model: emitted `NoiseModel.to_dict()` equals a pinned reference for a pinned `qiskit-aer` version (treat a mismatch as a version-bump signal, not a silent failure); Stage-4b energy estimate within 0.05 of analytic across 10_000 shots
 - [ ] 6.2 Coherence-budget warning fires with the numbers in the message
 - [ ] 6.3 Stabilizer-backend rejection (non-Pauli) and acceptance (Pauli) — guarded/marked until the stabilizer backend ships
 - [ ] 6.4 Selector resolution: `qs[role:ancilla]` → `[1, 2]`; `qs[role:nonexistent]` → `NOISE_TARGET_NO_MATCH`
