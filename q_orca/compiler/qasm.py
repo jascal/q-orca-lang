@@ -1,6 +1,7 @@
 """Q-Orca OpenQASM 3.0 compiler — compiles QMachineDef → OpenQASM 3.0."""
 
 from q_orca.ast import QMachineDef, QuantumGate
+from q_orca.noise import resolve_noise_section
 from q_orca.compiler.qiskit import _build_angle_context, _parse_effect_string, _infer_bit_count
 from q_orca.compiler.parametric import expand_action_call
 from q_orca.compiler.util import (
@@ -26,6 +27,15 @@ def compile_to_qasm(machine: QMachineDef) -> str:
             "// NOTE: context-update actions are annotations only; "
             "shot-to-shot execution not yet implemented."
         )
+    # Noise model: QASM 3 has no native noise grammar, so emit the section as a
+    # stable, machine-parseable `// noise:` comment block (no semantic effect).
+    noise_section = resolve_noise_section(machine)
+    if noise_section is not None and noise_section.channels:
+        lines.append("// noise_model: declarative; not simulated from QASM (one channel per line)")
+        for ch in noise_section.channels:
+            params = " ".join(f"{k}={v}" for k, v in ch.parameters.items())
+            lines.append(f"// noise: channel={ch.kind} target={ch.target.raw} {params}".rstrip())
+
     lines.append('OPENQASM 3.0;')
     lines.append('include "stdgates.inc";')
     lines.append("")

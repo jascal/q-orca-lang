@@ -20,6 +20,7 @@ from q_orca.ast import (
     EncodingDecl, ThetaBlock, ThetaRow,
     Span, QubitSlice, QAssertion, AssertionPolicy,
     QInvoke, QReturnDef, QImport, QReexport,
+    NoiseChannel, NoiseModelSection, NoiseTarget,
 )
 from q_orca.verifier.quantum import KNOWN_UNITARY_GATES
 
@@ -91,7 +92,7 @@ MdElement = MdHeading | MdTable | MdBulletList | MdBlockquote
 _KNOWN_SECTIONS = frozenset({
     "context", "events", "transitions", "guards", "actions", "effects",
     "verification rules", "invariants", "encoding", "theta",
-    "assertion policy", "returns", "imports", "reexports",
+    "assertion policy", "returns", "imports", "reexports", "noise_model",
 })
 
 
@@ -409,6 +410,7 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
     theta: Optional[ThetaBlock] = None
     assertion_policy = AssertionPolicy()
     returns: list[QReturnDef] = []
+    noise_model: NoiseModelSection | None = None
 
     # Pre-scan for the context table so that angle expressions in actions
     # can reference numeric context fields regardless of section order.
@@ -527,6 +529,13 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
                     i += 1
                 continue
 
+            if section_name_lower == "noise_model":
+                i += 1
+                if i < len(elements) and isinstance(elements[i], MdTable):
+                    noise_model = _parse_noise_model_table(elements[i], errors)
+                    i += 1
+                continue
+
         i += 1
 
     if not name:
@@ -557,7 +566,113 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
         theta=theta,
         assertion_policy=assertion_policy,
         returns=returns,
+        noise_model=noise_model,
     )
+
+
+_NOISE_TIME_UNIT_NS = {"ns": 1.0, "us": 1_000.0, "ms": 1_000_000.0}
+
+
+def _split_noise_params(text: str) -> list[str]:
+    """Split a parameters cell on top-level commas, respecting `[...]` lists."""
+    parts: list[str] = []
+    depth = 0
+    buf = ""
+    for ch in text:
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            parts.append(buf)
+            buf = ""
+        else:
+            buf += ch
+    if buf.strip():
+        parts.append(buf)
+    return parts
+
+
+def _parse_noise_value(val: str):
+    """Resolve a parameter value: list, time (→ ns float), float, or raw string."""
+    val = val.strip()
+    if val.startswith("[") and val.endswith("]"):
+        inner = val[1:-1].strip()
+        out = []
+        for x in _split_noise_params(inner):
+            x = x.strip()
+            if not x:
+                continue
+            try:
+                out.append(float(x))
+            except ValueError:
+                out.append(x)
+        return out
+    m = re.match(r"^([\d.]+)\s*(ns|us|ms)$", val, re.IGNORECASE)
+    if m:
+        return float(m.group(1)) * _NOISE_TIME_UNIT_NS[m.group(2).lower()]
+    try:
+        return float(val)
+    except ValueError:
+        return val
+
+
+def _parse_noise_params(text: str) -> dict:
+    """Parse a free-form `k=v, k=v` parameters cell into a dict (times → ns)."""
+    params: dict = {}
+    for part in _split_noise_params(text):
+        if "=" not in part:
+            continue
+        key, val = part.split("=", 1)
+        key = key.strip()
+        if key:
+            params[key] = _parse_noise_value(val)
+    return params
+
+
+def _parse_noise_target(text: str) -> NoiseTarget:
+    """Parse the closed target-selector grammar into a `NoiseTarget`."""
+    t = text.strip()
+    low = t.lower()
+    if low in {"all_gates", "single_qubit_gates", "two_qubit_gates",
+               "all_measurements", "all_qubits"}:
+        return NoiseTarget(kind=low, raw=t)
+    m = re.match(r"^qs\[\s*role\s*:\s*(\w+)\s*\]$", t, re.IGNORECASE)
+    if m:
+        return NoiseTarget(kind="qubit_role", role=m.group(1), raw=t)
+    m = re.match(r"^qs\[\s*(\d+)\s*\]$", t)
+    if m:
+        return NoiseTarget(kind="qubit_index", index=int(m.group(1)), raw=t)
+    m = re.match(r"^gates\[\s*(.*?)\s*\]$", t, re.IGNORECASE)
+    if m:
+        gates = [g.strip() for g in m.group(1).split(",") if g.strip()]
+        return NoiseTarget(kind="gate_list", gates=gates, raw=t)
+    return NoiseTarget(kind="unknown", raw=t)
+
+
+def _parse_noise_model_table(table: MdTable, errors: list[str] | None = None) -> NoiseModelSection:
+    """Parse a `## noise_model` table into a `NoiseModelSection`.
+
+    Columns: `Channel`, `Target`, `Parameters`. Schema validity (parameter
+    ranges, channel/target legality) is checked by the verifier, not here.
+    """
+    ch_idx = _find_column_index(table.headers, "channel")
+    tg_idx = _find_column_index(table.headers, "target")
+    pm_idx = _find_column_index(table.headers, "parameters")
+    channels: list[NoiseChannel] = []
+    for row in table.rows:
+        kind = _strip_backticks(row[ch_idx]).strip().lower() if 0 <= ch_idx < len(row) else ""
+        if not kind:
+            continue
+        target_raw = row[tg_idx].strip() if 0 <= tg_idx < len(row) else ""
+        params_raw = row[pm_idx].strip() if 0 <= pm_idx < len(row) else ""
+        channels.append(NoiseChannel(
+            kind=kind,
+            target=_parse_noise_target(target_raw),
+            parameters=_parse_noise_params(params_raw),
+            raw_parameters=params_raw,
+        ))
+    return NoiseModelSection(channels=channels)
 
 
 def _parse_context_table(table: MdTable) -> list[ContextField]:

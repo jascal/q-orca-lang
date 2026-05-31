@@ -1,6 +1,6 @@
 # Spec: Declarative `## noise_model` Section
 
-**Status:** Draft
+**Status:** ✅ Delivered — `add-noise-model-section` (parser + AST + 4 verifier rules + Qiskit Aer per-channel builder + QASM comment emission + deprecated `noise:` alias). User docs: `docs/language/noise-model.md`; example: `examples/vqe-heisenberg-noisy.q.orca.md`. Deferred as designed: `qs[role:R]` resolution (awaits `qubit-role-types`), Stim channel-rejection (awaits `stabilizer-fast-path-backend`), and the `error_rate(...)`/`coherence_time(...)` invariants (a later `extended-invariants` change).
 **Date:** 2026-05-01
 **Priority:** Medium
 
