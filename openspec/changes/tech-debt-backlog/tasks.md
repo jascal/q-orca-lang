@@ -1395,7 +1395,7 @@ picked up.
   `logs/pr-review-2026-05-22.log`, "simplify unused
   `U_oracle`/`Vh_oracle` setup in test 3".)
 
-- [ ] 7.11 **Remove the unused `import os` in
+- [x] 7.11 **Remove the unused `import os` in
   `tests/test_mcp_server.py`.** Severity: LOW. Surface:
   `tests/test_mcp_server.py:18`. PR #74 added this file and the
   module imports `os` but does not use it; `ruff check` flags
@@ -1404,6 +1404,11 @@ picked up.
   (Source: 2026-05-27 PR #74 review log,
   `logs/pr-review-2026-05-27.log`, called out as the "1 lint
   blocker" but not actioned before merge.)
+  Deleted the `import os` line. `grep -n '\bos\b'` against
+  `tests/test_mcp_server.py` confirms there are no remaining
+  references — the import had no live use in the module body.
+  `pytest tests/test_mcp_server.py` (11 passed, 1 skipped) and
+  the full suite (1130 passed, 20 skipped) stay green.
 
 - [ ] 7.12 **Trim the dead `Boom` / `monkeypatch` scaffolding
   inside the skipped `TestOuterErrorEnvelope` test.** Severity:
