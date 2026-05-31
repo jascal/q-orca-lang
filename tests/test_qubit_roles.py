@@ -57,6 +57,22 @@ class TestParsing:
             errs = _machine(bad).errors or []
             assert any("qubit_range_invalid" in e for e in errs), bad
 
+    def test_bare_range_no_role(self):
+        m = _machine("[q0..q3]").file.machines[0]
+        assert m.qubit_roles == ["data", "data", "data", "data"]
+
+    def test_mixed_tagged_untagged(self):
+        m = _machine("[q0:data, q1, q2:ancilla]").file.machines[0]
+        assert m.qubit_roles == ["data", "data", "ancilla"]
+
+    def test_whitespace_in_range(self):
+        m = _machine("[q0 .. q3 : ancilla]").file.machines[0]
+        assert m.qubit_roles == ["ancilla"] * 4
+
+    def test_typo_role_gets_suggestion(self):
+        errs = _machine("[q0:ancillaa]").errors or []
+        assert any("did you mean 'ancilla'" in e for e in errs)
+
 
 # ── Verifier rules ───────────────────────────────────────────────────────────
 

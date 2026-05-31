@@ -716,12 +716,15 @@ def _parse_qubit_register(default_str: str, errors: list[str] | None) -> tuple[l
                 reserved = role in RESERVED_QUBIT_ROLES
                 detail = (f"reserved-but-not-yet-supported role {role!r}" if reserved
                           else f"unknown role {role!r}")
+                from difflib import get_close_matches
+                near = get_close_matches(role, sorted(QUBIT_ROLES), n=1)
+                hint = f" (did you mean {near[0]!r}?)" if near and not reserved else ""
                 errors.append(
                     f"unknown_qubit_role: element {elem!r} has {detail} "
-                    f"(expected one of {', '.join(sorted(QUBIT_ROLES))})"
+                    f"(expected one of {', '.join(sorted(QUBIT_ROLES))}){hint}"
                 )
             role = DEFAULT_QUBIT_ROLE
-        rng = re.match(r"^([A-Za-z_]+)(\d+)\.\.([A-Za-z_]+)(\d+)$", name_part)
+        rng = re.match(r"^([A-Za-z_]+)(\d+)\s*\.\.\s*([A-Za-z_]+)(\d+)$", name_part)
         if rng and rng.group(1) == rng.group(3) and int(rng.group(4)) >= int(rng.group(2)):
             prefix, lo, hi = rng.group(1), int(rng.group(2)), int(rng.group(4))
             for k in range(lo, hi + 1):
