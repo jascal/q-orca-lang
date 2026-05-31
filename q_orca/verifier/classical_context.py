@@ -73,15 +73,25 @@ def _check_mutation_typing(
             suggestion=f"Declare '{mut.target_field}' in the ## context table.",
         ))
     else:
-        # Typing: scalar LHS must be `int`; list-element LHS must be `list<float>`.
+        # Typing: scalar LHS must be a numeric scalar (`int` or `float`);
+        # list-element LHS must be `list<float>`. Float scalars are allowed
+        # because the runtime (`context_ops._combine`) already performs float
+        # arithmetic, and a learnable rotation angle stored as a bare scalar
+        # field (e.g. a VQE/QPC `theta`) must be both readable by a rotation
+        # gate and mutable by a classical update — the combination the
+        # list-element form cannot express (gate-angle refs do not resolve
+        # list indices).
         if mut.target_idx is None:
-            if not (isinstance(field.type, QTypeScalar) and field.type.kind == "int"):
+            if not (
+                isinstance(field.type, QTypeScalar)
+                and field.type.kind in _NUMERIC_SCALARS
+            ):
                 errors.append(QVerificationError(
                     code="CONTEXT_FIELD_TYPE_MISMATCH",
                     message=(
                         f"Action '{action_name}': scalar context mutation "
-                        f"requires an `int` field, but '{mut.target_field}' "
-                        f"has a different type."
+                        f"requires an `int` or `float` field, but "
+                        f"'{mut.target_field}' has a different type."
                     ),
                     severity="error",
                     location={"action": action_name, "field": mut.target_field},
