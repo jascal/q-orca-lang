@@ -26,8 +26,10 @@ In the shipped example `q1` is prepared `H|0> = |+>`. The state before the parit
 ## Decisions
 
 ### D1 — Learning task: fixed computational-basis data register
-Prepare `q1 = |0>` (drop the `H`) for the benchmark example. Then `P(bits[0]=1) = P(q0=1) = |b(θ0)|²`. With the model `Ry(θ0)·Rz(θ1)·Rx(θ2)|0>`, the Z-basis excitation `|b|²` is a smooth function of the angles; for the benchmark we fix `θ1,θ2` at their defaults so the objective is the 1-D curve `p(θ0) = P(q0=1)`. The binary update `θ0 -= eta` on bit=1 / `+= eta` on bit=0 has zero drift exactly where `p(θ0*) = ½`, so the fixed point `θ0*` is the angle that makes the model qubit a fair coin. This is analytically known, giving a ground-truth target.
-*Alternative considered:* a parameterized data register `Ry(q1, φ)` with a target `φ` — richer (model chases data) but introduces a second free parameter and a 2-D objective; deferred to keep the first benchmark legible.
+Prepare `q1 = |0>` (drop the `H`) for the benchmark example. Then `P(bits[0]=1) = P(q0=1) = |b(θ0)|²`. We also fix `θ1 = θ2 = 0` (resolving Open Question #2), collapsing `Rz` and `Rx` to identity so the model is just `Ry(θ0)|0> = cos(θ0/2)|0> + sin(θ0/2)|1>` and the objective is the cleanest possible closed-form curve:
+`p(θ0) = P(q0=1) = sin²(θ0/2)`.
+The binary update `θ0 -= eta` on bit=1 / `+= eta` on bit=0 has zero drift exactly where `p(θ0*) = ½`, i.e. `θ0* = π/2` — the angle that makes the model qubit a fair coin. This is analytically known, giving a ground-truth target that needs no simulator to compute.
+*Alternative considered:* leave `θ1,θ2` at their non-zero example defaults — keeps the example closer to the original, but `p(θ0)` is then a messier composite curve that obscures the analytic check; rejected for legibility. *Also considered:* a parameterized data register `Ry(q1, φ)` chasing a target `φ` — richer (model chases data) but a 2-D objective; deferred to a future extension.
 
 ### D2 — Convergence metric
 Primary metric: `err(t) = |p̂_t − ½|`, where `p̂_t` is the measured `P(bits[0]=1)` at the θ0 in effect at iteration `t`. Secondary metric: `|θ0(t) − θ0*|`. `p̂_t` is obtained by shot-batching the forward pass at each recorded θ0 (the iterative runtime already supports `inner_shots`). Report both the raw trajectory and a running mean.
@@ -36,7 +38,10 @@ Primary metric: `err(t) = |p̂_t − ½|`, where `p̂_t` is the measured `P(bits
 A constant-η binary stochastic-approximation update does **not** converge to a point — it enters and then dithers within an `O(eta)` band around `θ0*`. The criterion is therefore: the running-mean error over the last `k` iterations falls below `c·eta` (with `c≈1`, default `k=⌈max_iter/3⌉`), and the *first-half* mean error strictly exceeds the *second-half* mean error (the loop demonstrably moved toward the fixed point). For asymptotic point-convergence the harness ALSO supports an optional decreasing schedule `eta_t = eta_0 / (1 + t)` (Robbins–Monro); whether the runtime can express per-iteration η is checked in Open Questions — if not, the schedule is applied by the harness re-invoking the loop in unit steps.
 
 ### D4 — Exact classical baseline
-Compute `p(θ0)` in closed form (or by a 1-qubit statevector) and run deterministic gradient descent / exact binary-drift dynamics on it with the same `eta`, `θ0(0)`, and step count. The honest comparison: the noisy quantum trajectory tracks the exact classical trajectory within `±O(1/√shots)`. Report the max and mean absolute gap.
+For this single-parameter task the baseline uses the **exact analytic** objective `p(θ0) = sin²(θ0/2)` directly — no simulator — and runs the same binary-drift dynamics (expected update `E[Δθ0] = -eta·(2p(θ0)-1)`, or the deterministic exact-bit dynamics) with the same `eta`, `θ0(0)`, and step count. A 1-qubit statevector evaluation of `p(θ0)` is the generic fallback for any future task without a closed form, but is unnecessary here. The honest comparison: the noisy quantum trajectory tracks the exact classical trajectory within `±O(1/√shots)`. Report the max and mean absolute gap.
+
+### D8 — Recommended benchmark/test defaults
+To keep shot noise comfortably below the `O(eta)` band so the seeded test is stable, the harness defaults (and the convergence test) use: `inner_shots = 2048` (test floor 1024; demo may use 4096), `max_iter` in the 200–500 range (default 300), and `eta` in 0.1–0.3 (default 0.15). These balance convergence speed against final band width (`~c·eta`); the example machine keeps a small `max_iter` default for a quick `q-orca run`, and the harness overrides it for the benchmark. The chosen values are recorded in the emitted report so a run is self-describing.
 
 ### D5 — Reproducibility
 Thread a fixed simulator seed (`QIterativeSimulationOptions.seed_simulator`) so a given `(seed, shots, eta, θ0(0), max_iter)` yields a byte-identical trajectory. The test pins this.
@@ -61,6 +66,6 @@ Additive only. New package, new example, new demo, new tests. Nothing to roll ba
 
 ## Open Questions
 
-1. **Per-iteration η:** can `QIterativeSimulationOptions` / the context-update grammar express a decreasing `eta_t` within a single `simulate_iterative` run, or must the harness drive unit steps externally to realize Robbins–Monro? (Affects D3; default to external driving if unsupported.)
-2. **Default angles `θ1,θ2`:** fix at the example defaults (0.3, 0.7) or set both to 0 so `p(θ0)=sin²(θ0/2)` is the cleanest textbook curve? (Leaning: 0 for legibility; document the choice.)
-3. **Autoencoder baseline (2202.01230):** the research doc also mentions comparing against the autoencoder compression baseline on sequential data. That is a much larger, separate effort — explicitly deferred; this change ships only the classical-gradient-descent baseline.
+1. **Per-iteration η (resolved for v1):** the runtime's constant-`eta` context field cannot express a decreasing `eta_t` within a single `simulate_iterative` run, so v1 realizes the optional Robbins–Monro schedule (`eta_t = eta_0/(1+t)`) by **external driving** — the harness re-invokes the loop in unit steps, applying the schedule between steps. This is acceptable for the first version; the default benchmark still uses the constant-`eta` band criterion (D3). A future **scalar-innovation (Kalman-style) update** — and asymptotic point-convergence generally — would benefit from native per-iteration schedule support in the iterative runtime; noted as a follow-up, not in scope here.
+2. **Default angles `θ1,θ2` (resolved):** fixed at `0` so the objective is the clean textbook curve `p(θ0)=sin²(θ0/2)` with `θ0*=π/2` (see D1). Documented in the example and the report.
+3. **Autoencoder baseline (2202.01230) — deferred:** the research doc also mentions comparing against the autoencoder compression baseline on sequential data. That is a much larger, separate effort; this change ships only the exact classical-gradient-descent baseline.
