@@ -15,6 +15,11 @@ python demos/qpc_convergence/run.py --max-iter 120 --eta 0.1 --seed 7
 Writes `out/results.csv`, `out/results.json`, and (if matplotlib is installed)
 `out/convergence.png`.
 
+**Optional dependency:** the CSV/JSON are always written; the plot
+(`convergence.png`) is emitted only when `matplotlib` is importable. If it is not
+installed, the run still completes and notes that plotting was skipped — no hard
+dependency.
+
 ## What it shows
 
 The benchmark machine (`examples/predictive-coder-converging.q.orca.md`) prepares

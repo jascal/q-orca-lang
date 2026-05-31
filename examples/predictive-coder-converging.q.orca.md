@@ -22,8 +22,11 @@
 > update is enabled by the verifier relaxation shipped alongside this example.
 >
 > Drives the convergence harness in `q_orca/evaluation/qpc.py`. The small
-> `max_iter` default keeps `q-orca run` quick; the harness overrides
-> `theta_0` / `eta` / `max_iter` per benchmark configuration.
+> `max_iter` default below keeps a bare `q-orca run` quick; the harness overrides
+> `theta_0` / `eta` / `max_iter` per benchmark configuration. The benchmark
+> defaults are `theta_0 = 0.5`, `eta = 0.15`, `max_iter = 80`, `seed = 7`
+> (`demos/qpc_convergence/run.py`), which converge `theta_0` into an O(eta) band
+> around `pi/2`.
 
 ## context
 

@@ -80,7 +80,9 @@ def _check_mutation_typing(
         # field (e.g. a VQE/QPC `theta`) must be both readable by a rotation
         # gate and mutable by a classical update — the combination the
         # list-element form cannot express (gate-angle refs do not resolve
-        # list indices).
+        # list indices). Integer loop-bound detection (`_int_field_names`,
+        # used for `<`/`>` termination guards) stays int-only and is
+        # unaffected by allowing float *mutation* targets here.
         if mut.target_idx is None:
             if not (
                 isinstance(field.type, QTypeScalar)
