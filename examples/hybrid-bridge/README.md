@@ -2,10 +2,13 @@
 
 A **classical Orca** orchestrator drives a **quantum q-orca** circuit through a
 variational optimization loop, with the two tools communicating *only* over the
-[cross-tool bridge protocol](../../../orca-lang/docs/cross-tool-invoke-and-returns.md)
-(version `1.0`). They share no AST, no FFI, and — as run here — not even a Python
-environment. Every iteration crosses the boundary as JSON envelopes piped over a
-subprocess.
+[cross-tool bridge protocol][bridge-doc] (version `1.0`). They share no AST, no
+FFI, and — as run here — not even a Python environment. Every iteration crosses
+the boundary as JSON envelopes piped over a subprocess.
+
+[bridge-doc]: https://github.com/jascal/orca-lang/blob/main/docs/cross-tool-invoke-and-returns.md
+<!-- In a local side-by-side checkout the doc lives at ../../../orca-lang/docs/cross-tool-invoke-and-returns.md -->
+
 
 ## What it does
 

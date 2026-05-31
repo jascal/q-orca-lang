@@ -45,7 +45,7 @@ Q_ORCA_BIN = os.environ.get("Q_ORCA_BIN", "q-orca")
 # The *target* P(measure 1) is owned by the Orca machine's context (its
 # `target` default in vqe-orchestrator.orca.md) — the single source of truth the
 # `gradient_step` action and the guards both read. Set the TARGET env var to
-# override it for a run (e.g. TARGET=0.85 ⇒ θ* = 2·asin√0.85 ≈ 2.348).
+# override it for a run (e.g. TARGET=0.85 ⇒ θ* = 2·asin√0.85 ≈ 2.346).
 TARGET_OVERRIDE = os.environ.get("TARGET")
 GAIN = 2.0          # proportional step size (≈ Newton near the target, where dP/dθ≈0.5)
 TOL = 0.04          # convergence band on |target − measured prob|
@@ -80,8 +80,24 @@ def make_gradient_step(report):
 
 async def main() -> int:
     machine = OrcaMachine(definition=parse_orca_md(ORCHESTRATOR.read_text()))
+
+    # Preflight: the outbound bridge needs a runtime-python that carries it.
+    # Fail with the README pointer instead of a bare AttributeError on `register_*`.
+    if not hasattr(machine, "register_foreign_runner"):
+        raise SystemExit(
+            "This orca-runtime-python lacks the cross-tool bridge "
+            "(`register_foreign_runner`). Install orca-runtime-python >= 0.1.28 "
+            "(or run from a checkout that has it). See README.md."
+        )
+
     if TARGET_OVERRIDE is not None:
-        machine.context["target"] = float(TARGET_OVERRIDE)
+        try:
+            override = float(TARGET_OVERRIDE)
+        except ValueError:
+            raise SystemExit(f"TARGET must be a float in (0, 1); got {TARGET_OVERRIDE!r}")
+        if not 0.0 < override < 1.0:
+            raise SystemExit(f"TARGET must be in the open interval (0, 1); got {override}")
+        machine.context["target"] = override
     target = machine.context["target"]          # single source of truth (Orca context)
     theta_star = 2 * math.asin(math.sqrt(target))
 
@@ -110,8 +126,18 @@ async def main() -> int:
 
     await machine.start()         # → idle
     await machine.send("begin")   # idle → measuring →(bridge)→ MEASURED → evaluate
+    # The `gradient_step` action forces `converged` at MAX_ITERS, so the guards
+    # always route to `done`. This counter is belt-and-suspenders against an
+    # unexpected state-machine stall, never the normal exit.
+    safety = MAX_ITERS + 2
     while machine.state.leaf() != "done":
         await machine.send("next")  # evaluate → measuring →(bridge)→ … or → done
+        safety -= 1
+        if safety <= 0:
+            raise SystemExit(
+                f"orchestrator did not reach 'done' within {MAX_ITERS + 2} steps "
+                f"(stuck in '{machine.state.leaf()}')"
+            )
 
     ctx = machine.context
     invocations = ctx["iteration"]
