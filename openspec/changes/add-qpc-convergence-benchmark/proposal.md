@@ -11,7 +11,8 @@ Writing this benchmark also forces a correctness fix: in the shipped example the
 - Compare the quantum stochastic loop against an **exact classical baseline** — gradient descent on the same scalar objective `P(bits[0]=1 | theta_0)` computed in closed form / by statevector — and report the gap (the honest result is parity within shot noise, *not* a quantum advantage).
 - Add a corrected learning example (`examples/predictive-coder-converging.q.orca.md`) with a non-trivial signal, a demo runner under `demos/qpc_convergence/`, and an emitted results table (CSV/JSON) plus an optional error-vs-iteration plot.
 - Add tests that run the benchmark headless (small shots/iterations, no plotting) asserting the convergence property and run-to-run reproducibility under a fixed seed.
-- No language, parser, AST, verifier, or compiler changes. This change only *consumes* the existing iterative runtime.
+- **Relax the verifier's scalar context-mutation typing to accept `float` (not only `int`).** Implementing the loop surfaced that a learnable bare-scalar angle could not be both referenced by a rotation gate *and* mutated by a context update: the scalar form is required for the gate-angle reference (list-index angles do not resolve in the circuit builder), but the verifier rejected scalar-`float` `+=`/`-=` — even though the runtime (`context_ops`) already performs float arithmetic. This is a one-line bug fix aligning the verifier with the runtime; it benefits any variational machine (VQE/QAOA) with a trainable bare-scalar angle, not just the QPC.
+- Fix the structural loop bug shared with the original example: re-route the loop through a `|ready>` state so the model-prep ansatz re-runs each iteration (the original applied it once and then measured a stale state).
 
 ## Capabilities
 
@@ -19,11 +20,12 @@ Writing this benchmark also forces a correctness fix: in the shipped example the
 - `evaluation`: benchmarking and convergence-measurement harnesses that run an existing q-orca machine through the runtime and assert quantitative behavioral properties (convergence rate, error floor, agreement with a reference baseline) over a sweep of configurations.
 
 ### Modified Capabilities
-<!-- none — no existing capability's requirements change -->
+- `verifier`: classical context-update static typing — a scalar (non-indexed) `+=`/`-=` target may now be a numeric scalar (`int` **or** `float`), not `int` only. The runtime already supported float; this aligns the verifier.
 
 ## Impact
 
 - **New code**: `q_orca/evaluation/` (harness + classical baseline + trajectory extraction); `demos/qpc_convergence/` (runner); `examples/predictive-coder-converging.q.orca.md`; tests under `tests/`.
+- **Changed code**: `q_orca/verifier/classical_context.py` (one-condition relaxation: scalar mutation target may be `int` or `float`). 189 existing verifier/context tests still pass.
 - **Dependencies**: NumPy (already used). Plotting (matplotlib) is an *optional* dependency — the harness degrades to data-only (CSV/JSON) when it is absent, mirroring the repo's optional-backend pattern.
 - **Docs**: marks Next-Step #6 of `docs/research/spec-quantum-predictive-coder.md` as delivered.
 - **No breaking changes**; the shipped `predictive-coder-learning.q.orca.md` example is left in place (a note documents its no-signal property).

@@ -13,6 +13,16 @@
 > `docs/research/spec-quantum-predictive-coder.md` §Next concrete steps,
 > implemented against the iterative runtime landed by
 > `run-context-updates`.
+>
+> ⚠️ **No learning happens here — this is a structural skeleton, kept for
+> teaching.** Two reasons: (1) the data register is `H|0> = |+>`, so the parity
+> ancilla reads `P(bits[0]=1) = 1/2` *independently of* `theta_0` — there is no
+> learning signal and `theta_0` would just random-walk; and (2) `gradient_step`
+> has an empty effect (a no-op), so `theta_0` never changes at all. For a machine
+> that actually learns — real signal, real update, model re-prepared each
+> iteration, converging to `theta_0 = pi/2` — see
+> `examples/predictive-coder-converging.q.orca.md` and the convergence benchmark
+> in `q_orca/evaluation/qpc.py` (`add-qpc-convergence-benchmark`).
 
 ## context
 

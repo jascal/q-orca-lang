@@ -21,7 +21,7 @@ In the shipped example `q1` is prepared `H|0> = |+>`. The state before the parit
 **Non-Goals:**
 - **No quantum-advantage claim.** For this single-parameter toy the classical baseline is at least as good; the benchmark demonstrates the loop is *correct and measurable*, not superior. The proposal and the emitted report say so explicitly.
 - **Not the scalar-innovation (Kalman) update.** The research doc's principled `(bits[0] − expected)` update is a *separate* residual; this change benchmarks the shipped binary `θ0 ± eta` loop. The harness is written so a future scalar-innovation loop can be benchmarked unchanged.
-- **No new language/compiler/verifier surface.** Pure runtime consumer.
+- **No new compiler or parser surface, and no AST change.** The one verifier change is a typing *relaxation* (D9), not new surface; the harness otherwise only consumes the runtime.
 
 ## Decisions
 
@@ -39,6 +39,16 @@ A constant-η binary stochastic-approximation update does **not** converge to a 
 
 ### D4 — Exact classical baseline
 For this single-parameter task the baseline uses the **exact analytic** objective `p(θ0) = sin²(θ0/2)` directly — no simulator — and runs the same binary-drift dynamics (expected update `E[Δθ0] = -eta·(2p(θ0)-1)`, or the deterministic exact-bit dynamics) with the same `eta`, `θ0(0)`, and step count. A 1-qubit statevector evaluation of `p(θ0)` is the generic fallback for any future task without a closed form, but is unnecessary here. The honest comparison: the noisy quantum trajectory tracks the exact classical trajectory within `±O(1/√shots)`. Report the max and mean absolute gap.
+
+### D9 — The learnable-angle gap, and the verifier relaxation (discovered during implementation)
+Implementing the loop surfaced that **no shipped encoding lets a `float` angle be both a rotation-gate argument and a context-update target**:
+- *Scalar* `theta_0`: the circuit builder resolves `Ry(qs[0], theta_0)` (it overlays scalar ctx values into the angle context), but the verifier rejected `theta_0 -= eta` — `CONTEXT_FIELD_TYPE_MISMATCH`, scalar `+=`/`-=` was `int`-only.
+- *List* `theta[0]`: the verifier accepts `theta[0] -= eta`, but `build_circuit_for_iteration` only overlays *scalar* ctx values into the angle context, so `Ry(qs[0], theta[0])` resolves to no rotation (P(1)=0 at every θ).
+
+So the QPC loop could not actually close — the original `predictive-coder-learning` example only "ran" because its `gradient_step` is a no-op and its data is signal-free. The minimal, lowest-risk fix is the **verifier relaxation**: allow a scalar `+=`/`-=` target to be a numeric scalar (`int` *or* `float`). The runtime's `context_ops._combine` already does float arithmetic and the RHS check already allows `int|float`, so this only removes an over-strict LHS guard; it unblocks the scalar-`theta_0` path end-to-end (verifies, runs, converges) and helps any VQE/QAOA machine with a trainable bare-scalar angle.
+*Alternative considered:* extend the circuit builder to resolve `list<float>` index angles instead. Rejected — a larger compiler change touching the effect-string angle parser, versus a one-condition verifier relaxation that matches what the runtime already does.
+
+A second, structural bug was also fixed: `apply_ansatz` sat on the `init → prior_ready` edge, but the loop re-entered `prior_ready` directly, so the model was prepared once and then measured stale every iteration. The benchmark example routes `loop_back` through a `|ready>` state whose out-edge carries `apply_ansatz`, so the model is re-prepared with the updated `theta_0` each iteration.
 
 ### D8 — Recommended benchmark/test defaults
 To keep shot noise comfortably below the `O(eta)` band so the seeded test is stable, the harness defaults (and the convergence test) use: `inner_shots = 2048` (test floor 1024; demo may use 4096), `max_iter` in the 200–500 range (default 300), and `eta` in 0.1–0.3 (default 0.15). These balance convergence speed against final band width (`~c·eta`); the example machine keeps a small `max_iter` default for a quick `q-orca run`, and the harness overrides it for the benchmark. The chosen values are recorded in the emitted report so a run is self-describing.
