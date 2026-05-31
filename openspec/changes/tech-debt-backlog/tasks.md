@@ -1360,7 +1360,7 @@ picked up.
   (Source: 2026-05-22 PR #72 review log,
   `logs/pr-review-2026-05-22.log`, "minor non-blocking nit".)
 
-- [ ] 7.9 **Vectorise the effective-rank reduction in the
+- [x] 7.9 **Vectorise the effective-rank reduction in the
   `MpsBondTruncationError` message.** Severity: LOW. Surface:
   `q_orca/compiler/mps_contract.py:173`. The error string
   computes the effective rank with a Python list comprehension
@@ -1374,6 +1374,25 @@ picked up.
   (Source: 2026-05-22 PR #73 review log,
   `logs/pr-review-2026-05-22.log`, "vectorise effective-rank
   computation in error string".)
+  Replaced the `len([s for s in S if s > _BOND_TRUNCATION_ATOL])`
+  list comprehension with `int(np_module.count_nonzero(S >
+  _BOND_TRUNCATION_ATOL))` in `_apply_cnot`. Note: the task body
+  referenced `np.count_nonzero` and "already imported `numpy as np`
+  at module scope", but the module imports `numpy` only under
+  `TYPE_CHECKING` and uses the `np_module` parameter threaded
+  through from the public entry points instead — so the
+  vectorisation routes through `np_module.count_nonzero`, matching
+  the rest of the module's BLAS calls. Lifted the computation out
+  of the f-string into a `effective_rank` local so the raise path
+  stays single-line per field, and so a future guard refinement
+  (e.g. logging the rank before raising) has a name to grab.
+  Existing `TestApplyCnotBondTruncationGuard` tests
+  (`tests/test_concept_gram_mps_contraction.py`) cover the three
+  shapes — rank-2 pass-through, rank-3 raise with the discarded
+  magnitude pinned, and below-atol noise stays silent — and pass
+  unchanged (39 passed, 1 skipped); the message wording around
+  "effective rank N" stays identical because `np.count_nonzero`
+  and the Python `len([... if ...])` return the same integer.
 
 - [ ] 7.10 **Simplify the `U_oracle` / `Vh_oracle` Q-R scaffolding
   in `test_rank_three_input_raises_with_named_discard`.**
