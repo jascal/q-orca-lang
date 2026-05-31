@@ -215,7 +215,14 @@ def _emit_noise_channel(channel, machine: QMachineDef) -> list[str]:
         gates = [g for g in gate_class if g in SINGLE_QUBIT_GATES] if single_qubit_only else gate_class
         add(f"noise_model.add_all_qubit_quantum_error(_err, {gates!r})")
     elif tgt.kind == "all_qubits":
+        # NOTE (D6, scoped): the channel is attached to gate *operations* on all
+        # qubits. True idle-qubit decay — inserting thermal relaxation on a qubit
+        # that is idle while another qubit is gated — is NOT modeled in v1; it
+        # needs per-timestep duration scheduling (a documented follow-up). For
+        # `thermal` this means decay is applied at single-qubit gate ops only.
         gates = list(SINGLE_QUBIT_GATES) if single_qubit_only else list(ALL_GATES)
+        if kind == "thermal":
+            add("# note: idle-qubit decay between gates is not modeled (v1)")
         add(f"noise_model.add_all_qubit_quantum_error(_err, {gates!r})")
     elif tgt.kind == "qubit_index":
         gates = SINGLE_QUBIT_GATES if (single_qubit_only or arity == 1) else TWO_QUBIT_GATES

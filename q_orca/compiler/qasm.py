@@ -31,7 +31,7 @@ def compile_to_qasm(machine: QMachineDef) -> str:
     # stable, machine-parseable `// noise:` comment block (no semantic effect).
     noise_section = resolve_noise_section(machine)
     if noise_section is not None and noise_section.channels:
-        lines.append("// noise: (declarative; not simulated from QASM)")
+        lines.append("// noise_model: declarative; not simulated from QASM (one channel per line)")
         for ch in noise_section.channels:
             params = " ".join(f"{k}={v}" for k, v in ch.parameters.items())
             lines.append(f"// noise: channel={ch.kind} target={ch.target.raw} {params}".rstrip())

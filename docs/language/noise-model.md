@@ -36,7 +36,7 @@ effect is rejected as `NOISE_PARAMETER_AMBIGUOUS` — supply one, not both.
 |---|---|
 | `all_gates` | every gate |
 | `single_qubit_gates` / `two_qubit_gates` | by arity |
-| `all_qubits` | all qubits (for `thermal`, idle relaxation when on `all_qubits`) |
+| `all_qubits` | all qubits — the channel is applied at gate operations on every qubit. **Note:** true idle-qubit decay (relaxation on a qubit while *another* qubit is gated) is **not modeled in v1**; it needs per-timestep duration scheduling, a documented follow-up. |
 | `all_measurements` | measurement readout (`readout_error`) |
 | `qs[N]` | a qubit by index |
 | `qs[role:R]` | every qubit with role `R` — **requires `qubit-role-types`**; parses today but is reported `NOISE_TARGET_NO_MATCH` until that capability ships |

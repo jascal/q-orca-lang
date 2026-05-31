@@ -66,6 +66,11 @@ class TestParsing:
         sec = _machine("| pauli | qs[0] | probabilities=[0.97,0.01,0.01,0.01] |").noise_model
         assert sec.channels[0].parameters["probabilities"] == [0.97, 0.01, 0.01, 0.01]
 
+    def test_unit_parsing_robust_to_case_and_space(self):
+        # Uppercase unit + whitespace around the number/unit must still resolve.
+        sec = _machine("| thermal | all_qubits | T1=100 US, T2 = 80US |").noise_model
+        assert sec.channels[0].parameters == {"T1": 100_000.0, "T2": 80_000.0}
+
 
 # ── Verifier rules ──────────────────────────────────────────────────────────────
 
@@ -148,7 +153,9 @@ class TestDeprecationAlias:
         errs = check_noise_model(m).errors
         dep = [e for e in errs if e.code == "NOISE_CONTEXT_FIELD_DEPRECATED"]
         assert len(dep) == 1 and dep[0].severity == "warning"
+        # suggestion shows the concrete equivalent section table for this channel
         assert "## noise_model" in (dep[0].suggestion or "")
+        assert "| depolarizing | all_gates | p=0.01 |" in (dep[0].suggestion or "")
 
     def test_legacy_compiles_byte_identical_to_section(self):
         assert _noise_block(_LEGACY) == _noise_block(_SECTION_EQUIV)
