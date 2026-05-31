@@ -7,10 +7,15 @@
 
 ## context
 
-| Field  | Type        | Default               |
-|--------|-------------|-----------------------|
-| qubits | list<qubit> | [q0, q1, q2, q3, q4] |
-| bits   | list<bit>   | [b0, b1]              |
+| Field  | Type        | Default                                  |
+|--------|-------------|------------------------------------------|
+| qubits | list<qubit> | [q0:data, q1:data, q2:data, q3:ancilla, q4:ancilla] |
+| bits   | list<bit>   | [b0, b1]                                 |
+
+<!-- q3/q4 are tagged `ancilla`: the verifier now enforces ancilla reset between
+     successive mid-circuit measurements automatically (no hand-added
+     `mid_circuit_coherence` rule needed). q0-q2 carry the algorithmic payload. -->
+
 
 ## events
 

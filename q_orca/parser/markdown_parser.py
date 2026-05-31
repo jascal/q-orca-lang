@@ -21,6 +21,7 @@ from q_orca.ast import (
     Span, QubitSlice, QAssertion, AssertionPolicy,
     QInvoke, QReturnDef, QImport, QReexport,
     NoiseChannel, NoiseModelSection, NoiseTarget,
+    QUBIT_ROLES, RESERVED_QUBIT_ROLES, DEFAULT_QUBIT_ROLE,
 )
 from q_orca.verifier.quantum import KNOWN_UNITARY_GATES
 
@@ -411,6 +412,7 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
     assertion_policy = AssertionPolicy()
     returns: list[QReturnDef] = []
     noise_model: NoiseModelSection | None = None
+    qubit_roles: list[str] = []
 
     # Pre-scan for the context table so that angle expressions in actions
     # can reference numeric context fields regardless of section order.
@@ -550,6 +552,16 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
     if states and not any(s.is_initial for s in states):
         states[0].is_initial = True
 
+    # Parse per-qubit roles from the `qubits` register default, expanding ranges
+    # and stripping the `:role` tags so the stored default stays the clean
+    # `[q0, q1, ...]` form other consumers expect.
+    for cf in context:
+        if (cf.name == "qubits" and isinstance(cf.type, QTypeList)
+                and (cf.type.element_type or "").strip() == "qubit" and cf.default_value):
+            names, qubit_roles = _parse_qubit_register(cf.default_value, errors)
+            cf.default_value = "[" + ", ".join(names) + "]"
+            break
+
     return QMachineDef(
         name=name,
         context=context,
@@ -567,6 +579,7 @@ def _parse_machine_chunk(elements: list[MdElement], errors: list[str] | None = N
         assertion_policy=assertion_policy,
         returns=returns,
         noise_model=noise_model,
+        qubit_roles=qubit_roles,
     )
 
 
@@ -673,6 +686,62 @@ def _parse_noise_model_table(table: MdTable, errors: list[str] | None = None) ->
             raw_parameters=params_raw,
         ))
     return NoiseModelSection(channels=channels)
+
+
+def _parse_qubit_register(default_str: str, errors: list[str] | None) -> tuple[list[str], list[str]]:
+    """Parse a `list<qubit>` default into (names, roles), expanding ranges.
+
+    Accepts `[q0, q1]` (untagged → role `data`), `[q0:data, q1:ancilla]`, and the
+    range shorthand `[q0..q5:ancilla]`. Unknown / reserved roles append a
+    structured `unknown_qubit_role` error (and fall back to `data`); malformed
+    ranges append `qubit_range_invalid` and keep the literal token. Roles are
+    index-aligned with the returned names.
+    """
+    names: list[str] = []
+    roles: list[str] = []
+    s = default_str.strip()
+    if s.startswith("[") and s.endswith("]"):
+        s = s[1:-1]
+    for raw in s.split(","):
+        elem = raw.strip()
+        if not elem:
+            continue
+        if ":" in elem:
+            name_part, role = elem.split(":", 1)
+            name_part, role = name_part.strip(), role.strip().lower()
+        else:
+            name_part, role = elem, DEFAULT_QUBIT_ROLE
+        if role not in QUBIT_ROLES:
+            if errors is not None:
+                reserved = role in RESERVED_QUBIT_ROLES
+                detail = (f"reserved-but-not-yet-supported role {role!r}" if reserved
+                          else f"unknown role {role!r}")
+                from difflib import get_close_matches
+                near = get_close_matches(role, sorted(QUBIT_ROLES), n=1)
+                hint = f" (did you mean {near[0]!r}?)" if near and not reserved else ""
+                errors.append(
+                    f"unknown_qubit_role: element {elem!r} has {detail} "
+                    f"(expected one of {', '.join(sorted(QUBIT_ROLES))}){hint}"
+                )
+            role = DEFAULT_QUBIT_ROLE
+        rng = re.match(r"^([A-Za-z_]+)(\d+)\s*\.\.\s*([A-Za-z_]+)(\d+)$", name_part)
+        if rng and rng.group(1) == rng.group(3) and int(rng.group(4)) >= int(rng.group(2)):
+            prefix, lo, hi = rng.group(1), int(rng.group(2)), int(rng.group(4))
+            for k in range(lo, hi + 1):
+                names.append(f"{prefix}{k}")
+                roles.append(role)
+        elif ".." in name_part:
+            if errors is not None:
+                errors.append(
+                    f"qubit_range_invalid: {name_part!r} is not a well-formed range "
+                    f"(shared alphabetic prefix with ascending integer suffixes)"
+                )
+            names.append(name_part)
+            roles.append(role)
+        else:
+            names.append(name_part)
+            roles.append(role)
+    return names, roles
 
 
 def _parse_context_table(table: MdTable) -> list[ContextField]:

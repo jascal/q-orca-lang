@@ -95,9 +95,11 @@ def _check_target(ch, machine, qubit_count: int, gate_names: set[str]) -> list[Q
     if t.kind == "unknown":
         return [_err("NOISE_TARGET_NO_MATCH", f"unrecognized noise target {t.raw!r}", "warning")]
     if t.kind == "qubit_role":
-        return [_err("NOISE_TARGET_NO_MATCH",
-                     f"target {t.raw!r} requires the qubit-role-types capability (not yet available); "
-                     f"the role selector is parsed but cannot be resolved", "warning")]
+        from q_orca.roles import qubits_with_role
+        if not qubits_with_role(machine, t.role):
+            return [_err("NOISE_TARGET_NO_MATCH",
+                         f"target {t.raw!r} matches no qubit with role {t.role!r}", "warning")]
+        return []
     if t.kind == "qubit_index" and (t.index is None or t.index >= qubit_count):
         return [_err("NOISE_TARGET_NO_MATCH",
                      f"target {t.raw!r} indexes qubit {t.index} beyond the declared count ({qubit_count})", "warning")]
