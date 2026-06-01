@@ -242,6 +242,28 @@ class QReturnDef:
     statistics: list[str] = field(default_factory=list)
 
 
+LoopKind = Literal["fixed", "adaptive"]
+
+
+@dataclass
+class QLoopAnnotation:
+    """A bounded-loop annotation on a `## state` heading.
+
+    `[loop <expr>]` (kind="fixed") iterates the loop body a fixed number of
+    times; `bound_expr` is the raw bound expression (a numeric literal, a
+    context-field reference, or a closed-form expression over context fields
+    and the standard math functions `sqrt`/`ceil`/`floor`/`pi`), evaluated
+    once at compile time to an integer.
+
+    `[loop until: <predicate>]` (kind="adaptive") iterates until the classical
+    `bound_expr` predicate (raw source text) holds; the predicate is re-checked
+    after each body iteration. See `docs/language/bounded-loops.md`.
+    """
+    kind: LoopKind
+    bound_expr: str
+    source_span: Span = field(default_factory=Span)
+
+
 @dataclass
 class QStateDef:
     name: str  # raw ket notation, e.g. "|00>"
@@ -254,6 +276,7 @@ class QStateDef:
     on_exit: Optional[str] = None
     assertions: list[QAssertion] = field(default_factory=list)
     invoke: Optional["QInvoke"] = None
+    loop: Optional["QLoopAnnotation"] = None
 
 
 @dataclass
@@ -463,6 +486,11 @@ class QTransition:
     # Source-form text of the Action cell, preserved for display (e.g. Mermaid labels).
     # `None` for bare-name refs; set to the verbatim cell text for call-form refs.
     action_label: Optional[str] = None
+    # Bounded-loop transition tags (recognized comma-separated alongside a real
+    # action in the Action cell): `loop_done` marks the loop-exit edge,
+    # `loop_back` marks the back-edge that re-enters the loop body.
+    loop_done: bool = False
+    loop_back: bool = False
 
 
 @dataclass

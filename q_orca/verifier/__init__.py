@@ -27,6 +27,7 @@ class VerifyOptions:
     skip_composition: bool = False
     skip_noise_model: bool = False
     skip_qubit_roles: bool = False
+    skip_loop_verification: bool = False
     backend: str = "qutip"
     compile_target: Optional[str] = None  # noise backend-compatibility checks key off this
 
@@ -82,6 +83,13 @@ def verify(
     if not opts.skip_qubit_roles:
         from q_orca.verifier.roles import check_qubit_roles
         all_errors.extend(check_qubit_roles(machine).errors)
+
+    # Stage 3f: Bounded-loop structural rules (well-formed body, body
+    # unitarity, adaptive-termination reachability). Fire automatically when
+    # any `[loop …]`-annotated state is present.
+    if not opts.skip_loop_verification:
+        from q_orca.verifier.loops import check_loop_rules
+        all_errors.extend(check_loop_rules(machine).errors)
 
     # Stage 3c: Composition (multi-machine invoke/return checks). Runs only
     # when a surrounding file is supplied and the machine has invoke states.

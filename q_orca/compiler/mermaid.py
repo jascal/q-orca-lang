@@ -5,6 +5,7 @@ from typing import Optional
 
 from q_orca.ast import QMachineDef, QOrcaFile, QStateDef
 from q_orca.compiler.util import format_assertion_expr
+from q_orca.compiler.loops import analyze_loops, LoopBoundError
 
 
 def _sanitize(name: str) -> str:
@@ -25,6 +26,15 @@ def compile_to_mermaid(
     def state_id(s: QStateDef) -> str:
         return sanitize(s.name)
 
+    # Bounded-loop annotations: label the loop entry state and its back-edge
+    # (×N for fixed, condensed `until …` predicate for adaptive) rather than
+    # rendering an unrolled linear chain. Fall back to the unevaluated bound
+    # expression if a fixed bound can't be resolved at render time.
+    try:
+        loops = analyze_loops(machine, evaluate=True)
+    except LoopBoundError:
+        loops = analyze_loops(machine, evaluate=False)
+
     # Add state descriptions. Assertions are appended to the description text
     # only. Invoke states are labeled `invoke: <Child>` (and their child is
     # rendered as a nested composite state below when the file is available).
@@ -38,6 +48,8 @@ def compile_to_mermaid(
         if state.assertions:
             summary = "; ".join(format_assertion_expr(a, "qs") for a in state.assertions)
             label += f" — assert: {summary}"
+        if state.name in loops:
+            label += f" ⟲ {loops[state.name].label}"
         lines.append(f"  {sanitize(state.name)} : {label}")
     lines.append("")
 
@@ -62,6 +74,10 @@ def compile_to_mermaid(
             # (`query_concept(3)`) on `action_label`; bare-name refs use
             # `action` directly.
             label += f" / {t.action_label or t.action}"
+        if t.loop_back:
+            info = next((i for i in loops.values() if t.source in i.body_states), None)
+            if info is not None:
+                label += f" ⟲{info.label}"
         lines.append(f"  {sanitize(t.source)} --> {sanitize(t.target)} : {label}")
 
     # Nested composite blocks for each resolved invoked child machine (same-file

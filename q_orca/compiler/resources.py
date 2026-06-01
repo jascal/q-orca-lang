@@ -70,6 +70,24 @@ def _count_basis_ops(qc, basis_gates: list[str]) -> Counter:
     return flat_counts + cf_counts
 
 
+def _body_action_list(machine: QMachineDef, info) -> list:
+    """The action signatures on in-body transitions of a loop, in declaration
+    order (with repetition), for measuring one iteration's resource cost."""
+    action_map = {a.name: a for a in machine.actions}
+    out = []
+    for t in machine.transitions:
+        if (
+            t.source in info.body_states
+            and t.target in info.body_states
+            and not t.loop_done
+            and t.action
+        ):
+            action = action_map.get(t.action)
+            if action is not None:
+                out.append(action)
+    return out
+
+
 def estimate_resources(machine: QMachineDef) -> dict[str, Union[int, str]]:
     cached = _RESOURCE_CACHE.get(id(machine))
     if cached is not None:
@@ -88,6 +106,35 @@ def estimate_resources(machine: QMachineDef) -> dict[str, Union[int, str]]:
     t_count = t_ops.get("t", 0) + t_ops.get("tdg", 0)
     logical_qubits = _infer_qubit_count(machine)
 
+    # Bounded loops: a fixed `[loop N]` body executes N times, so add the body's
+    # per-iteration cost (N-1) more times — the base circuit above already
+    # counts each action once. Adaptive loops have an unknown count: their body
+    # cost is recorded so the verifier can report a range + a diagnostic.
+    adaptive_loops: list[str] = []
+    from q_orca.compiler.loops import analyze_loops, LoopBoundError
+    try:
+        loops = analyze_loops(machine, evaluate=True)
+    except LoopBoundError:
+        loops = {}
+    for info in loops.values():
+        body_actions = _body_action_list(machine, info)
+        if not body_actions:
+            continue
+        body_qc = build_circuit_for_iteration(machine, {}, body_actions)
+        body_gate = sum(body_qc.count_ops().values())
+        body_cx = _count_basis_ops(body_qc, ["u3", "cx"]).get("cx", 0)
+        body_t_ops = _count_basis_ops(body_qc, ["h", "s", "cx", "t", "tdg"])
+        body_t = body_t_ops.get("t", 0) + body_t_ops.get("tdg", 0)
+        body_depth = transpile(body_qc, optimization_level=1).depth()
+        if info.kind == "fixed" and info.bound and info.bound > 1:
+            extra = info.bound - 1
+            gate_count += extra * body_gate
+            cx_count += extra * body_cx
+            t_count += extra * body_t
+            depth += extra * body_depth
+        elif info.kind == "adaptive":
+            adaptive_loops.append(info.entry)
+
     result: dict[str, Union[int, str]] = {
         "gate_count": gate_count,
         "depth": depth,
@@ -95,6 +142,10 @@ def estimate_resources(machine: QMachineDef) -> dict[str, Union[int, str]]:
         "t_count": t_count,
         "logical_qubits": logical_qubits,
     }
+    if adaptive_loops:
+        # Non-metric markers (ignored by format_resource_report / invariant
+        # checks, consumed by the adaptive-loop resource diagnostic).
+        result["adaptive_loops"] = adaptive_loops
     machine_id = id(machine)
     _RESOURCE_CACHE[machine_id] = result
     weakref.finalize(machine, _RESOURCE_CACHE.pop, machine_id, None)

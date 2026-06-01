@@ -139,6 +139,61 @@ def _strongly_connected_components(nodes: list[str], edges: dict[str, list[str]]
     return sccs
 
 
+def _iteration_closing_edges(comp: set[str], entry_name: str, machine: QMachineDef) -> set[tuple[str, str]]:
+    """The transitions that close one loop iteration (re-enter the body).
+
+    Prefer explicitly-tagged `loop_back` edges; if none are tagged, fall back
+    to in-body edges whose target is the loop entry (the implicit back-edge,
+    valid when exactly one cycle exists).
+    """
+    tagged = {
+        (t.source, t.target)
+        for t in machine.transitions
+        if t.source in comp and getattr(t, "loop_back", False)
+    }
+    if tagged:
+        return tagged
+    return {
+        (t.source, t.target)
+        for t in machine.transitions
+        if t.source in comp and t.target == entry_name
+    }
+
+
+def _syndrome_measured_each_iteration(
+    entry_name: str, comp: set[str], machine: QMachineDef, action_map: dict, k: int
+) -> bool:
+    """True if every path from the loop entry to an iteration-closing edge
+    measures syndrome qubit `k` (exact per-iteration completeness)."""
+    closing = _iteration_closing_edges(comp, entry_name, machine)
+    if not closing:
+        return True  # no back-edge to anchor an iteration; nothing to enforce
+
+    def measures_on(t) -> bool:
+        action = action_map.get(t.action) if t.action else None
+        return action is not None and k in _measures(action)
+
+    seen: set[tuple[str, bool]] = set()
+
+    def dfs(state: str, measured: bool) -> bool:
+        if (state, measured) in seen:
+            return True
+        seen.add((state, measured))
+        for t in machine.transitions:
+            if t.source != state or t.loop_done:
+                continue  # loop_done is the exit edge, outside the iteration
+            measured_next = measured or measures_on(t)
+            if (t.source, t.target) in closing:
+                if not measured_next:
+                    return False  # closes an iteration without measuring k
+                continue  # iteration closed on this branch; do not recurse past
+            if t.target in comp and not dfs(t.target, measured_next):
+                return False
+        return True
+
+    return dfs(entry_name, False)
+
+
 def _check_syndrome_completeness(machine: QMachineDef, action_map: dict) -> list[QVerificationError]:
     syndromes = qubits_with_role(machine, "syndrome")
     if not syndromes:
@@ -169,8 +224,34 @@ def _check_syndrome_completeness(machine: QMachineDef, action_map: dict) -> list
                     continue
                 acted |= _action_gate_targets(action)
                 measured |= _measures(action)
+
+        # A `[loop …]`-annotated body gets the exact per-iteration check;
+        # an unannotated cycle keeps the conservative SCC fallback (a measure
+        # anywhere in the component satisfies it).
+        annotated = [
+            s for s in machine.states
+            if s.name in comp and getattr(s, "loop", None) is not None
+        ]
+        per_iteration = len(annotated) == 1
+        entry_name = annotated[0].name if per_iteration else None
+
         for k in syndromes:
-            if k in acted and k not in measured:
+            if k not in acted:
+                continue
+            if per_iteration:
+                if not _syndrome_measured_each_iteration(entry_name, comp, machine, action_map, k):
+                    errors.append(QVerificationError(
+                        code="SYNDROME_NOT_MEASURED",
+                        message=(
+                            f"syndrome qubit q{k} is acted on inside the "
+                            f"[loop …] body entered at {entry_name!r} but is "
+                            f"not measured on every iteration before loop_back"
+                        ),
+                        severity="error",
+                        location={"qubit": k, "loop": entry_name, "cycle": sorted(comp)},
+                        suggestion=f"measure the syndrome qubit q{k} on every loop iteration before loop_back",
+                    ))
+            elif k not in measured:
                 errors.append(QVerificationError(
                     code="SYNDROME_NOT_MEASURED",
                     message=(
