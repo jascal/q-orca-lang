@@ -51,3 +51,4 @@
 ## verification rules
 - unitarity: all gates preserve norm
 - bounded-loop: the [loop …] body is unitary and runs a fixed number of times
+- measurement_collapse_allowed: |measured> is the intended collapse sink — reading out the marked item after `ceil(pi/4 * sqrt(N))` iterations is the terminal step
