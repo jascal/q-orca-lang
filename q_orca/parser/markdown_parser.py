@@ -19,7 +19,7 @@ from q_orca.ast import (
     ActionParameter, BoundArg,
     EncodingDecl, ThetaBlock, ThetaRow,
     Span, QubitSlice, QAssertion, AssertionPolicy,
-    QInvoke, QReturnDef, QImport, QReexport,
+    QInvoke, QLoopAnnotation, QReturnDef, QImport, QReexport,
     NoiseChannel, NoiseModelSection, NoiseTarget,
     QUBIT_ROLES, RESERVED_QUBIT_ROLES, DEFAULT_QUBIT_ROLE,
 )
@@ -786,6 +786,7 @@ def _parse_state_heading(
     is_final = False
     assertions: list[QAssertion] = []
     invoke: Optional[QInvoke] = None
+    loop: Optional[QLoopAnnotation] = None
 
     # Extract all bracketed annotation groups, e.g. `[initial]`,
     # `[final, assert: entangled(qs[0], qs[1])]`,
@@ -819,8 +820,20 @@ def _parse_state_heading(
                             )
                     else:
                         invoke = parsed
-            # Other bracket tokens (queued `[loop …]`, `[send]`, `[receive]`)
-            # are not yet recognized and are left untouched, not errored.
+            elif low == "loop" or low.startswith("loop ") or low.startswith("loop\t"):
+                payload = tok[len("loop"):].strip()
+                parsed_loop = _parse_loop_annotation(payload, heading_line, errors)
+                if parsed_loop is not None:
+                    if loop is not None:
+                        if errors is not None:
+                            errors.append(
+                                f"loop_duplicate: state at line {heading_line} "
+                                f"declares more than one [loop …] annotation"
+                            )
+                    else:
+                        loop = parsed_loop
+            # Other bracket tokens (queued `[send]`, `[receive]`) are not yet
+            # recognized and are left untouched, not errored.
 
     if invoke is not None and (is_initial or is_final) and errors is not None:
         errors.append(
@@ -862,6 +875,7 @@ def _parse_state_heading(
             is_final=is_final,
             assertions=assertions,
             invoke=invoke,
+            loop=loop,
         ),
         next_index,
     )
@@ -919,6 +933,52 @@ def _parse_invoke_annotation(
             arg_bindings[param.strip()] = expr.strip()
 
     return QInvoke(child_name=child, arg_bindings=arg_bindings, shots=shots)
+
+
+# `until: <predicate>` — the adaptive-loop form. Case-insensitive keyword.
+_LOOP_UNTIL_RE = re.compile(r"^until\s*:\s*(.+)$", re.IGNORECASE | re.DOTALL)
+
+
+def _parse_loop_annotation(
+    payload: str, heading_line: int, errors: Optional[list[str]]
+) -> Optional[QLoopAnnotation]:
+    """Parse the text after the `loop` keyword in a `[loop …]` annotation.
+
+    `[loop <expr>]` → fixed-count (`bound_expr` is the raw count expression);
+    `[loop until: <predicate>]` → adaptive (`bound_expr` is the raw classical
+    predicate). Returns `None` on an empty or malformed payload.
+    """
+    payload = payload.strip()
+    if not payload:
+        if errors is not None:
+            errors.append(
+                f"loop_malformed: empty [loop …] annotation at line "
+                f"{heading_line}; expected [loop <count>] or "
+                f"[loop until: <predicate>]"
+            )
+        return None
+
+    m = _LOOP_UNTIL_RE.match(payload)
+    if m:
+        predicate = m.group(1).strip()
+        if not predicate:
+            if errors is not None:
+                errors.append(
+                    f"loop_malformed: [loop until: …] at line {heading_line} "
+                    f"has an empty predicate"
+                )
+            return None
+        return QLoopAnnotation(
+            kind="adaptive",
+            bound_expr=predicate,
+            source_span=Span(line=heading_line, text=payload),
+        )
+
+    return QLoopAnnotation(
+        kind="fixed",
+        bound_expr=payload,
+        source_span=Span(line=heading_line, text=payload),
+    )
 
 
 def _parse_return_bindings(
@@ -1109,6 +1169,25 @@ def _parse_transitions_table(table: MdTable) -> list[QTransition]:
 
         if guard_str:
             transition.guard = _parse_guard_ref(guard_str)
+
+        # Extract `loop_done` / `loop_back` tags from the Action cell — they are
+        # comma-separated alongside a real action (e.g. `measure_all, loop_done`).
+        # Only re-split when a tag is actually present, so unannotated cells
+        # (including call-form refs whose commas live inside parens) are left
+        # byte-for-byte unchanged for backward compatibility.
+        low_action = action.lower()
+        if action and ("loop_done" in low_action or "loop_back" in low_action):
+            kept: list[str] = []
+            for tok in _split_top_level_commas(action):
+                low_tok = tok.lower()
+                if low_tok == "loop_done":
+                    transition.loop_done = True
+                elif low_tok == "loop_back":
+                    transition.loop_back = True
+                elif tok:
+                    kept.append(tok)
+            action = ", ".join(kept)
+
         if action:
             transition.action = action
 

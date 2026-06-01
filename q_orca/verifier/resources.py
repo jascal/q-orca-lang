@@ -33,6 +33,25 @@ def check_resource_invariants(machine: QMachineDef) -> list[QVerificationError]:
 
     resources = estimate_resources(machine)
     errors: list[QVerificationError] = []
+
+    # Adaptive loops have an unknown iteration count, so any resource metric is
+    # a range `[body_cost, body_cost × MAX_LOOP_BOUND]` rather than a point
+    # estimate; flag that the bounds below are checked against the lower end.
+    adaptive_loops = resources.get("adaptive_loops")
+    if adaptive_loops:
+        from q_orca.compiler.loops import MAX_LOOP_BOUND
+        errors.append(QVerificationError(
+            code="RESOURCE_ESTIMATE_LOOP_ADAPTIVE",
+            message=(
+                f"machine has adaptive [loop until: …] bodies "
+                f"({sorted(adaptive_loops)}); resource metrics are a range up "
+                f"to MAX_LOOP_BOUND={MAX_LOOP_BOUND} iterations and bounds are "
+                f"checked against the single-iteration lower end"
+            ),
+            severity="warning",
+            location={"adaptive_loops": sorted(adaptive_loops)},
+        ))
+
     for inv in resource_invs:
         if inv.metric is None or inv.value is None:
             continue

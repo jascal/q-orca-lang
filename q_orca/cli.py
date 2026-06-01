@@ -52,6 +52,8 @@ def main():
     c = sub.add_parser("compile", help="Compile to a target format")
     c.add_argument("format", choices=["mermaid", "qasm", "qiskit", "cudaq"], help="Output format")
     c.add_argument("file", nargs="?", help="Path to .q.orca.md file (or use --stdin)")
+    c.add_argument("--unroll-loops", action="store_true",
+                   help="Unroll [loop …] bodies (repeat N times) instead of emitting a for/while block")
 
     # imports
     im = sub.add_parser("imports", help="Inspect cross-file machine imports")
@@ -288,12 +290,13 @@ def _cmd_compile(parsed, args):
     import_graph = _build_import_graph(parsed, args)
     for machine in parsed.file.machines:
         try:
+            unroll = getattr(args, "unroll_loops", False)
             if args.format == "mermaid":
                 print(compile_to_mermaid(machine, file=parsed.file, import_graph=import_graph))
             elif args.format == "qasm":
-                print(compile_to_qasm(machine))
+                print(compile_to_qasm(machine, unroll_loops=unroll))
             elif args.format == "qiskit":
-                opts = QSimulationOptions(analytic=True, run=False)
+                opts = QSimulationOptions(analytic=True, run=False, unroll_loops=unroll)
                 print(compile_to_qiskit(machine, opts))
             elif args.format == "cudaq":
                 print(compile_to_cudaq(machine))

@@ -1,6 +1,7 @@
 # Spec: Bounded Loop State Annotation `[loop N]` / `[loop until: …]`
 
-**Status:** Draft
+**Status:** Delivered — implemented as OpenSpec change `add-bounded-loop-annotation`
+(see `openspec/changes/archive/`). User docs: `docs/language/bounded-loops.md`.
 **Date:** 2026-05-01
 **Priority:** High
 

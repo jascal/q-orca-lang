@@ -3,6 +3,7 @@
 from q_orca.ast import QMachineDef, QuantumGate
 from q_orca.noise import resolve_noise_section
 from q_orca.compiler.qiskit import _build_angle_context, _parse_effect_string, _infer_bit_count
+from q_orca.compiler.loops import build_gate_sequence, LOOP_START, LOOP_END
 from q_orca.compiler.parametric import expand_action_call
 from q_orca.compiler.util import (
     infer_qubit_count as _infer_qubit_count,
@@ -13,7 +14,7 @@ from q_orca.compiler.util import (
 )
 
 
-def compile_to_qasm(machine: QMachineDef) -> str:
+def compile_to_qasm(machine: QMachineDef, unroll_loops: bool = False) -> str:
     if machine_has_invoke(machine):
         raise ComposedMachineError(machine.name)
 
@@ -65,7 +66,7 @@ def compile_to_qasm(machine: QMachineDef) -> str:
         lines.append("")
 
     action_map = {a.name: a for a in machine.actions}
-    gate_sequence = _extract_gate_sequence(machine)
+    gate_sequence = _extract_gate_sequence(machine, unroll_loops=unroll_loops)
 
     # Per-state assertion comments (out-of-band; no instructions). Emitted
     # immediately before the gate sequence of the first outgoing transition out
@@ -83,16 +84,34 @@ def compile_to_qasm(machine: QMachineDef) -> str:
         emitted_probes.add(state_name)
 
     lines.append("// Gate sequence derived from state machine transitions")
+    loop_indent = ""
+    indent_stack: list[str] = []
     for action_name, gates, comment in gate_sequence:
+        if action_name == LOOP_START:
+            info = comment  # the LoopInfo rides in the comment slot
+            if info.kind == "fixed":
+                lines.append(f"{loop_indent}for k in [0:{info.bound - 1}] {{")
+            else:
+                # `[loop until: P]` iterates *while P is not yet satisfied*, so
+                # the QASM `while` condition is the negation of the predicate.
+                lines.append(f"{loop_indent}while (!({info.predicate})) {{")
+            indent_stack.append("  ")
+            loop_indent += "  "
+            continue
+        if action_name == LOOP_END:
+            added = indent_stack.pop() if indent_stack else ""
+            loop_indent = loop_indent[: len(loop_indent) - len(added)]
+            lines.append(f"{loop_indent}}}")
+            continue
         source = comment.split(" --", 1)[0] if comment and " --" in comment else None
         if source in assertions_by_state and source not in emitted_probes:
             _emit_qasm_assert(source)
         if comment:
-            lines.append(f"// {comment}")
+            lines.append(f"{loop_indent}// {comment}")
         action = action_map.get(action_name)
         if action and action.mid_circuit_measure is not None:
             mcm = action.mid_circuit_measure
-            lines.append(f"c[{mcm.bit_idx}] = measure q[{mcm.qubit_idx}];")
+            lines.append(f"{loop_indent}c[{mcm.bit_idx}] = measure q[{mcm.qubit_idx}];")
         elif action and action.conditional_gate is not None:
             cg = action.conditional_gate
             gate_str = _gate_to_qasm(cg.gate, qubit_count).rstrip(";")
@@ -103,13 +122,13 @@ def compile_to_qasm(machine: QMachineDef) -> str:
                 for bit_idx, value in cg.conditions
             ]
             cond = " && ".join(clauses)
-            lines.append(f"if ({cond}) {{ {gate_str}; }}")
+            lines.append(f"{loop_indent}if ({cond}) {{ {gate_str}; }}")
         elif action and action.context_update is not None:
             raw = action.context_update.raw or action.effect or ""
-            lines.append(f"// context_update: {raw}")
+            lines.append(f"{loop_indent}// context_update: {raw}")
         else:
             for gate in gates:
-                lines.append(_gate_to_qasm(gate, qubit_count))
+                lines.append(f"{loop_indent}{_gate_to_qasm(gate, qubit_count)}")
 
     # Flush assertions for annotated states never visited as a transition
     # source (e.g. [final] states).
@@ -128,58 +147,33 @@ def compile_to_qasm(machine: QMachineDef) -> str:
     return "\n".join(lines)
 
 
-def _extract_gate_sequence(machine: QMachineDef) -> list:
-    """Return (action_name, [gates], comment) triples ordered by BFS traversal."""
-    steps = []
+def _extract_gate_sequence(machine: QMachineDef, unroll_loops: bool = False) -> list:
+    """Return (action_name, [gates], comment) triples ordered by BFS traversal.
+
+    Loop-aware: a `[loop …]`-annotated body is wrapped in `__loop_start__` /
+    `__loop_end__` sentinels (unless `unroll_loops`). See `q_orca.compiler.loops`.
+    """
     action_map = {a.name: a for a in machine.actions}
     angle_context = _build_angle_context(machine)
 
-    initial = next((s for s in machine.states if s.is_initial), None)
-    if not initial:
-        return steps
+    def gates_for(t):
+        action = action_map.get(t.action) if t.action else None
+        if not action:
+            return []
+        effect = (
+            expand_action_call(action, t.bound_arguments)
+            if t.bound_arguments is not None
+            else action.effect
+        )
+        gates = _parse_effect_string(effect, angle_context=angle_context) if effect else []
+        if not gates and action.gate:
+            gates = [action.gate]
+        return gates
 
-    visited = set()
-    queue = [initial.name]
+    def comment_for(t):
+        return f"{t.source} -> {t.target} via {t.event}"
 
-    while queue:
-        current = queue.pop(0)
-        if current in visited:
-            continue
-        visited.add(current)
-
-        outgoing = [t for t in machine.transitions if t.source == current]
-
-        for t in outgoing:
-            if t.action:
-                action = action_map.get(t.action)
-                if action:
-                    effect = (
-                        expand_action_call(action, t.bound_arguments)
-                        if t.bound_arguments is not None
-                        else action.effect
-                    )
-                    # Parse the full effect string (handles CX, multi-gate, etc.)
-                    gates = _parse_effect_string(effect, angle_context=angle_context) if effect else []
-                    # Fall back to the single gate stored on the action if parsing gave nothing
-                    if not gates and action.gate:
-                        gates = [action.gate]
-                    steps.append((t.action, gates, f"{t.source} -> {t.target} via {t.event}"))
-
-            # Continue BFS past mid-circuit measurement events; stop only at
-            # terminal (end-of-circuit) measurement events.
-            transition_action = action_map.get(t.action) if t.action else None
-            is_mid_circuit = (
-                transition_action is not None
-                and transition_action.mid_circuit_measure is not None
-            )
-            is_terminal_measure = (
-                ("measure" in t.event.lower() or "collapse" in t.event.lower())
-                and not is_mid_circuit
-            )
-            if not is_terminal_measure and t.target not in visited:
-                queue.append(t.target)
-
-    return steps
+    return build_gate_sequence(machine, gates_for, comment_for, unroll=unroll_loops)
 
 
 def _gate_to_qasm(gate: QuantumGate, qubit_count: int) -> str:
