@@ -1344,7 +1344,7 @@ the available logs. Numbered in the §7.x range continuing from
 the 2026-05-15 triage; promote into an area section when one is
 picked up.
 
-- [ ] 7.8 **Lift the `n_plus_ancilla` machine source string to a
+- [x] 7.8 **Lift the `n_plus_ancilla` machine source string to a
   class-level constant in `TestInferQubitCountPublicHelper`.**
   Severity: LOW. Surface: `tests/test_compiler.py` around lines
   385-420 and 448-485. After PR #72 landed the new
@@ -1359,6 +1359,16 @@ picked up.
   both methods plus any future addition. Size: [XS] <30 min.
   (Source: 2026-05-22 PR #72 review log,
   `logs/pr-review-2026-05-22.log`, "minor non-blocking nit".)
+  Lifted the ~30-line `# machine ThreePlusAncilla` source to a
+  `_N_PLUS_ANCILLA_SOURCE` class-level constant at the top of
+  `TestInferQubitCountPublicHelper` and replaced both
+  `test_public_helper_resolves_n_plus_ancilla` and
+  `test_dynamic_alias_resolves_n_plus_ancilla` to call
+  `_machine(self._N_PLUS_ANCILLA_SOURCE)`. Single source of truth
+  — a future field rename or verification-rule tweak now lands in
+  one place and both paths exercise the updated fixture. All 7
+  `TestInferQubitCountPublicHelper` tests pass; full suite 1195
+  passed, 21 skipped.
 
 - [x] 7.9 **Vectorise the effective-rank reduction in the
   `MpsBondTruncationError` message.** Severity: LOW. Surface:
