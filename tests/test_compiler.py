@@ -358,34 +358,7 @@ class TestInferQubitCountPublicHelper:
     private re-implementation.
     """
 
-    def test_public_helper_matches_qasm_alias(self):
-        from q_orca.compiler.qasm import _infer_qubit_count as qasm_alias
-        from q_orca.compiler.util import infer_qubit_count
-
-        assert qasm_alias is infer_qubit_count
-
-    def test_public_helper_matches_qiskit_alias(self):
-        from q_orca.compiler.qiskit import _infer_qubit_count as qiskit_alias
-        from q_orca.compiler.util import infer_qubit_count
-
-        assert qiskit_alias is infer_qubit_count
-
-    def test_public_helper_matches_cudaq_alias(self):
-        from q_orca.compiler.cudaq import _infer_qubit_count as cudaq_alias
-        from q_orca.compiler.util import infer_qubit_count
-
-        assert cudaq_alias is infer_qubit_count
-
-    def test_public_helper_matches_dynamic_alias(self):
-        from q_orca.verifier.dynamic import _infer_qubit_count as dynamic_alias
-        from q_orca.compiler.util import infer_qubit_count
-
-        assert dynamic_alias is infer_qubit_count
-
-    def test_public_helper_resolves_n_plus_ancilla(self):
-        from q_orca.compiler.util import infer_qubit_count
-
-        source = """\
+    _N_PLUS_ANCILLA_SOURCE = """\
 # machine ThreePlusAncilla
 
 ## context
@@ -414,7 +387,35 @@ class TestInferQubitCountPublicHelper:
 ## verification rules
 - unitarity: all gates preserve norm
 """
-        machine = _machine(source)
+
+    def test_public_helper_matches_qasm_alias(self):
+        from q_orca.compiler.qasm import _infer_qubit_count as qasm_alias
+        from q_orca.compiler.util import infer_qubit_count
+
+        assert qasm_alias is infer_qubit_count
+
+    def test_public_helper_matches_qiskit_alias(self):
+        from q_orca.compiler.qiskit import _infer_qubit_count as qiskit_alias
+        from q_orca.compiler.util import infer_qubit_count
+
+        assert qiskit_alias is infer_qubit_count
+
+    def test_public_helper_matches_cudaq_alias(self):
+        from q_orca.compiler.cudaq import _infer_qubit_count as cudaq_alias
+        from q_orca.compiler.util import infer_qubit_count
+
+        assert cudaq_alias is infer_qubit_count
+
+    def test_public_helper_matches_dynamic_alias(self):
+        from q_orca.verifier.dynamic import _infer_qubit_count as dynamic_alias
+        from q_orca.compiler.util import infer_qubit_count
+
+        assert dynamic_alias is infer_qubit_count
+
+    def test_public_helper_resolves_n_plus_ancilla(self):
+        from q_orca.compiler.util import infer_qubit_count
+
+        machine = _machine(self._N_PLUS_ANCILLA_SOURCE)
         assert infer_qubit_count(machine) == 4
 
     def test_public_helper_fallback_to_one(self):
@@ -455,36 +456,7 @@ class TestInferQubitCountPublicHelper:
         # missed n + ancilla machines) fails loudly here.
         from q_orca.verifier.dynamic import _infer_qubit_count as dynamic_alias
 
-        source = """\
-# machine ThreePlusAncilla
-
-## context
-| Field   | Type        | Default |
-|---------|-------------|---------|
-| qubits  | list<qubit> |         |
-| n       | int         | 3       |
-| ancilla | qubit       | qs[n]   |
-
-## events
-- init
-
-## state |psi0> [initial]
-> Initial
-
-## transitions
-| Source | Event | Guard | Target |
-|--------|-------|-------|--------|
-| |psi0> | init  |       | |psi0> |
-
-## actions
-| Name | Signature  | Effect   |
-|------|------------|----------|
-| noop | (qs) -> qs | Identity |
-
-## verification rules
-- unitarity: all gates preserve norm
-"""
-        machine = _machine(source)
+        machine = _machine(self._N_PLUS_ANCILLA_SOURCE)
         assert dynamic_alias(machine) == 4
 
 
