@@ -33,6 +33,24 @@ Documentation = "https://deepwiki.com/jascal/q-orca-lang"
 dev = ["pytest", "ruff"]
 quantum = ["qiskit", "qiskit-aer", "qutip", "qutip-qip", "scipy"]
 mcp = ["pyyaml"]
+# GPU-accelerated cuQuantum/CuPy backend (q_orca.backends.cuquantum_backend).
+# Linux x86_64 + NVIDIA CUDA 12 wheels only; gated so resolution still works
+# on other platforms. qutip-cuquantum[cuda12] pulls cupy-cuda12x +
+# cuquantum-python-cu12; the nvidia-*-cu12 math libs are CuPy's runtime
+# dependencies (not pulled transitively) and must be listed explicitly.
+# NOTE: the qiskit-aer-gpu benchmark path is intentionally NOT here — it pins
+# qiskit<2 and conflicts with the project's qiskit 2.x; install it separately.
+gpu = [
+    "qutip-cuquantum[cuda12]; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "nvidia-cublas-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "nvidia-curand-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "nvidia-cusparse-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "nvidia-cusolver-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "nvidia-cufft-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "nvidia-cuda-runtime-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "nvidia-cuda-nvrtc-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "nvidia-nvjitlink-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 all = ["qiskit", "qiskit-aer", "qutip", "qutip-qip", "scipy", "pyyaml"]
 
 [project.scripts]
