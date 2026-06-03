@@ -1456,7 +1456,7 @@ picked up.
   `logs/pr-review-2026-05-27.log`, "trim the ~60-line
   exploration comment in the skipped outer-envelope test".)
 
-- [ ] 7.13 **Replace the dead `if False else` branch in the
+- [x] 7.13 **Replace the dead `if False else` branch in the
   `_run` test helper with the live path.** Severity: LOW.
   Surface: `tests/test_mcp_server.py:86`. The helper reads
   `return asyncio.get_event_loop().run_until_complete(coro) if
@@ -1467,6 +1467,14 @@ picked up.
   (Source: 2026-05-27 PR #74 review log,
   `logs/pr-review-2026-05-27.log`, "dead `if False else` branch
   in `_run` helper".)
+  Replaced the dead ternary with a direct `return asyncio.run(coro)`.
+  `asyncio` is still imported — the live arm uses it — so no orphan
+  import dropped. `pytest tests/test_mcp_server.py -q` stays green
+  (11 passed, 1 skipped); all four `_run(...)` callers
+  (`test_unknown_tool_name_returns_sanitized_isError`,
+  `test_skill_exception_strips_absolute_paths`,
+  `test_debug_flag_passes_raw_message_through`,
+  `test_debug_flag_off_is_default`) exercise the path unchanged.
 
 - [ ] 7.14 **Document that the MCP path-scrubbing regex is
   ASCII-only.** Severity: LOW. Surface:
