@@ -17,11 +17,14 @@ are:
 The `backend` value `'auto'` selects the Clifford-aware backend
 resolution (a Clifford machine routes to the stabilizer backend, any
 other to the state-vector backend). The values `'stabilizer'` and
-`'stim'` are recognized backend names that force the stabilizer path.
-`stabilizer_fallback` governs only the case where the stabilizer
-backend is forced on a machine the Clifford classifier rejects:
-`'error'` makes that fatal, `'state-vector'` downgrades it to a warning
-and uses the state-vector path.
+`'stim'` are recognized backend names that force the stabilizer path:
+`'stim'` selects Stim directly (best performance), and `'stabilizer'`
+is the stable alias that resolves Stim → Aer-stabilizer → state-vector.
+Both share the same force/refuse behaviour. `stabilizer_fallback`
+governs only the case where the stabilizer path is forced on a machine
+the Clifford classifier rejects: `'error'` (the default) makes that
+fatal, `'state-vector'` downgrades it to a warning and uses the
+state-vector path.
 
 Unknown setting names SHALL produce an `unknown_assertion_policy_setting`
 parser error referencing the row. A value that fails type validation

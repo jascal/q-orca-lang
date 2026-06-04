@@ -1,8 +1,9 @@
 ## 1. Dependency & packaging
 
 - [ ] 1.1 Add a `stabilizer` extras group to `pyproject.toml` pulling in
-  `stim`; document that `qiskit-aer ≥ 0.17` (already available) provides the
-  fallback stabilizer method.
+  `stim`; confirm and pin the minimum `qiskit-aer` version that provides a
+  reliable `method="stabilizer"` (the `quantum`/`all` extras currently pull
+  `qiskit-aer` unpinned).
 - [ ] 1.2 Detect `stim` and the Aer stabilizer method at module load (mirror the
   `AVAILABLE` pattern in `qutip_backend.py` / `cuquantum_backend.py`).
 
@@ -81,12 +82,19 @@
 - [ ] 8.6 Auto-routing: Clifford machine selects stabilizer when available, falls
   back to state-vector (with warning) when Stim/Aer absent.
 - [ ] 8.7 `surface-code-3` verifies on the stabilizer path within a CI time bound.
+- [ ] 8.8 Angle-fold edge case: pin which rotation angles the `angle.py` evaluator
+  folds to a Clifford multiple (e.g. `π/4 + π/4` → `π/2`) vs. those it leaves
+  un-folded; assert un-folded cases conservatively route to state-vector (correct,
+  not wrong).
 
 ## 9. Docs
 
-- [ ] 9.1 Document the stabilizer backend in `docs/language/` (backend selection,
-  `auto` Clifford detection, `stabilizer_fallback`, invariant restriction) and
-  mention it in the `## assertion policy` reference.
+- [ ] 9.1 Document the stabilizer backend in `docs/language/`: backend selection
+  (`stim` for best performance vs the `stabilizer` alias), `auto` Clifford
+  detection, `stabilizer_fallback`, the invariant restriction, **when to use it**
+  (QEC, Clifford randomized benchmarking, high-shot verification), and its
+  **performance characteristics** (poly-time tableau vs exponential
+  state-vector); mention it in the `## assertion policy` reference.
 - [ ] 9.2 Mark `docs/research/spec-stabilizer-fast-path-backend.md` delivered,
   noting the divergence from its pre-build sketch (`verify()` contract reused;
   `## assertion policy` reused instead of a new `## execution` section).

@@ -28,11 +28,14 @@ from 64 to 10 000 free instead of minutes-per-commit.
   that prefers Stim, falls back to `AerSimulator(method="stabilizer")`, then to
   state-vector with a warning. It runs Stage 4b (reachability-by-simulation,
   sampling-based state assertions, backend-agnostic invariants) by sampling a
-  stabilizer tableau instead of a state vector.
+  stabilizer tableau instead of a state vector. Guidance: prefer `backend: stim`
+  for best performance; `backend: stabilizer` is the stable alias that resolves
+  Stim → Aer-stabilizer → state-vector.
 - Make backend selection **Clifford-aware**: under the default `backend: auto`
   (the `## assertion policy` field and the `--backend` CLI flag already exist),
   a Clifford machine routes to the stabilizer backend and a non-Clifford one to
-  the state-vector path. The accepted backend names gain `stabilizer` / `stim`.
+  the state-vector path. The accepted backend names gain `stabilizer` / `stim`,
+  which share the same force/refuse semantics below.
 - **Force/refuse semantics**: forcing `backend: stabilizer` on a machine the
   classifier rejects raises a structured
   `NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND` (offending gate + source location),
@@ -73,9 +76,11 @@ fall through to the existing QuTiP/cuQuantum/CUDA-Q backends unchanged. The
   (registered in `backends/__init__.py` and `registry.py`); backend dispatch in
   `q_orca/verifier/dynamic.py` and the `verify`/`run` paths of `q_orca/cli.py`;
   two error codes in `q_orca/verifier/types.py`.
-- New optional dependency: `stim` (and the already-available
-  `qiskit-aer ≥ 0.17` stabilizer method) behind an extras group, detected at
-  module load like the other backends — absence degrades to state-vector.
+- New optional dependency: `stim` (and the `AerSimulator(method="stabilizer")`
+  method from the already-used `qiskit-aer`) behind an extras group, detected at
+  module load like the other backends — absence degrades to state-vector. The
+  exact `qiskit-aer` floor guaranteeing reliable stabilizer support is confirmed
+  and pinned by the packaging task (it is currently unpinned in the extras).
 - Edited: `## assertion policy` parsing (accept new backend names +
   `stabilizer_fallback`); new examples; `docs/language/` backend note; mark
   `docs/research/spec-stabilizer-fast-path-backend.md` delivered.

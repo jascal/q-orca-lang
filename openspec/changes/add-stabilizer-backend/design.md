@@ -104,9 +104,12 @@ A parity test runs `active-teleportation` on both stabilizer and QuTiP at
 tolerance.
 
 ## Risks / Trade-offs
-- **Symbolic angle not simplifying to a Clifford multiple** → classifier returns
-  non-Clifford → state-vector (correct, just slower). Mitigation: reuse the
-  shipped `angle.py` simplifier that already handles `π/2` literals.
+- **Symbolic angle that *could* fold to a Clifford multiple but the evaluator
+  doesn't** (e.g. `π/4 + π/4` = `π/2`) → classifier conservatively returns
+  non-Clifford → state-vector (correct, just slower — never wrong). Mitigation:
+  reuse the shipped `angle.py` simplifier (handles `π/2` literals); a test pins
+  the known-folding cases so a regression is visible. Aggressive symbolic folding
+  is out of scope for v1.
 - **Stim/qiskit-aer absent in an environment** → `auto` silently uses
   state-vector; forced `stabilizer` falls back per registry with a warning.
   Mitigation: extras group + module-load detection mirrors the existing backends.
@@ -129,6 +132,11 @@ migration.
 2. Routing the `q-orca run` iterative simulate path through the stabilizer
    backend (the framework today only spans Stage-4b verification).
 3. Stim detector-error-model emission to feed PyMatching / Union-Find decoders
-   for real decoder-benchmarking experiments.
+   for real decoder-benchmarking experiments — high-value follow-on.
 4. Default preference when both Stim and Aer-stabilizer are present (Stim is
    faster; pinned to Stim in v1).
+5. A per-invariant backend-requirement escape hatch (e.g.
+   `fidelity(...) [requires: state-vector]`) so a state-vector-only invariant
+   can coexist with a stabilizer-verified machine rather than forcing a
+   whole-machine backend choice. Deferred — `INVARIANT_REQUIRES_STATEVECTOR` is
+   the v1 behaviour.
