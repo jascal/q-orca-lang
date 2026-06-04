@@ -222,6 +222,16 @@ def format_error(error: str) -> list[dict]:
 # Strips POSIX absolute paths (/foo/bar/baz) and Windows-style paths
 # (C:\foo\bar). Conservative so that something like "expected 3, got 2" or
 # "1/2" survives unchanged.
+#
+# ASCII-only by design: both character classes are POSIX-ASCII ([A-Za-z0-9_.\-]),
+# so a path segment containing non-ASCII characters (Unicode home dirs, CJK
+# filenames, emoji) is silently passed through unscrubbed. That is intentional
+# for v1 — every tooling path the server can plausibly leak today is ASCII —
+# but the constraint is invisible from the regex alone, hence this note.
+# Known residual-leak shapes that the current pattern also misses are tracked
+# in `tech-debt-backlog` §7.15: multi-slash numerics (`1/2/3`), home-relative
+# (`~/foo`), Windows UNC (`\\host\share\…`), `file://` URIs, and paths with
+# spaces. Extending the alternation to cover them is the next iteration.
 _ABS_PATH_RE = re.compile(
     r"(?:/[A-Za-z0-9_.\-]+){2,}"
     r"|(?:[A-Za-z]:\\(?:[A-Za-z0-9_.\-]+\\?)+)"

@@ -1476,7 +1476,7 @@ picked up.
   `test_debug_flag_passes_raw_message_through`,
   `test_debug_flag_off_is_default`) exercise the path unchanged.
 
-- [ ] 7.14 **Document that the MCP path-scrubbing regex is
+- [x] 7.14 **Document that the MCP path-scrubbing regex is
   ASCII-only.** Severity: LOW. Surface:
   `q_orca/mcp_server.py` sanitizer regex (the implementation
   PR #74 added). The character classes in the regex assume
