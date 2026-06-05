@@ -7,15 +7,18 @@
 
 - [ ] 2.1 Classify each `measure(qs[i]) -> bits[j]` by role via
   `roles.role_of(machine, i)`: `ancilla`/`syndrome` → stabilizer (detector),
-  `data` → logical readout (observable). Raise a structured error when the
-  machine declares no `ancilla`/`syndrome` roles.
+  `data` → logical readout (observable). Raise actionable, located errors on the
+  edge cases: no `ancilla`/`syndrome` roles ("add roles: ancilla/syndrome to your
+  stabilizer qubits"), no stabilizer measurements, and a data readout that
+  doesn't cover the logical operator.
 - [ ] 2.2 `compile_to_stim_with_detectors(machine) -> stim.Circuit`: reuse the
   `compile_to_stim` gate/measurement/noise walk; emit `DETECTOR` per stabilizer
   measurement and `OBSERVABLE_INCLUDE(0)` over the data-readout records.
 - [ ] 2.3 Cross-round detectors: track each stabilizer qubit's previous-round
   record; round ≥ 2 emits `DETECTOR rec[-k] rec[-k-stride]` (parity of
   consecutive rounds). Derive the round structure from repeated ancilla
-  measurements (unrolled loop).
+  measurements (unrolled loop); raise the actionable irregular-rounds error
+  (name the offending qubit, suggest a `[loop N]` body) if rounds aren't uniform.
 
 ## 3. Decoder
 
@@ -42,8 +45,10 @@
 
 - [ ] 6.1 Detector emission: an `ancilla` measurement emits a `DETECTOR` over its
   record (assert exact target); a `data` measurement feeds `OBSERVABLE_INCLUDE`.
-- [ ] 6.2 Untagged machine raises the structured "tag syndrome qubits" error.
-- [ ] 6.3 Cross-round detector pairs consecutive rounds (assert the two records).
+- [ ] 6.2 Edge-case diagnostics: untagged machine raises "tag syndrome qubits";
+  irregular rounds raises the actionable `[loop N]` error; no-measurements raises.
+- [ ] 6.3 Cross-round detectors on a real multi-round example: assert the exact
+  emitted `DETECTOR rec[-k] rec[-k-stride]` strings pairing consecutive rounds.
 - [ ] 6.4 Reproducibility: `logical_error_rate` is identical across two runs at a
   fixed seed.
 - [ ] 6.5 Trend — distance: logical error rate falls with code distance at a fixed
@@ -52,9 +57,13 @@
 - [ ] 6.7 Decoder-unavailable path raises the structured error (monkeypatch
   PyMatching absent).
 - [ ] 6.8 The two examples compile-with-detectors and decode end-to-end.
+- [ ] 6.9 Mark the decode tests `skipif`-no-`pymatching` (and the multi-shot
+  trend sweeps slow / low-shot-in-fast-CI), mirroring the stim/qutip test gating.
 
 ## 7. Docs
 
 - [ ] 7.1 Add a "Decoding" section to `docs/language/stabilizer-backend.md`:
-  role-tagged detectors, the observable, `logical_error_rate`, and the
-  errors→chains→endpoints→MWPM model. Update the multi-clause note to point here.
+  role-tagged detectors, the observable, `logical_error_rate`, the
+  errors→chains→endpoints→MWPM model, and a short **end-to-end snippet**
+  (encode → sample+decode → logical error rate). Update the multi-clause note to
+  point here.

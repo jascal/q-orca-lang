@@ -12,8 +12,12 @@ qubit contributes to the logical observable. For a stabilizer measured across
 multiple rounds, the detector SHALL be the parity of that stabilizer's records in
 consecutive rounds (so it is deterministic absent noise); for its first round the
 detector is the single record. When the machine declares no `ancilla`/`syndrome`
-roles, the compiler SHALL raise a structured error directing the user to tag the
-syndrome qubits, rather than emit a circuit with no detectors.
+roles, when no stabilizer measurements are present, or when the syndrome-round
+structure is irregular (a stabilizer qubit measured a different number of times
+than its peers), the compiler SHALL raise a structured, actionable error —
+naming the offending qubit(s) and the fix (tag syndrome qubits, or express
+repeated rounds with a `[loop N]` body) — rather than emit a circuit with no, or
+mis-paired, detectors.
 
 #### Scenario: Stabilizer measurement becomes a detector
 
@@ -38,3 +42,10 @@ syndrome qubits, rather than emit a circuit with no detectors.
 - **WHEN** `compile_to_stim_with_detectors` is given a machine with no
   `ancilla`/`syndrome` roles
 - **THEN** it raises a structured error directing the user to tag syndrome qubits
+
+#### Scenario: Irregular syndrome rounds are refused with an actionable error
+
+- **WHEN** one stabilizer qubit is measured a different number of times than its
+  peers (irregular round structure)
+- **THEN** the compiler raises a structured error naming the offending qubits and
+  suggesting a `[loop N]` body so every round is identical

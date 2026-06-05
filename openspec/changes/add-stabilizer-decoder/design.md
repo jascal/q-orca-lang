@@ -88,8 +88,17 @@ brittle exact rate.
   distance).
 - **Round structure recovery** from the action stream (which measurements form
   one round) — relies on the repeated syndrome-extraction actions / unrolled
-  loop being regular. Mitigation: derive rounds from repeated ancilla
-  measurements of the same qubit; raise if the structure is irregular.
+  loop being regular (each round measures the same set of stabilizer qubits in
+  the same order). Mitigation: derive rounds from repeated ancilla measurements
+  of the same qubit; if the structure is irregular (a stabilizer qubit measured
+  a different number of times than its peers), raise an **actionable** error —
+  *"irregular syndrome rounds: stabilizer qubit q3 measured 2×, q5 measured 3×;
+  express repeated rounds with a `[loop N]` body so every round is identical"* —
+  rather than emit mis-paired detectors.
+- **No measurements / mismatched records** — a machine with no stabilizer
+  measurements, or a data readout that does not cover the logical operator,
+  cannot define detectors/observable; `compile_to_stim_with_detectors` raises a
+  located error rather than emit an empty or degenerate DEM.
 
 ## Migration Plan
 Additive. `compile_to_stim_with_detectors` and `logical_error_rate` are new entry
@@ -97,9 +106,12 @@ points; `compile_to_stim` is unchanged (still refuses multi-clause, now with a
 "use the decoder path" hint). The two examples are new files. Rollback = revert.
 
 ## Open Questions
-1. Whether to add an explicit `## logical_observable` declaration instead of
-   inferring it from data-qubit measurements (more robust for complex codes;
-   v1 infers).
+1. **v2 priority:** an explicit `## logical_observable` declaration instead of
+   inferring it from data-qubit measurements. v1 infers (logical-Z = parity of
+   final data measurements), which is correct for repetition / bit-flip and a
+   single logical-Z surface-code boundary; complex codes (multiple logical
+   operators, logical-X readout) will need the explicit form. This is the most
+   likely first follow-on once a code needs it.
 2. Union-Find / correlated decoders as alternative backends to MWPM.
 3. A `q-orca decode <file>` CLI + `q-orca run` wiring (sampler ergonomics,
    shared with the sampling change's Open Q1).
