@@ -10,12 +10,16 @@ Clifford machine to the stabilizer backend and any other machine to the
 state-vector backend. A stabilizer backend SHALL implement the shipped
 `BackendAdapter.verify(machine, options) -> (QVerificationResult,
 BackendResult)` contract and produce a `QVerificationResult` of the same
-shape as the state-vector backend, so that reachability-by-simulation,
-sampling-based state assertions, and backend-agnostic invariants are
-evaluated identically regardless of backend. When the stabilizer
-dependency (Stim, then `AerSimulator(method="stabilizer")`) is
-unavailable, resolution SHALL fall back to the state-vector backend with
-a warning rather than failing.
+shape as the state-vector backend. It reproduces the state-vector
+backend's checks without an exponential cost: unitarity holds by
+construction for Clifford gates; the dynamic entanglement check (von
+Neumann entropy and Schmidt rank across the declared bipartitions) is
+computed from the stabilizer tableau via the GF(2) rank of its check
+matrix rather than by evolving a state vector; and the collapse-
+completeness check is structural and backend-independent. When the
+stabilizer dependency (Stim, then `AerSimulator(method="stabilizer")`)
+is unavailable, resolution SHALL fall back to the state-vector backend
+with a warning rather than failing.
 
 #### Scenario: Clifford machine auto-routes to the stabilizer backend
 
@@ -37,32 +41,24 @@ a warning rather than failing.
 - **THEN** Stage 4b runs on the state-vector backend with a warning and
   verification still completes
 
-#### Scenario: Sampling-based assertions agree across backends
+#### Scenario: Entanglement verdict agrees across backends
 
-- **WHEN** a Clifford machine with `[assert: entangled]` /
-  `[assert: separable]` annotations is verified on both the stabilizer
-  and the state-vector backend
-- **THEN** both backends reach the same assertion verdicts
+- **WHEN** an entangled Clifford machine (e.g. a Bell or GHZ state) is
+  verified on both the stabilizer and the state-vector backend
+- **THEN** both backends report the same entanglement verdict and the same
+  Schmidt rank for each declared bipartition
 
-### Requirement: Stabilizer Invariant Restriction
+#### Scenario: Schmidt-rank invariant is evaluated on the tableau
 
-The verifier SHALL emit `INVARIANT_REQUIRES_STATEVECTOR`, naming the
-invariant, for any invariant form that requires a full state vector —
-`fidelity(...)` and `schmidt_rank(...)` — when Stage 4b runs on the
-stabilizer backend, rather than silently skipping it. These forms have no
-stabilizer-tableau analogue. Sampling-based state-category invariants
-MUST remain evaluable on the stabilizer backend.
+- **WHEN** a Clifford machine declaring `schmidt_rank(q0, q1) >= 2` is
+  verified on the stabilizer backend
+- **THEN** the verifier evaluates the Schmidt rank from the tableau (not a
+  state vector) and reaches the same verdict as the state-vector backend
 
-#### Scenario: Fidelity invariant under stabilizer backend is rejected
-
-- **WHEN** a machine declaring `fidelity(|ψ>, |Φ+>) >= 0.99` is verified
-  on the stabilizer backend
-- **THEN** the verifier emits `INVARIANT_REQUIRES_STATEVECTOR` naming the
-  `fidelity` invariant
-
-#### Scenario: Schmidt-rank invariant under stabilizer backend is rejected
-
-- **WHEN** a machine declaring `schmidt_rank(q0, q1) >= 2` is verified on
-  the stabilizer backend
-- **THEN** the verifier emits `INVARIANT_REQUIRES_STATEVECTOR` naming the
-  `schmidt_rank` invariant
+> **Deferred:** the only invariant form with no stabilizer analogue is a
+> `fidelity(|ψ>, target)` against a non-stabilizer target, and the
+> `## invariants` grammar does not yet express fidelity invariants (roadmap
+> §4.6, unshipped). An `INVARIANT_REQUIRES_STATEVECTOR` restriction is
+> therefore unreachable in v1 and is deferred to the change that adds
+> fidelity invariants — every invariant the current grammar supports
+> (`entanglement`, `schmidt_rank`, `resource`) is computable on the tableau.

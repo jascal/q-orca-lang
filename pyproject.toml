@@ -32,6 +32,11 @@ Documentation = "https://deepwiki.com/jascal/q-orca-lang"
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
 quantum = ["qiskit", "qiskit-aer", "qutip", "qutip-qip", "scipy"]
+# Stabilizer (Clifford) fast-path backend (q_orca.backends.stim_backend). Stim
+# is the preferred engine; the Aer stabilizer method (qiskit-aer >= 0.17, in the
+# `quantum` extra) is the fallback. Both are optional — absence degrades to the
+# state-vector path.
+stabilizer = ["stim>=1.13", "qiskit-aer>=0.17"]
 mcp = ["pyyaml"]
 # GPU-accelerated cuQuantum/CuPy backend (q_orca.backends.cuquantum_backend).
 # Linux x86_64 + NVIDIA CUDA 12 wheels only; gated so resolution still works
@@ -51,7 +56,7 @@ gpu = [
     "nvidia-cuda-nvrtc-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "nvidia-nvjitlink-cu12; sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
-all = ["qiskit", "qiskit-aer", "qutip", "qutip-qip", "scipy", "pyyaml"]
+all = ["qiskit", "qiskit-aer", "qutip", "qutip-qip", "scipy", "pyyaml", "stim>=1.13"]
 
 [project.scripts]
 q-orca = "q_orca.cli:main"

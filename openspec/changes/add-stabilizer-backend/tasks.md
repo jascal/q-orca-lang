@@ -1,6 +1,6 @@
 ## 1. Dependency & packaging
 
-- [ ] 1.1 Add a `stabilizer` extras group to `pyproject.toml` pulling in
+- [x] 1.1 Add a `stabilizer` extras group to `pyproject.toml` pulling in
   `stim`; confirm and pin the minimum `qiskit-aer` version that provides a
   reliable `method="stabilizer"` (the `quantum`/`all` extras currently pull
   `qiskit-aer` unpinned).
@@ -9,14 +9,14 @@
 
 ## 2. Clifford classifier (compiler)
 
-- [ ] 2.1 New `q_orca/compiler/stabilizer.py::is_clifford(machine) -> tuple[bool,
+- [x] 2.1 New `q_orca/compiler/stabilizer.py::is_clifford(machine) -> tuple[bool,
   list[QuantumGate]]`: walk the flattened action effects (reuse the existing
   gate-walk used by the parametric/resource passes), tag each gate, return the
   offending list. Derive the gate-name membership from `KNOWN_UNITARY_GATES`.
-- [ ] 2.2 Clifford-angle matching: accept `Rx/Ry/Rz(θ)` only when `θ` simplifies
+- [x] 2.2 Clifford-angle matching: accept `Rx/Ry/Rz(θ)` only when `θ` simplifies
   to `{0, π/2, π, 3π/2}` via `q_orca/angle.py`; everything else is non-Clifford.
-- [ ] 2.3 Add `NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND` and
-  `INVARIANT_REQUIRES_STATEVECTOR` to `q_orca/verifier/types.py`.
+- [ ] 2.3 Add `NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND` to the verifier error
+  codes (a string `code` on `QVerificationError` — no enum to extend).
 
 ## 3. Stabilizer compilation targets (compiler)
 
@@ -28,9 +28,15 @@
 
 ## 4. Backend adapters & registry
 
+- [x] 4.0 New `q_orca/verifier/stabilizer_entanglement.py`: GF(2) rank of the
+  stabilizer check matrix → entanglement entropy `S_A = rank_GF2(M_A) − |A|` and
+  Schmidt rank `2^{S_A}` across a bipartition (Fattal et al.).
 - [ ] 4.1 New `q_orca/backends/stim_backend.py` implementing `BackendAdapter`
   (`verify()` returns a `QVerificationResult` of identical shape to the QuTiP
-  path by sampling the Stim tableau); register as `stim`.
+  path: unitarity holds for Clifford by construction, the entanglement check
+  reuses `_check_dynamic_entanglement`'s control flow but swaps statevector
+  evolution for the tableau computation in 4.0, collapse-completeness is
+  structural); register as `stim`.
 - [ ] 4.2 New `q_orca/backends/qiskit_stabilizer_backend.py` wrapping
   `AerSimulator(method="stabilizer")`.
 - [ ] 4.3 Register both in `q_orca/backends/__init__.py`; add the `stabilizer`
@@ -53,11 +59,12 @@
   (fatal) unless `stabilizer_fallback: state-vector`, which warns and uses the
   state-vector path.
 
-## 6. Verifier — invariant fallback
+## 6. Verifier — native entanglement
 
-- [ ] 6.1 Under the stabilizer backend, emit `INVARIANT_REQUIRES_STATEVECTOR`
-  for `fidelity(…)` and `schmidt_rank(…)` invariants; keep sampling-based
-  state-category assertions evaluable from tableau samples.
+- [ ] 6.1 Under the stabilizer backend, evaluate entanglement / `schmidt_rank(…)`
+  natively via 4.0 and keep sampling-based state-category assertions evaluable
+  from tableau samples. (No `INVARIANT_REQUIRES_STATEVECTOR` in v1 — see the
+  verifier spec's Deferred note: the grammar has no state-vector-only invariant.)
 
 ## 7. Examples
 
@@ -68,17 +75,19 @@
 
 ## 8. Tests
 
-- [ ] 8.1 `tests/test_stabilizer_backend.py`: `is_clifford` recognition across
+- [x] 8.1 `tests/test_stabilizer_backend.py`: `is_clifford` recognition across
   `examples/` — bell, ghz, teleportation, active-teleportation, bit-flip-syndrome
   → True; deutsch-jozsa, qaoa-maxcut, vqe-* → False.
-- [ ] 8.2 Clifford-angle acceptance: `Rz(π/2) ≡ S`, `Rx(π) ≡ X`, etc.
+- [x] 8.2 Clifford-angle acceptance: `Rz(π/2) ≡ S`, `Rx(π) ≡ X`, etc.
 - [ ] 8.3 Distribution parity: `active-teleportation` outcome distribution under
   the stabilizer backend matches QuTiP within statistical tolerance at
   `shots=10000` (seeded).
 - [ ] 8.4 `NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND` fires on forced stabilizer +
   non-Clifford machine; `stabilizer_fallback: state-vector` downgrades to a warning.
-- [ ] 8.5 `INVARIANT_REQUIRES_STATEVECTOR` fires for `fidelity` / `schmidt_rank`
-  under the stabilizer backend.
+- [ ] 8.5 A `schmidt_rank(q0,q1) >= 2` invariant on a Bell machine is satisfied
+  under the stabilizer backend (evaluated on the tableau, same verdict as QuTiP).
+- [x] 8.9 Entanglement parity: Bell and GHZ Schmidt ranks computed on the
+  stabilizer tableau (4.0) equal those from the QuTiP statevector path.
 - [ ] 8.6 Auto-routing: Clifford machine selects stabilizer when available, falls
   back to state-vector (with warning) when Stim/Aer absent.
 - [ ] 8.7 `surface-code-3` verifies on the stabilizer path within a CI time bound.
