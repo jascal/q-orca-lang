@@ -38,16 +38,19 @@ data measurements feed the `OBSERVABLE_INCLUDE`. A machine with no role tags
 (all `data`) cannot be decoded — `compile_to_stim_with_detectors` raises a clear
 error directing the user to tag ancilla/syndrome qubits.
 
-### D2 — Detector definition (single- and multi-round)
+### D2 — Detector definition (single-round / code-capacity in v1)
 A detector is a set of measurement records whose parity is deterministic absent
-noise. For the **first** round, a freshly-prepared ancilla measuring a stabilizer
-of the encoded state is deterministic, so each ancilla measurement record gets
-its own `DETECTOR rec[-k]`. For **subsequent** rounds (the repeated
-syndrome-extraction structure, recovered from the unrolled loop / repeated
-actions), a detector compares the *same* stabilizer across consecutive rounds:
-`DETECTOR rec[-k] rec[-k-stride]` — a flipped detector marks where an error
-chain crosses between rounds. The compiler tracks, per stabilizer qubit, the
-record index of its previous-round measurement to form the cross-round pair.
+noise. For a freshly-prepared ancilla measuring a stabilizer of the encoded
+state, that single measurement is deterministic, so **each ancilla measurement
+record gets its own `DETECTOR rec[-k]`** — code-capacity decoding (one syndrome
+round over noisy data). **Finding (the recurring `reset` gap):** the multi-round
+/ circuit-level variant — comparing the *same* stabilizer across consecutive
+rounds (`DETECTOR rec[-k] rec[-k-stride]`) — requires **resetting the ancilla to
+|0⟩ between rounds**, and q-orca has no `reset` syntax (the same gap that made
+`MR` unreachable in `add-stabilizer-sampling`). Reusing an ancilla across rounds
+without reset is unphysical, so cross-round detectors are **deferred to the
+reset-syntax change** (which also unblocks `MR`). v1 is single-round, which still
+corrects `(d−1)/2` errors and whose logical error rate falls with distance.
 
 ### D3 — Logical observable (the risk)
 `OBSERVABLE_INCLUDE(0)` collects the measurement records that define the logical
@@ -80,25 +83,21 @@ mis-paired detector (both of which flatten or invert the trend) without pinning 
 brittle exact rate.
 
 ## Risks / Trade-offs
-- **Detector cross-round pairing** off-by-one → flips the wrong detectors →
-  decoder mispredicts. Mitigation: D6 trend tests + a single-round unit test
-  asserting the exact emitted `DETECTOR` targets on a hand-checked code.
+- **Logical observable inference** is now the single highest risk (cross-round
+  pairing is deferred with reset). A wrong observable gives a plausible-but-wrong
+  rate. Mitigation: the D6 distance sweep — a correct observable makes the
+  logical error rate *fall* with distance; a wrong one flattens it. Plus a
+  unit test asserting the exact emitted `DETECTOR` / `OBSERVABLE_INCLUDE` targets
+  on a hand-checked distance-3 repetition code.
 - **Wrong logical observable** → plausible-but-wrong logical error rate.
   Mitigation: the distance sweep (a wrong observable does not improve with
   distance).
-- **Round structure recovery** from the action stream (which measurements form
-  one round) — relies on the repeated syndrome-extraction actions / unrolled
-  loop being regular (each round measures the same set of stabilizer qubits in
-  the same order). Mitigation: derive rounds from repeated ancilla measurements
-  of the same qubit; if the structure is irregular (a stabilizer qubit measured
-  a different number of times than its peers), raise an **actionable** error —
-  *"irregular syndrome rounds: stabilizer qubit q3 measured 2×, q5 measured 3×;
-  express repeated rounds with a `[loop N]` body so every round is identical"* —
-  rather than emit mis-paired detectors.
 - **No measurements / mismatched records** — a machine with no stabilizer
   measurements, or a data readout that does not cover the logical operator,
   cannot define detectors/observable; `compile_to_stim_with_detectors` raises a
-  located error rather than emit an empty or degenerate DEM.
+  located error rather than emit an empty or degenerate DEM. (Round-structure
+  recovery is moot in single-round v1 — each stabilizer is measured once. It
+  returns with the cross-round / reset-syntax follow-on.)
 
 ## Migration Plan
 Additive. `compile_to_stim_with_detectors` and `logical_error_rate` are new entry
@@ -106,6 +105,11 @@ points; `compile_to_stim` is unchanged (still refuses multi-clause, now with a
 "use the decoder path" hint). The two examples are new files. Rollback = revert.
 
 ## Open Questions
+0. **Multi-round / circuit-level decoding** (cross-round detectors) is deferred
+   to a **reset-syntax** change — `reset(qs[i])` parser + verifier + stim `R`/`MR`
+   emission — which also unblocks the `MR` deferred from `add-stabilizer-sampling`.
+   That is the natural next change after this one; v1 here is single-round
+   (code-capacity).
 1. **v2 priority:** an explicit `## logical_observable` declaration instead of
    inferring it from data-qubit measurements. v1 infers (logical-Z = parity of
    final data measurements), which is correct for repetition / bit-flip and a

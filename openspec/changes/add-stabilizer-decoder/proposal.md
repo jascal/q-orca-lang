@@ -20,7 +20,11 @@ examples deferred from the sampling change.
   `OBSERVABLE_INCLUDE` on the **logical readout** (the data-qubit measurements
   defining the logical operator). Noise comes from the machine's `## noise_model`
   section (without noise the syndrome is trivially zero — there is nothing to
-  decode).
+  decode). **v1 is single-round (code-capacity):** one syndrome extraction over
+  noisy data, each ancilla measurement its own detector. Multi-round /
+  circuit-level decoding (cross-round detectors) needs `reset` between rounds,
+  which q-orca lacks — deferred to a reset-syntax change (which also unblocks the
+  `MR` deferred from the sampling change).
 - Add a decoder over the detector error model: build the DEM via Stim's
   `circuit.detector_error_model(...)`, construct a PyMatching
   `Matching.from_detector_error_model(dem)`, and decode sampled syndromes to

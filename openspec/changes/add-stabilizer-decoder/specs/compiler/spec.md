@@ -8,16 +8,16 @@ of `compile_to_stim`, emits a `DETECTOR` annotation for each **stabilizer**
 measurement and an `OBSERVABLE_INCLUDE` annotation for the **logical** readout. A
 measurement of a qubit whose declared role (via the shipped qubit-role tags) is
 `ancilla` or `syndrome` is a stabilizer measurement; a measurement of a `data`
-qubit contributes to the logical observable. For a stabilizer measured across
-multiple rounds, the detector SHALL be the parity of that stabilizer's records in
-consecutive rounds (so it is deterministic absent noise); for its first round the
-detector is the single record. When the machine declares no `ancilla`/`syndrome`
-roles, when no stabilizer measurements are present, or when the syndrome-round
-structure is irregular (a stabilizer qubit measured a different number of times
-than its peers), the compiler SHALL raise a structured, actionable error —
-naming the offending qubit(s) and the fix (tag syndrome qubits, or express
-repeated rounds with a `[loop N]` body) — rather than emit a circuit with no, or
-mis-paired, detectors.
+qubit contributes to the logical observable. In v1 (single-round / code-capacity
+decoding) each stabilizer is measured once, so its detector is that single
+measurement record (deterministic absent noise). (Multi-round cross-round
+detectors require `reset` between rounds, which q-orca lacks; they are deferred
+to a reset-syntax change.) When the machine declares no `ancilla`/`syndrome`
+roles, when no stabilizer measurements are present, or when the data readout does
+not cover a logical operator, the compiler SHALL raise a structured, actionable
+error naming the offending qubit(s) and the fix (e.g. "add roles: ancilla/syndrome
+to your stabilizer qubits") — rather than emit a circuit with no detectors or a
+degenerate observable.
 
 #### Scenario: Stabilizer measurement becomes a detector
 
@@ -31,21 +31,8 @@ mis-paired, detectors.
 - **THEN** the emitted Stim circuit contains an `OBSERVABLE_INCLUDE` over those
   data-measurement records
 
-#### Scenario: Cross-round detector pairs consecutive rounds
-
-- **WHEN** the same stabilizer qubit is measured in two consecutive rounds
-- **THEN** the second round's `DETECTOR` references both that round's record and
-  the previous round's record for that stabilizer
-
 #### Scenario: Untagged machine is refused
 
 - **WHEN** `compile_to_stim_with_detectors` is given a machine with no
   `ancilla`/`syndrome` roles
 - **THEN** it raises a structured error directing the user to tag syndrome qubits
-
-#### Scenario: Irregular syndrome rounds are refused with an actionable error
-
-- **WHEN** one stabilizer qubit is measured a different number of times than its
-  peers (irregular round structure)
-- **THEN** the compiler raises a structured error naming the offending qubits and
-  suggesting a `[loop N]` body so every round is identical
