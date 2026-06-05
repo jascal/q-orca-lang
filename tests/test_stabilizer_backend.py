@@ -112,6 +112,154 @@ class TestCliffordClassifier:
         assert all("location" in o for o in offenders)
 
 
+class TestCompileToStim:
+    """compile_to_stim gate / measurement / feedforward mapping + diagnostics."""
+
+    def setup_method(self):
+        pytest.importorskip("stim")
+
+    def test_gate_mapping(self):
+        from q_orca.compiler.stabilizer import compile_to_stim
+        circ = str(compile_to_stim(_machine("examples/bell-entangler.q.orca.md")))
+        assert circ == "H 0\nCX 0 1"
+
+    def test_measurement_emits_M(self):
+        from q_orca.compiler.stabilizer import compile_to_stim
+        circ = str(compile_to_stim(_machine("examples/active-teleportation.q.orca.md")))
+        assert "M 0 1" in circ
+
+    def test_feedforward_record_indexing(self):
+        # b1 (measured second) → rec[-1]; b0 (measured first) → rec[-2].
+        from q_orca.compiler.stabilizer import compile_to_stim
+        circ = str(compile_to_stim(_machine("examples/active-teleportation.q.orca.md")))
+        assert "CX rec[-1] 2" in circ   # if b1 == 1: X(q2)
+        assert "CZ rec[-2] 2" in circ   # if b0 == 1: Z(q2)
+
+    def test_feedforward_on_earliest_of_three_bits(self):
+        # 3 measurements then a correction on the *first* bit → rec[-3], not -1.
+        from q_orca.compiler.stabilizer import compile_to_stim
+        src = (
+            "# machine M\n\n## context\n| Field | Type | Default |\n|---|---|---|\n"
+            "| qubits | list<qubit> | [q0, q1, q2, q3] |\n| bits | list<bit> | [b0, b1, b2] |\n\n"
+            "## states\n## state |s0> [initial]\n## state |s1>\n## state |s2>\n"
+            "## state |s3>\n## state |done> [final]\n\n"
+            "## events\n- m0e\n- m1e\n- m2e\n- corre\n\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n|---|---|---|---|---|\n"
+            "| |s0> | m0e | | |s1> | meas0 |\n| |s1> | m1e | | |s2> | meas1 |\n"
+            "| |s2> | m2e | | |s3> | meas2 |\n| |s3> | corre | | |done> | corr0 |\n\n"
+            "## actions\n| Name | Signature | Effect |\n|---|---|---|\n"
+            "| meas0 | (qs) -> qs | measure(qs[0]) -> bits[0] |\n"
+            "| meas1 | (qs) -> qs | measure(qs[1]) -> bits[1] |\n"
+            "| meas2 | (qs) -> qs | measure(qs[2]) -> bits[2] |\n"
+            "| corr0 | (qs) -> qs | if bits[0] == 1: X(qs[3]) |\n"
+        )
+        circ = str(compile_to_stim(parse_q_orca_markdown(src).file.machines[0]))
+        assert "CX rec[-3] 3" in circ, circ  # b0 is 3 records back at emit time
+
+    def test_non_clifford_machine_refused(self):
+        from q_orca.compiler.stabilizer import compile_to_stim, StabilizerCompileError
+        with pytest.raises(StabilizerCompileError, match="not Clifford"):
+            compile_to_stim(_machine_with_effect("T(qs[0])"))
+
+    def test_non_pauli_feedforward_refused(self):
+        from q_orca.compiler.stabilizer import compile_to_stim, StabilizerCompileError
+        src = (
+            "# machine M\n\n## context\n| Field | Type | Default |\n|---|---|---|\n"
+            "| qubits | list<qubit> | [q0, q1] |\n| bits | list<bit> | [b0] |\n\n"
+            "## states\n## state |s0> [initial]\n## state |s1>\n## state |done> [final]\n\n"
+            "## events\n- meas\n- corr\n\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n|---|---|---|---|---|\n"
+            "| |s0> | meas | | |s1> | m0 |\n| |s1> | corr | | |done> | badcorr |\n\n"
+            "## actions\n| Name | Signature | Effect |\n|---|---|---|\n"
+            "| m0 | (qs) -> qs | measure(qs[0]) -> bits[0] |\n"
+            "| badcorr | (qs) -> qs | if bits[0] == 1: H(qs[1]) |\n"
+        )
+        machine = parse_q_orca_markdown(src).file.machines[0]
+        cg = next((a.conditional_gate for a in machine.actions if a.conditional_gate), None)
+        if cg is None:
+            pytest.skip("parser did not produce a conditional_gate for non-Pauli correction")
+        with pytest.raises(StabilizerCompileError, match="Pauli"):
+            compile_to_stim(machine)
+
+    def test_multiclause_syndrome_feedforward_refused(self):
+        # Real QEC syndrome decoding (e.g. bit-flip-syndrome) uses multi-clause
+        # AND feedforward, which Stim's single-record rec-controls cannot express
+        # in-circuit — it is a decoder concern (the deferred detector/PyMatching
+        # follow-on). compile_to_stim must refuse it clearly, not miscompile it.
+        from q_orca.compiler.stabilizer import compile_to_stim, StabilizerCompileError
+        machine = _machine("examples/bit-flip-syndrome.q.orca.md")
+        with pytest.raises(StabilizerCompileError, match="single-clause"):
+            compile_to_stim(machine)
+
+
+class TestStabilizerSamplingParity:
+    """Sampled distributions match the expected (state-vector) distribution."""
+
+    def setup_method(self):
+        pytest.importorskip("stim")
+
+    @pytest.mark.parametrize("name,n", [("bell-entangler", 2), ("ghz-state", 3)])
+    def test_terminal_distribution(self, name, n):
+        from q_orca.compiler.stabilizer import compile_to_stim, sample_stim_circuit
+        circ = compile_to_stim(_machine(f"examples/{name}.q.orca.md"))
+        circ.append("M", list(range(n)))  # terminal measurement of all qubits
+        counts = sample_stim_circuit(circ, shots=10000, seed=20260605)
+        # A cat state collapses to all-0 or all-1, ~50/50; nothing else appears.
+        allowed = {"0" * n, "1" * n}
+        assert set(counts) <= allowed, f"unexpected outcomes: {set(counts) - allowed}"
+        for key in allowed:
+            assert abs(counts.get(key, 0) / 10000 - 0.5) < 0.03  # Wilson ~±0.01
+
+    def test_feedforward_recovers_teleported_state(self):
+        # active-teleportation teleports |0>; after correct X/Z feedforward, q2
+        # must be |0> on every shot. A mis-indexed X correction (wrong rec[-N])
+        # would flip q2 on ~half the shots, so this gates the feedforward path.
+        from q_orca.compiler.stabilizer import compile_to_stim, sample_stim_circuit
+        circ = compile_to_stim(_machine("examples/active-teleportation.q.orca.md"))
+        circ.append("M", [2])  # measure the teleported qubit last
+        counts = sample_stim_circuit(circ, shots=10000, seed=20260605)
+        # records: b0, b1, then q2 → q2 is the last char of each 3-bit outcome.
+        q2_ones = sum(c for k, c in counts.items() if k[-1] == "1")
+        assert q2_ones == 0, f"teleported |0> recovered as 1 on {q2_ones} shots"
+
+
+class TestAerStabilizerTarget:
+    """The secondary Aer-stabilizer compilation target produces the same results."""
+
+    def setup_method(self):
+        pytest.importorskip("qiskit_aer")
+
+    def test_bell_distribution_under_aer(self):
+        from qiskit import ClassicalRegister
+        from qiskit_aer import AerSimulator
+        from q_orca.compiler.stabilizer import compile_to_qiskit_stabilizer
+        qc = compile_to_qiskit_stabilizer(_machine("examples/bell-entangler.q.orca.md"))
+        creg = ClassicalRegister(2, "out")
+        qc.add_register(creg)
+        qc.measure([0, 1], creg)
+        counts = AerSimulator(method="stabilizer").run(qc, shots=10000, seed_simulator=7).result().get_counts()
+        # Multi-register key "out orig"; the `out` register is the first field.
+        norm: dict[str, int] = {}
+        for k, v in counts.items():
+            norm[k.split(" ")[0]] = norm.get(k.split(" ")[0], 0) + v
+        assert set(norm) <= {"00", "11"}, f"unexpected: {set(norm)}"
+        for key in ("00", "11"):
+            assert abs(norm.get(key, 0) / 10000 - 0.5) < 0.03
+
+    def test_teleportation_feedforward_under_aer(self):
+        from qiskit import ClassicalRegister
+        from qiskit_aer import AerSimulator
+        from q_orca.compiler.stabilizer import compile_to_qiskit_stabilizer
+        qc = compile_to_qiskit_stabilizer(_machine("examples/active-teleportation.q.orca.md"))
+        out = ClassicalRegister(1, "q2out")
+        qc.add_register(out)
+        qc.measure(2, out[0])
+        counts = AerSimulator(method="stabilizer").run(qc, shots=8000, seed_simulator=7).result().get_counts()
+        # q2out is the leftmost (most-significant) register in qiskit's key.
+        q2_ones = sum(v for k, v in counts.items() if k.split(" ")[0] == "1")
+        assert q2_ones == 0  # teleported |0> recovered exactly
+
+
 class TestStabilizerEntanglement:
     """Schmidt rank / entropy computed on the tableau must equal the QuTiP path."""
 

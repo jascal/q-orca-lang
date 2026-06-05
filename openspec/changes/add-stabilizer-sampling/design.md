@@ -41,17 +41,16 @@ the Clifford gate set (incl. `π/2` rotations → `√X`/`√Y`/`S`) onto a
 shared helper emitting onto a `stim.Circuit` instead, so the sampling circuit and
 the verification tableau apply identical gates.
 
-### D2 — Measurement: `MR` vs `M`
-`measure(qs[i]) -> bits[j]` emits `M i`, or `MR i` (measure-and-reset) when an
-*unconditional* `reset(qs[i])` effect follows on the same qubit in the action
-stream (the research sketch's rule). Each emitted measurement appends a record;
-the compiler maintains a `bit_index -> measurement_record_position` map so
-feedforward can resolve `bits[j]` to the right record. **Edge cases:** a
-*conditional* reset (`if …: reset(qs[i])`) or a reset separated from its
-measurement by other operations on `qs[i]` does NOT collapse to `MR` — v1 emits
-`M` and, if a later reset is required, treats it as out of scope and raises a
-diagnostic rather than guessing. This keeps the heuristic to the unambiguous
-immediate-follow case; broader reset control flow is a follow-on.
+### D2 — Measurement: `M` only (`MR` deferred — no `reset` syntax)
+`measure(qs[i]) -> bits[j]` emits `M i`. Each emitted measurement appends a
+record; the compiler maintains a `bit_index -> measurement_record_position` map
+so feedforward can resolve `bits[j]` to the right record. **Finding during
+implementation:** q-orca has no `reset` syntax in the grammar (no `QEffectReset`
+/ parser support), so the research sketch's `MR`-when-a-reset-follows rule is
+unreachable — `compile_to_stim` always emits `M`. `MR` arrives with reset
+syntax; measurement emission is the single line that changes. QEC examples that
+would reset an ancilla between rounds (e.g. `bit-flip-repeated`) instead use a
+fresh ancilla per round.
 
 ### D3 — Feedforward via `rec[-N]` (the risk)
 `if bits[j] == 1: X(qs[k])` compiles to Stim's measurement-record-controlled
@@ -109,14 +108,30 @@ two examples are new files. No change to the shipped verify path. Rollback =
 revert.
 
 ### D6 — Parity test cost in CI
-The `shots=10000` parity tests are seeded and marked slow (a `pytest` marker, or
-parametrised with a low-shot default and a `--slow` opt-in to the full count) so
-the default CI run stays fast while the full-shot parity still runs on demand /
-nightly. Stim sampling of 10k shots is sub-millisecond, so the cost is the QuTiP
-counterpart, not Stim.
+The `shots=10000` parity tests are seeded and inherently fast: they compare the
+**Stim sample** against the *analytic* expectation (a cat state collapses to
+all-0/all-1 ~50/50; teleported `|0>` recovers `q2 = 0`), not against a 10k-shot
+QuTiP run — so there is no exponential counterpart to pay. Stim sampling of 10k
+shots is sub-millisecond; the whole sampling test class runs in well under a
+second, so no slow-marker / low-shot CI split was needed. (Had the parity been
+defined against a QuTiP sampling baseline, a `pytest` slow marker would apply.)
+
+### D7 — Multi-clause syndrome feedforward is a decoder concern (finding)
+Real QEC syndrome decoding (e.g. `bit-flip-syndrome`) uses **multi-clause AND**
+feedforward (`if b0 == 1 and b1 == 1: X(...)`). Stim's `rec[-N]` controls are
+single-record; an AND of measurement records is not a Clifford in-circuit
+operation — corrections from a syndrome are computed by a *decoder*
+(`DETECTOR` + PyMatching/Union-Find), not by rec-controlled gates. So
+`compile_to_stim` supports **single-clause** feedforward (teleportation-style)
+and refuses multi-clause with a clear diagnostic; multi-clause syndrome decoding
+belongs to the detector/decoder follow-on (Open Q2). Consequence: the authored
+QEC *sampling* examples (`surface-code-3`, `bit-flip-repeated`) are deferred —
+their corrections are inherently multi-clause, so they exercise the already-
+shipped *verify* path, not this sampling path. The sampling path's value is
+demonstrated by `active-teleportation` (single-clause feedforward) + Bell/GHZ.
 
 ## Open Questions
 1. Wiring the stabilizer sampler into `q-orca run` / `simulate` (Open Q2 from
    `add-stabilizer-backend`) — its own follow-on once `compile_to_stim` lands.
-2. Stim detector-error-model export (`DETECTOR`/`OBSERVABLE_INCLUDE`) for decoder
-   benchmarking — deferred; `compile_to_stim` lays the groundwork.
+2. Stim detector-error-model export (`DETECTOR`/`OBSERVABLE_INCLUDE`) +
+   multi-clause syndrome decoding (PyMatching) — the decoder follow-on (D7).
