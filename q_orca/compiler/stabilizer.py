@@ -189,6 +189,8 @@ def compile_to_stim(machine: QMachineDef):
         action = action_map.get(action_name)
         if action is not None and action.mid_circuit_measure is not None:
             mcm = action.mid_circuit_measure
+            # Single change point for MR: when q-orca gains `reset` syntax, emit
+            # "MR" here if an unconditional reset(qs[i]) follows (see design D2).
             circuit.append("M", [mcm.qubit_idx])
             bit_to_record[mcm.bit_idx] = n_records
             n_records += 1
@@ -312,8 +314,11 @@ def _emit_feedforward(circuit, cg, bit_to_record: dict, n_records: int, stim) ->
     """Emit a Pauli feedforward correction as a record-controlled gate."""
     if len(cg.conditions) != 1:
         raise StabilizerCompileError(
-            "compile_to_stim supports only single-clause feedforward; "
-            f"got {len(cg.conditions)} AND-clauses"
+            "compile_to_stim supports only single-clause feedforward; got "
+            f"{len(cg.conditions)} AND-clauses. Multi-clause syndrome decoding "
+            "(e.g. bit-flip / surface codes) is a decoder concern — a planned "
+            "follow-on using Stim DETECTOR annotations + PyMatching, not an "
+            "in-circuit rec[-N] correction"
         )
     bit_idx, value = cg.conditions[0]
     if value != 1:

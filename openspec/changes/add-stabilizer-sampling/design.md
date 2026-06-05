@@ -108,11 +108,13 @@ two examples are new files. No change to the shipped verify path. Rollback =
 revert.
 
 ### D6 — Parity test cost in CI
-The `shots=10000` parity tests are seeded and marked slow (a `pytest` marker, or
-parametrised with a low-shot default and a `--slow` opt-in to the full count) so
-the default CI run stays fast while the full-shot parity still runs on demand /
-nightly. Stim sampling of 10k shots is sub-millisecond, so the cost is the QuTiP
-counterpart, not Stim.
+The `shots=10000` parity tests are seeded and inherently fast: they compare the
+**Stim sample** against the *analytic* expectation (a cat state collapses to
+all-0/all-1 ~50/50; teleported `|0>` recovers `q2 = 0`), not against a 10k-shot
+QuTiP run — so there is no exponential counterpart to pay. Stim sampling of 10k
+shots is sub-millisecond; the whole sampling test class runs in well under a
+second, so no slow-marker / low-shot CI split was needed. (Had the parity been
+defined against a QuTiP sampling baseline, a `pytest` slow marker would apply.)
 
 ### D7 — Multi-clause syndrome feedforward is a decoder concern (finding)
 Real QEC syndrome decoding (e.g. `bit-flip-syndrome`) uses **multi-clause AND**

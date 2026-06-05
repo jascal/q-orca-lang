@@ -99,16 +99,17 @@ sampled. `q_orca.compiler.stabilizer.compile_to_stim(machine)` returns a
   measurement-record-controlled `CX`/`CY`/`CZ rec[-N]`, where `N` is the relative
   offset of `bits[j]`'s record at emit time.
 
-For example, `active-teleportation` compiles to:
+For example, `active-teleportation` (q0 = message, q1+q2 = the Bell pair) compiles
+to — Stim args are qubit indices, `M 0 1` measures q0→b0 then q1→b1:
 
 ```
-H 1
+H 1             # prepare the q1,q2 Bell pair
 CX 1 2
-CX 0 1
+CX 0 1          # Bell-measure q0 against q1
 H 0
-M 0 1
-CX rec[-1] 2    # if b1 == 1: X(q2)
-CZ rec[-2] 2    # if b0 == 1: Z(q2)
+M 0 1           # b0 = M(q0)  (record -2 after this line),  b1 = M(q1)  (record -1)
+CX rec[-1] 2    # if b1 == 1: X(q2)   — b1 is the most recent record
+CZ rec[-2] 2    # if b0 == 1: Z(q2)   — b0 is one record earlier
 ```
 
 `sample_stim_circuit(circuit, shots, seed)` runs the circuit and returns an

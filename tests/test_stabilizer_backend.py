@@ -135,6 +135,27 @@ class TestCompileToStim:
         assert "CX rec[-1] 2" in circ   # if b1 == 1: X(q2)
         assert "CZ rec[-2] 2" in circ   # if b0 == 1: Z(q2)
 
+    def test_feedforward_on_earliest_of_three_bits(self):
+        # 3 measurements then a correction on the *first* bit → rec[-3], not -1.
+        from q_orca.compiler.stabilizer import compile_to_stim
+        src = (
+            "# machine M\n\n## context\n| Field | Type | Default |\n|---|---|---|\n"
+            "| qubits | list<qubit> | [q0, q1, q2, q3] |\n| bits | list<bit> | [b0, b1, b2] |\n\n"
+            "## states\n## state |s0> [initial]\n## state |s1>\n## state |s2>\n"
+            "## state |s3>\n## state |done> [final]\n\n"
+            "## events\n- m0e\n- m1e\n- m2e\n- corre\n\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n|---|---|---|---|---|\n"
+            "| |s0> | m0e | | |s1> | meas0 |\n| |s1> | m1e | | |s2> | meas1 |\n"
+            "| |s2> | m2e | | |s3> | meas2 |\n| |s3> | corre | | |done> | corr0 |\n\n"
+            "## actions\n| Name | Signature | Effect |\n|---|---|---|\n"
+            "| meas0 | (qs) -> qs | measure(qs[0]) -> bits[0] |\n"
+            "| meas1 | (qs) -> qs | measure(qs[1]) -> bits[1] |\n"
+            "| meas2 | (qs) -> qs | measure(qs[2]) -> bits[2] |\n"
+            "| corr0 | (qs) -> qs | if bits[0] == 1: X(qs[3]) |\n"
+        )
+        circ = str(compile_to_stim(parse_q_orca_markdown(src).file.machines[0]))
+        assert "CX rec[-3] 3" in circ, circ  # b0 is 3 records back at emit time
+
     def test_non_clifford_machine_refused(self):
         from q_orca.compiler.stabilizer import compile_to_stim, StabilizerCompileError
         with pytest.raises(StabilizerCompileError, match="not Clifford"):
