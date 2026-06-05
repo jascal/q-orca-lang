@@ -49,6 +49,48 @@ class TestDecoderMachinery:
         assert ler_hi > ler_lo, f"expected hi-noise ({ler_hi}) > lo-noise ({ler_lo})"
 
 
+def _machine(path: str):
+    from q_orca.parser.markdown_parser import parse_q_orca_markdown
+    return parse_q_orca_markdown(open(path).read()).file.machines[0]
+
+
+class TestCompileToStimWithDetectors:
+    def setup_method(self):
+        pytest.importorskip("stim")
+
+    def test_emission_structure(self):
+        from q_orca.compiler.stabilizer import compile_to_stim_with_detectors
+        circ = str(compile_to_stim_with_detectors(_machine("examples/bit-flip-code.q.orca.md")))
+        # noise on the data qubits
+        assert "X_ERROR(0.05) 0 1 2" in circ
+        # a per-ancilla round detector
+        assert "DETECTOR rec[-1]" in circ
+        # final detectors linking each stabilizer to its data support (a0=q0,q1; a1=q1,q2)
+        assert "DETECTOR rec[-5] rec[-3] rec[-2]" in circ
+        assert "DETECTOR rec[-4] rec[-2] rec[-1]" in circ
+        # logical observable over one data qubit (Z_L)
+        assert "OBSERVABLE_INCLUDE(0) rec[-3]" in circ
+
+    def test_untagged_machine_refused(self):
+        from q_orca.compiler.stabilizer import compile_to_stim_with_detectors, StabilizerCompileError
+        # bell-entangler has no ancilla/syndrome roles
+        with pytest.raises(StabilizerCompileError, match="ancilla/syndrome"):
+            compile_to_stim_with_detectors(_machine("examples/bell-entangler.q.orca.md"))
+
+
+class TestBitFlipCodeDecodes:
+    def setup_method(self):
+        pytest.importorskip("stim")
+        pytest.importorskip("pymatching")
+
+    def test_decoding_beats_raw_error_rate(self):
+        # Distance-3 repetition code at p=0.05: a single data error is corrected,
+        # so the logical error rate ~ 3p^2 ≈ 0.0075, far below the raw 0.05.
+        from q_orca.evaluation.qec import logical_error_rate
+        ler = logical_error_rate(_machine("examples/bit-flip-code.q.orca.md"), shots=20000, seed=7)
+        assert ler < 0.02, f"logical error rate {ler} should be well below raw p=0.05"
+
+
 class TestDecoderUnavailable:
     def test_missing_pymatching_raises_structured_error(self, monkeypatch):
         import q_orca.evaluation.qec as qec
