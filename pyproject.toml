@@ -36,7 +36,7 @@ quantum = ["qiskit", "qiskit-aer", "qutip", "qutip-qip", "scipy"]
 # is the preferred engine; the Aer stabilizer method (qiskit-aer >= 0.17, in the
 # `quantum` extra) is the fallback. Both are optional — absence degrades to the
 # state-vector path.
-stabilizer = ["stim>=1.13", "qiskit-aer>=0.17"]
+stabilizer = ["stim>=1.13", "qiskit-aer>=0.17", "pymatching>=2.0"]
 mcp = ["pyyaml"]
 # GPU-accelerated cuQuantum/CuPy backend (q_orca.backends.cuquantum_backend).
 # Linux x86_64 + NVIDIA CUDA 12 wheels only; gated so resolution still works

@@ -123,6 +123,48 @@ silently-wrong circuit on an unsupported construct: a non-Clifford machine, a
 non-Pauli feedforward correction, a `== 0` or **multi-clause AND** feedforward,
 or an adaptive `[loop until:]` body.
 
+## Decoding (QEC syndrome → correction)
+
+Single-clause feedforward (teleportation) compiles in-circuit; **real QEC
+syndrome decoding** — where a correction depends on the *whole* multi-bit
+syndrome — is a classical **decoder** instead. The model is the one from the
+QEC primer: errors are chains, the syndrome is their endpoints, and decoding is
+**minimum-weight perfect matching** (MWPM). Stim builds the matching graph (the
+detector error model); [PyMatching](https://github.com/oscarhiggott/PyMatching)
+runs Edmonds' blossom algorithm.
+
+`compile_to_stim_with_detectors(machine)` emits a `DETECTOR` for each stabilizer
+measurement (a measurement of an `ancilla`/`syndrome`-role qubit) and an
+`OBSERVABLE_INCLUDE` over the logical readout (a `data`-role qubit = Z_L), with
+noise drawn from the machine's `## noise_model`. `logical_error_rate(machine,
+shots, seed)` (in `q_orca.evaluation.qec`) decodes each shot and returns the
+fraction whose decoded correction disagrees with the true logical observable.
+
+End-to-end — a distance-3 bit-flip code at physical error rate `p = 0.05`:
+
+```python
+from q_orca.parser.markdown_parser import parse_q_orca_markdown
+from q_orca.evaluation.qec import logical_error_rate
+
+machine = parse_q_orca_markdown(open("examples/bit-flip-code.q.orca.md").read()).file.machines[0]
+ler = logical_error_rate(machine, shots=20000, seed=7)
+# ler ≈ 0.0076 ≈ 3·p²  — a single data error is corrected, so a logical error
+# needs ≥2; decoding pulls the logical rate far below the raw p = 0.05.
+```
+
+The logical error rate **falls with code distance** (a bigger code corrects more)
+and **rises with the physical error rate** — the trends that confirm the
+observable and detectors are correct.
+
+**v1 is single-round (code-capacity):** one syndrome extraction over noisy data,
+each ancilla measurement its own detector. Multi-round / circuit-level decoding
+(comparing a stabilizer across rounds) needs the ancilla **reset** between
+rounds, which q-orca has no syntax for yet — deferred to a reset-syntax change
+(which also unblocks `MR` in the sampling path). The logical observable is
+inferred as a single data qubit (correct for repetition / bit-flip codes); codes
+whose `Z_L` is a multi-qubit chain (the surface code) will need an explicit
+observable declaration — a planned follow-on.
+
 ## Limitations
 
 - `fidelity(…)` invariants are not yet expressible in the `## invariants`

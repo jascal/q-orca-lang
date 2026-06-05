@@ -298,6 +298,146 @@ def _emit_qiskit_feedforward(qc, cg) -> None:
         {"X": qc.x, "Y": qc.y, "Z": qc.z}[pauli](cg.gate.targets[0])
 
 
+#: noise_model channel kind → (stim instruction, parameter key) for qubit-targeted
+#: Pauli/depolarizing noise (the code-capacity channels v1 supports).
+_NOISE_TO_STIM = {
+    "bit_flip": ("X_ERROR", "p"),
+    "phase_flip": ("Z_ERROR", "p"),
+    "depolarizing": ("DEPOLARIZE1", "p"),
+}
+
+
+def _resolve_noise_qubits(machine, target, data_qubits, all_qubits) -> list[int]:
+    """Resolve a NoiseTarget to a sorted qubit-index list, or [] for the
+    gate-targeted / readout selectors v1 does not model (circuit-level noise)."""
+    from q_orca.roles import qubits_with_role
+    if target.kind == "all_qubits":
+        return sorted(all_qubits)
+    if target.kind == "qubit_role":
+        return qubits_with_role(machine, target.role)
+    if target.kind == "qubit_index":
+        return [target.index] if target.index is not None else []
+    return []  # single_qubit_gates / two_qubit_gates / all_measurements: circuit-level, deferred
+
+
+def _emit_noise_layer(circuit, machine, data_qubits, all_qubits) -> None:
+    """Emit the `## noise_model` qubit-targeted Pauli/depolarizing channels once,
+    modelling errors on the prepared codeword (code-capacity). Gate-level and
+    readout noise are circuit-level and deferred with multi-round decoding."""
+    nm = getattr(machine, "noise_model", None)
+    if nm is None:
+        return
+    for ch in nm.channels:
+        mapping = _NOISE_TO_STIM.get(ch.kind)
+        if mapping is None:
+            continue  # amplitude/phase damping, thermal, readout: not code-capacity
+        instr, pkey = mapping
+        qubits = _resolve_noise_qubits(machine, ch.target, data_qubits, all_qubits)
+        p = float(ch.parameters.get(pkey, 0.0))
+        if qubits and p > 0.0:
+            circuit.append(instr, qubits, p)
+
+
+def compile_to_stim_with_detectors(machine):
+    """Compile a Clifford QEC machine to a `stim.Circuit` with detectors and a
+    logical observable, for minimum-weight-matching decoding (single-round /
+    code-capacity).
+
+    Structure (mirrors Stim's generated codes): inject the `## noise_model`
+    data noise on the prepared codeword; emit the syndrome-extraction gates;
+    measure each stabilizer (ancilla/syndrome-role) qubit, emitting a per-ancilla
+    `DETECTOR`; measure the data qubits; emit a "final" `DETECTOR` per stabilizer
+    (its ancilla record XOR its data-support records — the data qubits whose CNOTs
+    target that ancilla); and `OBSERVABLE_INCLUDE(0)` over one data qubit (Z_L).
+    Raises `StabilizerCompileError` on a non-Clifford machine, no `ancilla`/
+    `syndrome` roles, or no data readout.
+    """
+    import stim
+    from q_orca.compiler.loops import LOOP_END, LOOP_START
+    from q_orca.compiler.qiskit import _extract_gate_sequence
+    from q_orca.roles import qubits_with_role
+    from q_orca.verifier.stabilizer_entanglement import clifford_gate_to_stim_ops
+
+    is_cliff, offenders = is_clifford(machine)
+    if not is_cliff:
+        raise StabilizerCompileError(
+            f"Gate '{offenders[0]['kind']}' is not Clifford — "
+            f"compile_to_stim_with_detectors requires a Clifford-only machine"
+        )
+
+    ancilla = set(qubits_with_role(machine, "ancilla")) | set(qubits_with_role(machine, "syndrome"))
+    data = set(qubits_with_role(machine, "data"))
+    if not ancilla:
+        raise StabilizerCompileError(
+            "no stabilizer qubits: add roles ancilla/syndrome to the qubits your "
+            "syndrome-extraction measures (e.g. [q0:data, q1:data, a0:ancilla])"
+        )
+
+    from q_orca.compiler.util import infer_qubit_count
+    all_qubits = set(range(infer_qubit_count(machine)))
+
+    action_map = {a.name: a for a in machine.actions}
+    circuit = stim.Circuit()
+    _emit_noise_layer(circuit, machine, data, all_qubits)
+
+    n_records = 0
+    ancilla_support: dict[int, set[int]] = {}   # ancilla -> data qubits its CNOTs read
+    ancilla_record: dict[int, int] = {}          # ancilla -> measurement record index
+    data_record: dict[int, int] = {}             # data qubit -> measurement record index
+
+    for action_name, gates, _comment in _extract_gate_sequence(machine, unroll_loops=True):
+        if action_name in (LOOP_START, LOOP_END):
+            raise StabilizerCompileError("adaptive `[loop until:]` body cannot be decoded")
+        action = action_map.get(action_name)
+        if action is not None and action.mid_circuit_measure is not None:
+            q = action.mid_circuit_measure.qubit_idx
+            circuit.append("M", [q])
+            if q in ancilla:
+                ancilla_record[q] = n_records
+                circuit.append("DETECTOR", [stim.target_rec(-1)])  # round detector
+            else:
+                data_record[q] = n_records
+            n_records += 1
+        elif action is not None and action.conditional_gate is not None:
+            continue  # in-circuit corrections are the decoder's job here, not emitted
+        elif action is not None and action.context_update is not None:
+            continue
+        else:
+            for g in gates:
+                kind = (g.kind or "").upper()
+                if kind in ("CNOT", "CX"):
+                    ctrl = g.controls[0] if g.controls else g.targets[0]
+                    tgt = g.targets[-1]
+                    if tgt in ancilla and ctrl in data:
+                        ancilla_support.setdefault(tgt, set()).add(ctrl)
+                for op, tgts in clifford_gate_to_stim_ops(_quantum_gate_to_dict(g)):
+                    circuit.append(op, tgts)
+
+    if not data_record:
+        raise StabilizerCompileError(
+            "no data readout: the logical observable needs the data qubits "
+            "measured at the end (measure each data qubit into a bit)"
+        )
+
+    def _rec(record_index: int):
+        return stim.target_rec(-(n_records - record_index))
+
+    # Final detectors: each stabilizer's ancilla record vs. the parity of the
+    # data qubits it read — links the syndrome to the data readout in the graph.
+    for a in sorted(ancilla_record):
+        support = ancilla_support.get(a, set()) & set(data_record)
+        if not support:
+            continue
+        circuit.append(
+            "DETECTOR",
+            [_rec(ancilla_record[a])] + [_rec(data_record[d]) for d in sorted(support)],
+        )
+
+    # Logical observable: Z_L = one data qubit (repetition-code convention).
+    circuit.append("OBSERVABLE_INCLUDE", [_rec(data_record[min(data_record)])], 0)
+    return circuit
+
+
 def sample_stim_circuit(circuit, shots: int, seed: int | None = None) -> dict[str, int]:
     """Sample a compiled `stim.Circuit` and return an ``outcome-bitstring -> count``
     dict. The bitstring lists measurement records in emission order (one char per
@@ -316,9 +456,9 @@ def _emit_feedforward(circuit, cg, bit_to_record: dict, n_records: int, stim) ->
         raise StabilizerCompileError(
             "compile_to_stim supports only single-clause feedforward; got "
             f"{len(cg.conditions)} AND-clauses. Multi-clause syndrome decoding "
-            "(e.g. bit-flip / surface codes) is a decoder concern — a planned "
-            "follow-on using Stim DETECTOR annotations + PyMatching, not an "
-            "in-circuit rec[-N] correction"
+            "(e.g. bit-flip / surface codes) is a decoder concern, not an "
+            "in-circuit rec[-N] correction — use compile_to_stim_with_detectors + "
+            "q_orca.evaluation.qec.logical_error_rate (Stim detectors + PyMatching)"
         )
     bit_idx, value = cg.conditions[0]
     if value != 1:
