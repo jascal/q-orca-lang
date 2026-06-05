@@ -1030,6 +1030,19 @@ are:
 - `confidence: float in [0, 1]` (default `0.99`)
 - `on_failure: 'error' | 'warn'` (default `'error'`)
 - `backend: 'auto' | <backend name>` (default `'auto'`)
+- `stabilizer_fallback: 'state-vector' | 'error'` (default `'error'`)
+
+The `backend` value `'auto'` selects the Clifford-aware backend
+resolution (a Clifford machine routes to the stabilizer backend, any
+other to the state-vector backend). The values `'stabilizer'` and
+`'stim'` are recognized backend names that force the stabilizer path:
+`'stim'` selects Stim directly (best performance), and `'stabilizer'`
+is the stable alias that resolves Stim → Aer-stabilizer → state-vector.
+Both share the same force/refuse behaviour. `stabilizer_fallback`
+governs only the case where the stabilizer path is forced on a machine
+the Clifford classifier rejects: `'error'` (the default) makes that
+fatal, `'state-vector'` downgrades it to a warning and uses the
+state-vector path.
 
 Unknown setting names SHALL produce an `unknown_assertion_policy_setting`
 parser error referencing the row. A value that fails type validation
@@ -1037,7 +1050,7 @@ SHALL produce an `assertion_policy_value_error` referencing the row,
 the setting, and the offending value.
 
 If the section is absent, the parser SHALL produce
-`QMachine.assertion_policy = AssertionPolicy()` with the four defaults
+`QMachine.assertion_policy = AssertionPolicy()` with the defaults
 above. If the section is present, the parser SHALL produce an
 `AssertionPolicy` with the specified overrides applied to those
 defaults.
@@ -1047,7 +1060,7 @@ defaults.
 - **WHEN** a machine declares `[assert: …]` annotations but no
   `## assertion policy` section
 - **THEN** the parsed `QMachine` has
-  `assertion_policy = AssertionPolicy(shots_per_assert=512, confidence=0.99, on_failure='error', backend='auto')`
+  `assertion_policy = AssertionPolicy(shots_per_assert=512, confidence=0.99, on_failure='error', backend='auto', stabilizer_fallback='error')`
 
 #### Scenario: Single-setting override
 
@@ -1055,11 +1068,24 @@ defaults.
 - **THEN** the parsed `AssertionPolicy` has `shots_per_assert=128` and
   retains all other defaults
 
-#### Scenario: All four settings overridden
+#### Scenario: All settings overridden
 
-- **WHEN** the section contains rows for all four recognized settings
-- **THEN** the parsed `AssertionPolicy` has all four fields set to the
+- **WHEN** the section contains rows for all recognized settings
+- **THEN** the parsed `AssertionPolicy` has all fields set to the
   declared values
+
+#### Scenario: Stabilizer backend with explicit fallback
+
+- **WHEN** the section contains rows `| backend | stabilizer |` and
+  `| stabilizer_fallback | state-vector |`
+- **THEN** the parsed `AssertionPolicy` has `backend='stabilizer'` and
+  `stabilizer_fallback='state-vector'`
+
+#### Scenario: Invalid stabilizer_fallback value produces a parse error
+
+- **WHEN** the section contains a row `| stabilizer_fallback | qutip |`
+- **THEN** the parser emits `assertion_policy_value_error` referencing
+  `stabilizer_fallback` and the offending value `qutip`
 
 #### Scenario: Unknown setting produces a parse error
 
