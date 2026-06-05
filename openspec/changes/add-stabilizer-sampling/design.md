@@ -41,17 +41,16 @@ the Clifford gate set (incl. `π/2` rotations → `√X`/`√Y`/`S`) onto a
 shared helper emitting onto a `stim.Circuit` instead, so the sampling circuit and
 the verification tableau apply identical gates.
 
-### D2 — Measurement: `MR` vs `M`
-`measure(qs[i]) -> bits[j]` emits `M i`, or `MR i` (measure-and-reset) when an
-*unconditional* `reset(qs[i])` effect follows on the same qubit in the action
-stream (the research sketch's rule). Each emitted measurement appends a record;
-the compiler maintains a `bit_index -> measurement_record_position` map so
-feedforward can resolve `bits[j]` to the right record. **Edge cases:** a
-*conditional* reset (`if …: reset(qs[i])`) or a reset separated from its
-measurement by other operations on `qs[i]` does NOT collapse to `MR` — v1 emits
-`M` and, if a later reset is required, treats it as out of scope and raises a
-diagnostic rather than guessing. This keeps the heuristic to the unambiguous
-immediate-follow case; broader reset control flow is a follow-on.
+### D2 — Measurement: `M` only (`MR` deferred — no `reset` syntax)
+`measure(qs[i]) -> bits[j]` emits `M i`. Each emitted measurement appends a
+record; the compiler maintains a `bit_index -> measurement_record_position` map
+so feedforward can resolve `bits[j]` to the right record. **Finding during
+implementation:** q-orca has no `reset` syntax in the grammar (no `QEffectReset`
+/ parser support), so the research sketch's `MR`-when-a-reset-follows rule is
+unreachable — `compile_to_stim` always emits `M`. `MR` arrives with reset
+syntax; measurement emission is the single line that changes. QEC examples that
+would reset an ancilla between rounds (e.g. `bit-flip-repeated`) instead use a
+fresh ancilla per round.
 
 ### D3 — Feedforward via `rec[-N]` (the risk)
 `if bits[j] == 1: X(qs[k])` compiles to Stim's measurement-record-controlled

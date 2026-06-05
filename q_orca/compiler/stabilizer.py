@@ -23,6 +23,10 @@ from q_orca.compiler.parametric import expand_action_call
 from q_orca.compiler.qiskit import _build_angle_context, _parse_effect_string
 from q_orca.verifier.quantum import KNOWN_UNITARY_GATES
 
+
+class StabilizerCompileError(ValueError):
+    """Raised when a machine cannot be compiled to a stabilizer sampling circuit."""
+
 #: Fixed (angle-free) Clifford gates, by upper-cased gate kind. `CX` and
 #: `CNOT` are the same gate under two spellings; both are accepted.
 CLIFFORD_FIXED = {"H", "X", "Y", "Z", "S", "SDG", "CNOT", "CX", "CY", "CZ", "SWAP"}
@@ -123,6 +127,119 @@ def is_clifford(machine: QMachineDef) -> tuple[bool, list[dict[str, Any]]]:
                 "location": location,
             })
     return (not offenders, offenders)
+
+
+def _quantum_gate_to_dict(g: QuantumGate) -> dict[str, Any]:
+    """Convert a `QuantumGate` AST node to the verifier gate-dict shape that
+    `clifford_gate_to_stim_ops` consumes."""
+    return {
+        "name": g.kind,
+        "targets": list(g.targets),
+        "controls": list(g.controls) if g.controls else [],
+        "params": {"theta": g.parameter} if g.parameter is not None else {},
+    }
+
+
+#: Pauli correction kind -> Stim measurement-record-controlled gate.
+_FEEDFORWARD_OP = {"X": "CX", "Y": "CY", "Z": "CZ"}
+
+
+def compile_to_stim(machine: QMachineDef):
+    """Compile a Clifford machine to a runnable `stim.Circuit` (with measurements).
+
+    Walks the machine's linearised action stream (fixed `[loop N]` bodies
+    unrolled) emitting: Clifford gates via the shared
+    `clifford_gate_to_stim_ops` mapping; `measure(qs[i]) -> bits[j]` as `M i`,
+    tracking a `bit -> measurement-record` index; and a single-clause Pauli
+    feedforward (`if bits[j] == 1: X/Y/Z(qs[k])`) as Stim's record-controlled
+    `CX`/`CY`/`CZ rec[-N]` instruction, where `N` is `bits[j]`'s offset from the
+    current end of the record at emit time.
+
+    Raises `StabilizerCompileError` (never a silently-wrong circuit) on a
+    non-Clifford machine, a non-Pauli or `== 0` / multi-clause feedforward, a
+    feedforward on an unmeasured bit, or an adaptive `[loop until:]` body.
+
+    Note: `MR` (measure-and-reset) is not emitted — q-orca has no `reset` syntax
+    yet, so every measurement is `M`. `MR` support arrives with reset syntax.
+    """
+    import stim
+    from q_orca.compiler.loops import LOOP_END, LOOP_START
+    from q_orca.compiler.qiskit import _extract_gate_sequence
+    from q_orca.verifier.stabilizer_entanglement import clifford_gate_to_stim_ops
+
+    is_cliff, offenders = is_clifford(machine)
+    if not is_cliff:
+        first = offenders[0]
+        raise StabilizerCompileError(
+            f"Gate '{first['kind']}' is not Clifford — compile_to_stim requires a "
+            f"Clifford-only machine (location: {first['location']})"
+        )
+
+    action_map = {a.name: a for a in machine.actions}
+    circuit = stim.Circuit()
+    bit_to_record: dict[int, int] = {}
+    n_records = 0
+
+    for action_name, gates, comment in _extract_gate_sequence(machine, unroll_loops=True):
+        if action_name in (LOOP_START, LOOP_END):
+            raise StabilizerCompileError(
+                "compile_to_stim cannot sample an adaptive `[loop until:]` body; "
+                "only fixed `[loop N]` loops (unrolled) are supported"
+            )
+        action = action_map.get(action_name)
+        if action is not None and action.mid_circuit_measure is not None:
+            mcm = action.mid_circuit_measure
+            circuit.append("M", [mcm.qubit_idx])
+            bit_to_record[mcm.bit_idx] = n_records
+            n_records += 1
+        elif action is not None and action.conditional_gate is not None:
+            _emit_feedforward(circuit, action.conditional_gate, bit_to_record, n_records, stim)
+        elif action is not None and action.context_update is not None:
+            continue  # classical mutation — no circuit effect
+        else:
+            for g in gates:
+                for op, tgts in clifford_gate_to_stim_ops(_quantum_gate_to_dict(g)):
+                    circuit.append(op, tgts)
+
+    return circuit
+
+
+def sample_stim_circuit(circuit, shots: int, seed: int | None = None) -> dict[str, int]:
+    """Sample a compiled `stim.Circuit` and return an ``outcome-bitstring -> count``
+    dict. The bitstring lists measurement records in emission order (one char per
+    measurement); seeded for reproducibility."""
+    samples = circuit.compile_sampler(seed=seed).sample(shots)
+    counts: dict[str, int] = {}
+    for row in samples:
+        key = "".join("1" if b else "0" for b in row)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _emit_feedforward(circuit, cg, bit_to_record: dict, n_records: int, stim) -> None:
+    """Emit a Pauli feedforward correction as a record-controlled gate."""
+    if len(cg.conditions) != 1:
+        raise StabilizerCompileError(
+            "compile_to_stim supports only single-clause feedforward; "
+            f"got {len(cg.conditions)} AND-clauses"
+        )
+    bit_idx, value = cg.conditions[0]
+    if value != 1:
+        raise StabilizerCompileError(
+            f"compile_to_stim supports only `bits[{bit_idx}] == 1` feedforward "
+            f"(got == {value}); `== 0` is a follow-on"
+        )
+    pauli = (cg.gate.kind or "").upper()
+    if pauli not in _FEEDFORWARD_OP:
+        raise StabilizerCompileError(
+            f"feedforward correction must be a Pauli (X/Y/Z); got '{cg.gate.kind}'"
+        )
+    if bit_idx not in bit_to_record:
+        raise StabilizerCompileError(
+            f"feedforward on bits[{bit_idx}] but no measurement has populated it"
+        )
+    rel = n_records - bit_to_record[bit_idx]  # relative offset: rec[-rel]
+    circuit.append(_FEEDFORWARD_OP[pauli], [stim.target_rec(-rel), cg.gate.targets[0]])
 
 
 # Sanity: every fixed-Clifford spelling we accept is a known unitary gate (or a

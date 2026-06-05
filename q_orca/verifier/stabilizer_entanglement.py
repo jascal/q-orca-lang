@@ -48,66 +48,73 @@ def _gf2_rank(rows: List[List[int]]) -> int:
     return rank
 
 
+def clifford_gate_to_stim_ops(gate: Dict[str, Any]) -> List[tuple]:
+    """Map one Clifford gate (verifier gate-dict shape) to a list of
+    ``(stim_op_name, [qubit_targets])`` tuples.
+
+    Shared by the verification tableau path (`build_state_simulator`) and the
+    sampling circuit path (`compiler.stabilizer.compile_to_stim`) so both apply
+    identical gates. Control/target extraction mirrors
+    `dynamic._get_qutip_operator`; `π/2` rotations decompose to repeated
+    `√X`/`√Y`/`S` (global phase is irrelevant to both entanglement and
+    measurement statistics). Returns ``[]`` for a target-less gate. Raises
+    ValueError on a non-Clifford gate — callers gate this behind `is_clifford`.
+    """
+    name = (gate.get("name") or "").upper()
+    targets = gate.get("targets", [])
+    controls = gate.get("controls", [])
+    params = gate.get("params", {})
+    if not targets:
+        return []
+    if name == "H":
+        return [("H", [targets[0]])]
+    if name in ("X", "NOT"):
+        return [("X", [targets[0]])]
+    if name == "Y":
+        return [("Y", [targets[0]])]
+    if name == "Z":
+        return [("Z", [targets[0]])]
+    if name == "S":
+        return [("S", [targets[0]])]
+    if name in ("SDG", "SDAG"):
+        return [("S_DAG", [targets[0]])]
+    if name in ("CNOT", "CX"):
+        ctrl = controls[0] if controls else targets[0]
+        tgt = targets[1] if len(targets) > 1 else targets[0]
+        return [("CX", [ctrl, tgt])]
+    if name == "CZ":
+        ctrl = controls[0] if controls else targets[0]
+        return [("CZ", [ctrl, targets[0]])]
+    if name == "CY":
+        ctrl = controls[0] if controls else targets[0]
+        return [("CY", [ctrl, targets[0]])]
+    if name == "SWAP":
+        tgt2 = targets[1] if len(targets) > 1 else targets[0]
+        return [("SWAP", [targets[0], tgt2])]
+    if name in ("RX", "RY", "RZ"):
+        k = round(params.get("theta", 0.0) / _HALF_PI) % 4
+        op = {"RX": "SQRT_X", "RY": "SQRT_Y", "RZ": "S"}[name]
+        return [(op, [targets[0]])] * k
+    raise ValueError(f"Non-Clifford gate in stabilizer path: {name}")
+
+
 def build_state_simulator(gate_dicts: Iterable[Dict[str, Any]], n_qubits: int):
     """Apply a Clifford gate path (verifier gate-dict shape) to a fresh
     ``stim.TableauSimulator`` starting from |0…0>, returning the simulator.
 
-    Control/target extraction mirrors `dynamic._get_qutip_operator` exactly so
-    the stabilizer state matches the QuTiP evolution gate-for-gate. `pi/2`
-    rotations map to their Clifford equivalents (global phase is irrelevant to
-    entanglement). Raises ValueError on a non-Clifford gate — callers gate this
-    behind `is_clifford`.
+    Uses the shared `clifford_gate_to_stim_ops` mapping so the verification
+    tableau and the sampling circuit apply gates identically.
     """
     if not STIM_AVAILABLE:
         raise RuntimeError("stim is not installed")
     sim = stim.TableauSimulator()
     sim.set_num_qubits(n_qubits)
+    circuit = stim.Circuit()
     for g in gate_dicts:
-        name = (g.get("name") or "").upper()
-        targets = g.get("targets", [])
-        controls = g.get("controls", [])
-        params = g.get("params", {})
-        if not targets:
-            continue
-        if name == "H":
-            sim.h(targets[0])
-        elif name in ("X", "NOT"):
-            sim.x(targets[0])
-        elif name == "Y":
-            sim.y(targets[0])
-        elif name == "Z":
-            sim.z(targets[0])
-        elif name == "S":
-            sim.s(targets[0])
-        elif name in ("SDG", "SDAG"):
-            sim.s_dag(targets[0])
-        elif name in ("CNOT", "CX"):
-            ctrl = controls[0] if controls else targets[0]
-            tgt = targets[1] if len(targets) > 1 else targets[0]
-            sim.cnot(ctrl, tgt)
-        elif name == "CZ":
-            ctrl = controls[0] if controls else targets[0]
-            sim.cz(ctrl, targets[0])
-        elif name == "CY":
-            ctrl = controls[0] if controls else targets[0]
-            sim.cy(ctrl, targets[0])
-        elif name == "SWAP":
-            tgt2 = targets[1] if len(targets) > 1 else targets[0]
-            sim.swap(targets[0], tgt2)
-        elif name in ("RX", "RY", "RZ"):
-            k = round(params.get("theta", 0.0) / _HALF_PI) % 4
-            _apply_clifford_rotation(sim, name, targets[0], k)
-        else:
-            raise ValueError(f"Non-Clifford gate in stabilizer path: {name}")
+        for op, tgts in clifford_gate_to_stim_ops(g):
+            circuit.append(op, tgts)
+    sim.do_circuit(circuit)
     return sim
-
-
-def _apply_clifford_rotation(sim, name: str, target: int, k: int) -> None:
-    """Apply ``R{x,y,z}(k·π/2)`` as ``k`` repetitions of the √-gate (up to a
-    global phase that does not affect entanglement)."""
-    method = {"RX": sim.sqrt_x, "RY": sim.sqrt_y, "RZ": sim.s}[name]
-    for _ in range(k):
-        method(target)
 
 
 def _stabilizer_xz_rows(sim, subsystem: List[int]) -> List[List[int]]:

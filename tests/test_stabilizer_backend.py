@@ -112,6 +112,86 @@ class TestCliffordClassifier:
         assert all("location" in o for o in offenders)
 
 
+class TestCompileToStim:
+    """compile_to_stim gate / measurement / feedforward mapping + diagnostics."""
+
+    def setup_method(self):
+        pytest.importorskip("stim")
+
+    def test_gate_mapping(self):
+        from q_orca.compiler.stabilizer import compile_to_stim
+        circ = str(compile_to_stim(_machine("examples/bell-entangler.q.orca.md")))
+        assert circ == "H 0\nCX 0 1"
+
+    def test_measurement_emits_M(self):
+        from q_orca.compiler.stabilizer import compile_to_stim
+        circ = str(compile_to_stim(_machine("examples/active-teleportation.q.orca.md")))
+        assert "M 0 1" in circ
+
+    def test_feedforward_record_indexing(self):
+        # b1 (measured second) → rec[-1]; b0 (measured first) → rec[-2].
+        from q_orca.compiler.stabilizer import compile_to_stim
+        circ = str(compile_to_stim(_machine("examples/active-teleportation.q.orca.md")))
+        assert "CX rec[-1] 2" in circ   # if b1 == 1: X(q2)
+        assert "CZ rec[-2] 2" in circ   # if b0 == 1: Z(q2)
+
+    def test_non_clifford_machine_refused(self):
+        from q_orca.compiler.stabilizer import compile_to_stim, StabilizerCompileError
+        with pytest.raises(StabilizerCompileError, match="not Clifford"):
+            compile_to_stim(_machine_with_effect("T(qs[0])"))
+
+    def test_non_pauli_feedforward_refused(self):
+        from q_orca.compiler.stabilizer import compile_to_stim, StabilizerCompileError
+        src = (
+            "# machine M\n\n## context\n| Field | Type | Default |\n|---|---|---|\n"
+            "| qubits | list<qubit> | [q0, q1] |\n| bits | list<bit> | [b0] |\n\n"
+            "## states\n## state |s0> [initial]\n## state |s1>\n## state |done> [final]\n\n"
+            "## events\n- meas\n- corr\n\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n|---|---|---|---|---|\n"
+            "| |s0> | meas | | |s1> | m0 |\n| |s1> | corr | | |done> | badcorr |\n\n"
+            "## actions\n| Name | Signature | Effect |\n|---|---|---|\n"
+            "| m0 | (qs) -> qs | measure(qs[0]) -> bits[0] |\n"
+            "| badcorr | (qs) -> qs | if bits[0] == 1: H(qs[1]) |\n"
+        )
+        machine = parse_q_orca_markdown(src).file.machines[0]
+        cg = next((a.conditional_gate for a in machine.actions if a.conditional_gate), None)
+        if cg is None:
+            pytest.skip("parser did not produce a conditional_gate for non-Pauli correction")
+        with pytest.raises(StabilizerCompileError, match="Pauli"):
+            compile_to_stim(machine)
+
+
+class TestStabilizerSamplingParity:
+    """Sampled distributions match the expected (state-vector) distribution."""
+
+    def setup_method(self):
+        pytest.importorskip("stim")
+
+    @pytest.mark.parametrize("name,n", [("bell-entangler", 2), ("ghz-state", 3)])
+    def test_terminal_distribution(self, name, n):
+        from q_orca.compiler.stabilizer import compile_to_stim, sample_stim_circuit
+        circ = compile_to_stim(_machine(f"examples/{name}.q.orca.md"))
+        circ.append("M", list(range(n)))  # terminal measurement of all qubits
+        counts = sample_stim_circuit(circ, shots=10000, seed=20260605)
+        # A cat state collapses to all-0 or all-1, ~50/50; nothing else appears.
+        allowed = {"0" * n, "1" * n}
+        assert set(counts) <= allowed, f"unexpected outcomes: {set(counts) - allowed}"
+        for key in allowed:
+            assert abs(counts.get(key, 0) / 10000 - 0.5) < 0.03  # Wilson ~±0.01
+
+    def test_feedforward_recovers_teleported_state(self):
+        # active-teleportation teleports |0>; after correct X/Z feedforward, q2
+        # must be |0> on every shot. A mis-indexed X correction (wrong rec[-N])
+        # would flip q2 on ~half the shots, so this gates the feedforward path.
+        from q_orca.compiler.stabilizer import compile_to_stim, sample_stim_circuit
+        circ = compile_to_stim(_machine("examples/active-teleportation.q.orca.md"))
+        circ.append("M", [2])  # measure the teleported qubit last
+        counts = sample_stim_circuit(circ, shots=10000, seed=20260605)
+        # records: b0, b1, then q2 → q2 is the last char of each 3-bit outcome.
+        q2_ones = sum(c for k, c in counts.items() if k[-1] == "1")
+        assert q2_ones == 0, f"teleported |0> recovered as 1 on {q2_ones} shots"
+
+
 class TestStabilizerEntanglement:
     """Schmidt rank / entropy computed on the tableau must equal the QuTiP path."""
 
