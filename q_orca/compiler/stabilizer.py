@@ -204,6 +204,98 @@ def compile_to_stim(machine: QMachineDef):
     return circuit
 
 
+def compile_to_qiskit_stabilizer(machine: QMachineDef):
+    """Compile a Clifford machine to a Qiskit `QuantumCircuit` for the
+    `AerSimulator(method="stabilizer")` engine — the secondary sampling target /
+    fallback when Stim is absent but `qiskit-aer` is present.
+
+    Same action-stream walk and diagnostics as `compile_to_stim`; feedforward
+    uses Qiskit's `if_test` on the measured clbit. Raises `StabilizerCompileError`
+    on unsupported constructs (incl. an `Ry` at a `π/2` multiple, which Stim
+    handles natively but has no direct Qiskit stabilizer gate — use `compile_to_stim`).
+    """
+    from qiskit import QuantumCircuit
+    from q_orca.compiler.loops import LOOP_END, LOOP_START
+    from q_orca.compiler.qiskit import _extract_gate_sequence
+    from q_orca.compiler.util import infer_qubit_count
+
+    is_cliff, offenders = is_clifford(machine)
+    if not is_cliff:
+        raise StabilizerCompileError(
+            f"Gate '{offenders[0]['kind']}' is not Clifford — "
+            f"compile_to_qiskit_stabilizer requires a Clifford-only machine"
+        )
+
+    n_qubits = infer_qubit_count(machine)
+    n_bits = _classical_bit_count(machine)
+    qc = QuantumCircuit(n_qubits, max(n_bits, 1))
+    action_map = {a.name: a for a in machine.actions}
+
+    for action_name, gates, comment in _extract_gate_sequence(machine, unroll_loops=True):
+        if action_name in (LOOP_START, LOOP_END):
+            raise StabilizerCompileError("adaptive `[loop until:]` body cannot be sampled")
+        action = action_map.get(action_name)
+        if action is not None and action.mid_circuit_measure is not None:
+            mcm = action.mid_circuit_measure
+            qc.measure(mcm.qubit_idx, mcm.bit_idx)
+        elif action is not None and action.conditional_gate is not None:
+            _emit_qiskit_feedforward(qc, action.conditional_gate)
+        elif action is not None and action.context_update is not None:
+            continue
+        else:
+            for g in gates:
+                _apply_clifford_to_qc(qc, g)
+    return qc
+
+
+def _classical_bit_count(machine: QMachineDef) -> int:
+    """Number of classical bits a machine measures into (max bit index + 1)."""
+    return max(
+        (a.mid_circuit_measure.bit_idx + 1
+         for a in machine.actions if a.mid_circuit_measure is not None),
+        default=0,
+    )
+
+
+#: Single-qubit fixed Clifford gates → Qiskit `QuantumCircuit` method name.
+_QISKIT_1Q = {"H": "h", "X": "x", "NOT": "x", "Y": "y", "Z": "z", "S": "s", "SDG": "sdg", "SDAG": "sdg"}
+
+
+def _apply_clifford_to_qc(qc, g: QuantumGate) -> None:
+    kind = (g.kind or "").upper()
+    t = g.targets
+    if kind in _QISKIT_1Q:
+        getattr(qc, _QISKIT_1Q[kind])(t[0])
+    elif kind in ("CNOT", "CX"):
+        qc.cx(g.controls[0] if g.controls else t[0], t[-1])
+    elif kind == "CZ":
+        qc.cz(g.controls[0] if g.controls else t[0], t[0])
+    elif kind == "SWAP":
+        qc.swap(t[0], t[1])
+    elif kind in ("RX", "RZ"):
+        method = qc.sx if kind == "RX" else qc.s
+        for _ in range(round((g.parameter or 0.0) / _HALF_PI) % 4):
+            method(t[0])
+    elif kind == "RY":
+        raise StabilizerCompileError(
+            "Ry at a π/2 multiple has no direct Qiskit stabilizer gate; "
+            "use compile_to_stim (Stim handles √Y natively)"
+        )
+    else:
+        raise StabilizerCompileError(f"gate '{g.kind}' unsupported in the Aer stabilizer target")
+
+
+def _emit_qiskit_feedforward(qc, cg) -> None:
+    if len(cg.conditions) != 1:
+        raise StabilizerCompileError("only single-clause feedforward is supported")
+    bit_idx, value = cg.conditions[0]
+    pauli = (cg.gate.kind or "").upper()
+    if pauli not in ("X", "Y", "Z"):
+        raise StabilizerCompileError(f"feedforward correction must be a Pauli; got '{cg.gate.kind}'")
+    with qc.if_test((qc.clbits[bit_idx], value)):
+        {"X": qc.x, "Y": qc.y, "Z": qc.z}[pauli](cg.gate.targets[0])
+
+
 def sample_stim_circuit(circuit, shots: int, seed: int | None = None) -> dict[str, int]:
     """Sample a compiled `stim.Circuit` and return an ``outcome-bitstring -> count``
     dict. The bitstring lists measurement records in emission order (one char per

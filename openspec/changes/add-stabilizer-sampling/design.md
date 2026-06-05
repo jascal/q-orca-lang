@@ -114,8 +114,22 @@ the default CI run stays fast while the full-shot parity still runs on demand /
 nightly. Stim sampling of 10k shots is sub-millisecond, so the cost is the QuTiP
 counterpart, not Stim.
 
+### D7 — Multi-clause syndrome feedforward is a decoder concern (finding)
+Real QEC syndrome decoding (e.g. `bit-flip-syndrome`) uses **multi-clause AND**
+feedforward (`if b0 == 1 and b1 == 1: X(...)`). Stim's `rec[-N]` controls are
+single-record; an AND of measurement records is not a Clifford in-circuit
+operation — corrections from a syndrome are computed by a *decoder*
+(`DETECTOR` + PyMatching/Union-Find), not by rec-controlled gates. So
+`compile_to_stim` supports **single-clause** feedforward (teleportation-style)
+and refuses multi-clause with a clear diagnostic; multi-clause syndrome decoding
+belongs to the detector/decoder follow-on (Open Q2). Consequence: the authored
+QEC *sampling* examples (`surface-code-3`, `bit-flip-repeated`) are deferred —
+their corrections are inherently multi-clause, so they exercise the already-
+shipped *verify* path, not this sampling path. The sampling path's value is
+demonstrated by `active-teleportation` (single-clause feedforward) + Bell/GHZ.
+
 ## Open Questions
 1. Wiring the stabilizer sampler into `q-orca run` / `simulate` (Open Q2 from
    `add-stabilizer-backend`) — its own follow-on once `compile_to_stim` lands.
-2. Stim detector-error-model export (`DETECTOR`/`OBSERVABLE_INCLUDE`) for decoder
-   benchmarking — deferred; `compile_to_stim` lays the groundwork.
+2. Stim detector-error-model export (`DETECTOR`/`OBSERVABLE_INCLUDE`) +
+   multi-clause syndrome decoding (PyMatching) — the decoder follow-on (D7).

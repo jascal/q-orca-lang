@@ -87,11 +87,52 @@ When Stim is absent, `auto` simply uses the state-vector path, and an explicit
 `stim`/`stabilizer` selection falls back to it with a warning — verification is
 never lost.
 
+## Sampling (`compile_to_stim`)
+
+Beyond verification, a Clifford machine can be compiled to a runnable circuit and
+sampled. `q_orca.compiler.stabilizer.compile_to_stim(machine)` returns a
+`stim.Circuit`:
+
+- Clifford gates map to their Stim primitives (`π/2` rotations → `√X`/`√Y`/`S`).
+- `measure(qs[i]) -> bits[j]` emits a Stim `M` and records a `bit → record` index.
+- Single-clause Pauli feedforward (`if bits[j] == 1: X/Y/Z(qs[k])`) maps to Stim's
+  measurement-record-controlled `CX`/`CY`/`CZ rec[-N]`, where `N` is the relative
+  offset of `bits[j]`'s record at emit time.
+
+For example, `active-teleportation` compiles to:
+
+```
+H 1
+CX 1 2
+CX 0 1
+H 0
+M 0 1
+CX rec[-1] 2    # if b1 == 1: X(q2)
+CZ rec[-2] 2    # if b0 == 1: Z(q2)
+```
+
+`sample_stim_circuit(circuit, shots, seed)` runs the circuit and returns an
+outcome→count dict. A secondary target, `compile_to_qiskit_stabilizer(machine)`,
+produces a `QuantumCircuit` for `AerSimulator(method="stabilizer")` as a fallback
+when Stim is absent. Both paths' sampled distributions match the state-vector
+backend (validated at `shots=10000`).
+
+`compile_to_stim` fails fast with a `StabilizerCompileError` rather than emit a
+silently-wrong circuit on an unsupported construct: a non-Clifford machine, a
+non-Pauli feedforward correction, a `== 0` or **multi-clause AND** feedforward,
+or an adaptive `[loop until:]` body.
+
 ## Limitations
 
 - `fidelity(…)` invariants are not yet expressible in the `## invariants`
   grammar; when they are, fidelity against a non-stabilizer target will require
   the state-vector backend.
-- The stabilizer backend is **verification-only** in this release. The
-  `q-orca run` / `simulate` sampling path, a Clifford+T magic-state extension,
-  and Stim detector-error-model export for decoder benchmarking are follow-ons.
+- `compile_to_stim` handles **single-clause** feedforward (teleportation-style).
+  Real QEC **syndrome decoding** uses multi-clause AND corrections, which Stim's
+  single-record `rec[-N]` controls cannot express in-circuit — that is a decoder
+  concern (Stim `DETECTOR` / PyMatching), a follow-on. `compile_to_stim` refuses
+  multi-clause feedforward with a clear error.
+- `MR` (measure-and-reset) is not emitted — q-orca has no `reset` syntax yet, so
+  every measurement is `M`.
+- Wiring the sampler into `q-orca run` / `simulate`, a Clifford+T magic-state
+  extension, and Stim detector-error-model export are follow-ons.

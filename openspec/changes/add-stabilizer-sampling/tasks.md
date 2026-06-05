@@ -24,7 +24,7 @@
 
 ## 3. Aer-stabilizer target
 
-- [ ] 3.1 `compile_to_qiskit_stabilizer(machine) -> QuantumCircuit`: reuse
+- [x] 3.1 `compile_to_qiskit_stabilizer(machine) -> QuantumCircuit`: reuse
   `q_orca/compiler/qiskit.py`; run under `AerSimulator(method="stabilizer")`.
   Secondary engine / fallback when Stim is absent but qiskit-aer is present.
 
@@ -34,13 +34,15 @@
   dict (Stim `compile_sampler().sample(shots)`; seeded), plus a QuTiP-path
   counterpart for the parity comparison.
 
-## 5. Examples
+## 5. Examples — DEFERRED (see design D7)
 
-- [ ] 5.1 `examples/surface-code-3.q.orca.md`: distance-3 rotated surface code,
-  one stabilizer round (~17 physical qubits). Validate it parses, classifies
-  Clifford, and verifies on the shipped stim backend before adding sampling.
-- [ ] 5.2 `examples/bit-flip-repeated.q.orca.md`: three rounds of the 3-qubit
-  bit-flip code, each extracting a fresh syndrome with conditional corrections.
+QEC syndrome corrections are inherently multi-clause AND feedforward, which the
+sampling path refuses (it is a decoder concern, not in-circuit rec-control). So
+these examples would exercise only the already-shipped *verify* path, not this
+*sampling* path. Deferred to the decoder follow-on.
+
+- [ ] (DEFERRED → decoder follow-on) 5.1 `examples/surface-code-3.q.orca.md`.
+- [ ] (DEFERRED → decoder follow-on) 5.2 `examples/bit-flip-repeated.q.orca.md`.
 
 ## 6. Tests
 
@@ -57,9 +59,11 @@
   Marked slow (low-shot default in fast CI, full count opt-in) per design D6.
 - [x] 6.6 Distribution parity (feedforward): `active-teleportation` teleported
   distribution matches QuTiP within the bound — the gate on the `rec[-N]` mapping.
-- [ ] 6.7 The two new examples parse, verify (stim backend), and sample.
+- [x] 6.7 Multi-clause-feedforward boundary: `bit-flip-syndrome` (real QEC
+  syndrome decoding) raises the structured `single-clause` diagnostic — pinning
+  that multi-clause syndrome decoding is a decoder follow-on, not miscompiled.
 
 ## 7. Docs
 
-- [ ] 7.1 Extend `docs/language/stabilizer-backend.md` with a "Sampling" section
+- [x] 7.1 Extend `docs/language/stabilizer-backend.md` with a "Sampling" section
   (`compile_to_stim`, measurement/feedforward mapping, distribution parity).

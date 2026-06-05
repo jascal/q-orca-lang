@@ -160,6 +160,16 @@ class TestCompileToStim:
         with pytest.raises(StabilizerCompileError, match="Pauli"):
             compile_to_stim(machine)
 
+    def test_multiclause_syndrome_feedforward_refused(self):
+        # Real QEC syndrome decoding (e.g. bit-flip-syndrome) uses multi-clause
+        # AND feedforward, which Stim's single-record rec-controls cannot express
+        # in-circuit — it is a decoder concern (the deferred detector/PyMatching
+        # follow-on). compile_to_stim must refuse it clearly, not miscompile it.
+        from q_orca.compiler.stabilizer import compile_to_stim, StabilizerCompileError
+        machine = _machine("examples/bit-flip-syndrome.q.orca.md")
+        with pytest.raises(StabilizerCompileError, match="single-clause"):
+            compile_to_stim(machine)
+
 
 class TestStabilizerSamplingParity:
     """Sampled distributions match the expected (state-vector) distribution."""
@@ -190,6 +200,43 @@ class TestStabilizerSamplingParity:
         # records: b0, b1, then q2 → q2 is the last char of each 3-bit outcome.
         q2_ones = sum(c for k, c in counts.items() if k[-1] == "1")
         assert q2_ones == 0, f"teleported |0> recovered as 1 on {q2_ones} shots"
+
+
+class TestAerStabilizerTarget:
+    """The secondary Aer-stabilizer compilation target produces the same results."""
+
+    def setup_method(self):
+        pytest.importorskip("qiskit_aer")
+
+    def test_bell_distribution_under_aer(self):
+        from qiskit import ClassicalRegister
+        from qiskit_aer import AerSimulator
+        from q_orca.compiler.stabilizer import compile_to_qiskit_stabilizer
+        qc = compile_to_qiskit_stabilizer(_machine("examples/bell-entangler.q.orca.md"))
+        creg = ClassicalRegister(2, "out")
+        qc.add_register(creg)
+        qc.measure([0, 1], creg)
+        counts = AerSimulator(method="stabilizer").run(qc, shots=10000, seed_simulator=7).result().get_counts()
+        # Multi-register key "out orig"; the `out` register is the first field.
+        norm: dict[str, int] = {}
+        for k, v in counts.items():
+            norm[k.split(" ")[0]] = norm.get(k.split(" ")[0], 0) + v
+        assert set(norm) <= {"00", "11"}, f"unexpected: {set(norm)}"
+        for key in ("00", "11"):
+            assert abs(norm.get(key, 0) / 10000 - 0.5) < 0.03
+
+    def test_teleportation_feedforward_under_aer(self):
+        from qiskit import ClassicalRegister
+        from qiskit_aer import AerSimulator
+        from q_orca.compiler.stabilizer import compile_to_qiskit_stabilizer
+        qc = compile_to_qiskit_stabilizer(_machine("examples/active-teleportation.q.orca.md"))
+        out = ClassicalRegister(1, "q2out")
+        qc.add_register(out)
+        qc.measure(2, out[0])
+        counts = AerSimulator(method="stabilizer").run(qc, shots=8000, seed_simulator=7).result().get_counts()
+        # q2out is the leftmost (most-significant) register in qiskit's key.
+        q2_ones = sum(v for k, v in counts.items() if k.split(" ")[0] == "1")
+        assert q2_ones == 0  # teleported |0> recovered exactly
 
 
 class TestStabilizerEntanglement:
