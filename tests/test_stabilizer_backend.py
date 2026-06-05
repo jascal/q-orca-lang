@@ -23,6 +23,22 @@ def _gd(name, targets, controls=None, theta=None):
     return {"name": name, "targets": targets, "controls": controls or [], "params": params}
 
 
+def _machine_with_effect(effect: str, n: int = 3):
+    """A minimal 1-action machine whose single action runs `effect`."""
+    qubits = ", ".join(f"q{i}" for i in range(n))
+    src = (
+        "# machine M\n\n## context\n| Field | Type | Default |\n|---|---|---|\n"
+        f"| qubits | list<qubit> | [{qubits}] |\n\n"
+        "## states\n## state |0> [initial]\n## state |done> [final]\n\n"
+        "## events\n- go\n\n"
+        "## transitions\n| Source | Event | Guard | Target | Action |\n|---|---|---|---|---|\n"
+        "| |0> | go | | |done> | act |\n\n"
+        "## actions\n| Name | Signature | Effect |\n|---|---|---|\n"
+        f"| act | (qs) -> qs | {effect} |\n"
+    )
+    return parse_q_orca_markdown(src).file.machines[0]
+
+
 class TestCliffordAngle:
     @pytest.mark.parametrize("k", [0, 1, 2, 3, 4, -1, -2])
     def test_half_pi_multiples_are_clifford(self, k):
@@ -36,6 +52,34 @@ class TestCliffordAngle:
         # pi/4 + pi/4 reaches us as the float sum (the parser pre-evaluates),
         # so a genuine pi/2 is still recognized.
         assert is_clifford_angle(math.pi / 4 + math.pi / 4)
+
+    def test_large_multiple_recognized(self):
+        # pi/2 + 2*pi == 5*(pi/2) — a Clifford multiple beyond [0, 2pi).
+        assert is_clifford_angle(math.pi / 2 + 2 * math.pi)
+        assert is_clifford_angle(-3 * math.pi / 2)
+
+
+class TestCliffordClassifierGates:
+    """Per-gate classification on minimal constructed machines."""
+
+    @pytest.mark.parametrize("effect", [
+        "H(qs[0]); CNOT(qs[0], qs[1])",
+        "S(qs[0]); CZ(qs[0], qs[1]); SWAP(qs[1], qs[2])",
+        "Rz(qs[0], pi/2); Rx(qs[1], pi)",          # pi/2 multiples
+    ])
+    def test_clifford_effects(self, effect):
+        ok, offenders = is_clifford(_machine_with_effect(effect))
+        assert ok, offenders
+
+    @pytest.mark.parametrize("effect,kind", [
+        ("T(qs[0])", "T"),
+        ("CCNOT(qs[0], qs[1], qs[2])", "CCNOT"),
+        ("Rz(qs[0], pi/4)", "Rz"),                 # non-pi/2 multiple
+    ])
+    def test_non_clifford_effects(self, effect, kind):
+        ok, offenders = is_clifford(_machine_with_effect(effect))
+        assert not ok
+        assert kind in {o["kind"] for o in offenders}
 
 
 class TestCliffordClassifier:
@@ -152,6 +196,25 @@ class TestBackendResolution:
         result = verify(machine, VerifyOptions(backend="stabilizer"))
         assert not result.valid
         assert any(e.code == "NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND" for e in result.errors)
+
+    def test_force_error_names_gate_and_location(self):
+        machine = _machine_with_effect("T(qs[0])")
+        _, errors = self._resolve(machine, "stim")
+        err = next(e for e in errors if e.code == "NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND")
+        assert "T" in err.message
+        assert "act" in err.message  # the offending action is named in the message
+        assert err.location  # structured location is populated too
+
+    def test_qec_example_routes_to_stim(self):
+        # The doc claims bit-flip-syndrome (a 5-qubit QEC machine) routes to the
+        # fast path under auto — confirm it resolves to stim and verifies clean.
+        pytest.importorskip("stim")
+        from q_orca.verifier import verify, VerifyOptions
+        machine = _machine("examples/bit-flip-syndrome.q.orca.md")
+        resolved, _ = self._resolve(machine, "auto")
+        assert resolved == "stim"
+        result = verify(machine, VerifyOptions(backend="stim"))
+        assert result.valid
 
 
 class TestAssertionPolicyStabilizerFallback:

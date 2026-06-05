@@ -177,14 +177,15 @@ def _resolve_dynamic_backend(machine: QMachineDef, requested: str, out_errors: l
         if is_cliff:
             return "stim"
         first = offenders[0]
+        where = _format_gate_location(first["location"])
         policy = getattr(machine, "assertion_policy", None)
         fallback = getattr(policy, "stabilizer_fallback", "error")
         if fallback == "state-vector":
             out_errors.append(QVerificationError(
                 code="NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND",
                 message=(
-                    f"Gate '{first['kind']}' is not Clifford; falling back to the "
-                    f"state-vector backend (stabilizer_fallback: state-vector)"
+                    f"Gate '{first['kind']}'{where} is not Clifford; falling back to "
+                    f"the state-vector backend (stabilizer_fallback: state-vector)"
                 ),
                 severity="warning",
                 location=first["location"],
@@ -193,8 +194,8 @@ def _resolve_dynamic_backend(machine: QMachineDef, requested: str, out_errors: l
         out_errors.append(QVerificationError(
             code="NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND",
             message=(
-                f"Gate '{first['kind']}' is not Clifford; the stabilizer backend "
-                f"supports only Clifford circuits"
+                f"Gate '{first['kind']}'{where} is not Clifford; the stabilizer "
+                f"backend supports only Clifford circuits"
             ),
             severity="error",
             location=first["location"],
@@ -206,6 +207,20 @@ def _resolve_dynamic_backend(machine: QMachineDef, requested: str, out_errors: l
         return None  # fatal — skip simulation
 
     return effective  # qutip / cuquantum / cudaq, unchanged
+
+
+def _format_gate_location(location: dict) -> str:
+    """Render a classifier offender location as a readable suffix for an error
+    message, e.g. " in action 'apply_t'" or
+    " at call site cost_layer(0.5) on transition |a| --e--> |b|"."""
+    if not location:
+        return ""
+    if location.get("transition"):
+        call = location.get("call") or location.get("action") or "?"
+        return f" at call site {call} on transition {location['transition']}"
+    if location.get("action"):
+        return f" in action '{location['action']}'"
+    return ""
 
 
 def _run_dynamic_backend(machine: QMachineDef, backend_name: str):

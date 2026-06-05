@@ -641,16 +641,22 @@ def dynamic_verify_stabilizer(machine: QMachineDef) -> QVerificationResult:
     if not STIM_AVAILABLE:
         return dynamic_verify(machine)
 
-    qubit_count = _infer_qubit_count(machine)
-    err_msg, gate_sequence = _build_gate_sequence(machine, qubit_count)
-    if err_msg:
-        return QVerificationResult(valid=True, errors=[])
+    try:
+        qubit_count = _infer_qubit_count(machine)
+        err_msg, gate_sequence = _build_gate_sequence(machine, qubit_count)
+        if err_msg:
+            return QVerificationResult(valid=True, errors=[])
 
-    all_gates = [g for gates in gate_sequence for g in gates]
+        all_gates = [g for gates in gate_sequence for g in gates]
 
-    errors: list[QVerificationError] = []
-    errors.extend(_check_entanglement_for_states(machine, all_gates, qubit_count, engine="stabilizer"))
-    errors.extend(_check_collapse_completeness(machine))
+        errors: list[QVerificationError] = []
+        errors.extend(_check_entanglement_for_states(machine, all_gates, qubit_count, engine="stabilizer"))
+        errors.extend(_check_collapse_completeness(machine))
+    except Exception:
+        # Defensive: an unexpected tableau/Stim error must never crash
+        # verification. Fall back to the state-vector path (the machine is
+        # Clifford-classified upstream, so this should not normally fire).
+        return dynamic_verify(machine)
 
     return QVerificationResult(
         valid=not any(e.severity == "error" for e in errors),
