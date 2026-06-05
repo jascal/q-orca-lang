@@ -41,6 +41,29 @@ correction references the record of the bit it names.
 - **THEN** the emitted Stim circuit applies a `CZ rec[-2] 2` instruction (the
   record of `bits[0]`, not the most recent record)
 
+### Requirement: Stabilizer Compilation Diagnostics
+
+`compile_to_stim` SHALL fail fast with a clear, structured error rather than
+emit a silently-wrong circuit when given a construct it cannot represent: a
+non-Clifford gate (it MUST reuse the `is_clifford` classifier and refuse a
+non-Clifford machine before emitting), a feedforward correction whose gate is
+not a Pauli (`X`/`Y`/`Z`), or a feedforward condition that is not the supported
+`bits[j] == 0|1` form. Each error SHALL name the offending construct and its
+source location.
+
+#### Scenario: Non-Clifford machine refused before emission
+
+- **WHEN** `compile_to_stim` is given a machine containing a `T` gate
+- **THEN** it raises a structured error naming the non-Clifford gate, and emits
+  no circuit
+
+#### Scenario: Non-Pauli feedforward correction refused
+
+- **WHEN** a feedforward effect applies a non-Pauli correction (e.g.
+  `if bits[0] == 1: H(qs[2])`)
+- **THEN** `compile_to_stim` raises a structured error naming the unsupported
+  correction gate
+
 ### Requirement: Stabilizer Sampling Distribution Equivalence
 
 The Stim-sampled measurement-outcome distribution of a Clifford machine SHALL

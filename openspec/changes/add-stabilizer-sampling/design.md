@@ -42,11 +42,16 @@ shared helper emitting onto a `stim.Circuit` instead, so the sampling circuit an
 the verification tableau apply identical gates.
 
 ### D2 — Measurement: `MR` vs `M`
-`measure(qs[i]) -> bits[j]` emits `M i`, or `MR i` (measure-and-reset) when a
-`reset(qs[i])` effect follows on the same qubit in the action stream (the
-research sketch's rule). Each emitted measurement appends a record; the compiler
-maintains a `bit_index -> measurement_record_position` map so feedforward can
-resolve `bits[j]` to the right record.
+`measure(qs[i]) -> bits[j]` emits `M i`, or `MR i` (measure-and-reset) when an
+*unconditional* `reset(qs[i])` effect follows on the same qubit in the action
+stream (the research sketch's rule). Each emitted measurement appends a record;
+the compiler maintains a `bit_index -> measurement_record_position` map so
+feedforward can resolve `bits[j]` to the right record. **Edge cases:** a
+*conditional* reset (`if …: reset(qs[i])`) or a reset separated from its
+measurement by other operations on `qs[i]` does NOT collapse to `MR` — v1 emits
+`M` and, if a later reset is required, treats it as out of scope and raises a
+diagnostic rather than guessing. This keeps the heuristic to the unambiguous
+immediate-follow case; broader reset control flow is a follow-on.
 
 ### D3 — Feedforward via `rec[-N]` (the risk)
 `if bits[j] == 1: X(qs[k])` compiles to Stim's measurement-record-controlled
@@ -56,7 +61,22 @@ references measurements by **relative** offset from the end of the record
 position of `bits[j]` to the relative `rec[-(total_records - pos)]` at the point
 the correction is emitted. This off-by-one-prone conversion is the single
 highest-risk piece; D5's parity test on `active-teleportation` (which feeds two
-distinct measured bits forward to two different corrections) is the gate.
+distinct measured bits forward to two different corrections) is the gate. Worked
+example — teleportation's `meas q0 (b0); meas q1 (b1); if b1: X(q2); if b0: Z(q2)`:
+
+```
+H 1
+CX 1 2          # Bell pair on q1, q2
+CX 0 1
+H 0
+M 0             # record 0  (b0)
+M 1             # record 1  (b1)
+CX rec[-1] 2    # if b1 == 1: X(q2)  — b1 is the most recent record
+CZ rec[-2] 2    # if b0 == 1: Z(q2)  — b0 is one record back
+```
+
+The `rec[-2]` for `b0` (not `rec[-1]`) is exactly the indexing the parity test
+pins.
 
 ### D4 — Aer-stabilizer as a secondary target
 `compile_to_qiskit_stabilizer(machine) -> QuantumCircuit` reuses the existing
@@ -88,10 +108,15 @@ Additive. `compile_to_stim` is a new entry point; nothing existing calls it. The
 two examples are new files. No change to the shipped verify path. Rollback =
 revert.
 
+### D6 — Parity test cost in CI
+The `shots=10000` parity tests are seeded and marked slow (a `pytest` marker, or
+parametrised with a low-shot default and a `--slow` opt-in to the full count) so
+the default CI run stays fast while the full-shot parity still runs on demand /
+nightly. Stim sampling of 10k shots is sub-millisecond, so the cost is the QuTiP
+counterpart, not Stim.
+
 ## Open Questions
 1. Wiring the stabilizer sampler into `q-orca run` / `simulate` (Open Q2 from
    `add-stabilizer-backend`) — its own follow-on once `compile_to_stim` lands.
-2. Whether the distribution-parity belongs in CI at `shots=10000` every run or
-   behind a slow-test marker (lean: seeded + marker).
-3. Stim detector-error-model export (`DETECTOR`/`OBSERVABLE_INCLUDE`) for decoder
+2. Stim detector-error-model export (`DETECTOR`/`OBSERVABLE_INCLUDE`) for decoder
    benchmarking — deferred; `compile_to_stim` lays the groundwork.

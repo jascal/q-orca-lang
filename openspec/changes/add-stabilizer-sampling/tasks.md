@@ -16,6 +16,10 @@
 - [ ] 2.3 Feedforward: `if bits[j] == 1: X(qs[k])` → `CX rec[-N] k`,
   `… Z(qs[k])` → `CZ rec[-N] k`, converting `bits[j]`'s absolute record position
   to the relative `rec[-N]` at emit time. **Highest-risk step** — see design D3.
+- [ ] 2.4 Diagnostics: fail fast with a structured, located error on an
+  unsupported construct — a non-Clifford machine (reuse `is_clifford` before
+  emitting), a non-Pauli feedforward correction, or an unsupported feedforward
+  condition / conditional-or-non-local reset — rather than emit a wrong circuit.
 
 ## 3. Aer-stabilizer target
 
@@ -42,13 +46,17 @@
 - [ ] 6.1 `compile_to_stim` gate mapping: H/CNOT/CZ/SWAP/S and π/2 rotations emit
   the expected Stim instructions.
 - [ ] 6.2 Measurement mapping: measure→`M`; measure-then-reset→`MR`.
-- [ ] 6.3 Feedforward record indexing: `bits[0]` (measured first) drives
-  `rec[-2]` when a later bit was measured after it; assert the exact `rec[-N]`.
-- [ ] 6.4 Distribution parity (terminal): Bell + GHZ Stim sample counts match the
+- [ ] 6.3 Feedforward record indexing: assert the exact emitted instructions for
+  teleportation — `b1` → `CX rec[-1] 2`, `b0` → `CZ rec[-2] 2` (the worked
+  example in design D3) — so a swapped/mis-indexed record is caught directly.
+- [ ] 6.4 Diagnostics: non-Clifford machine, non-Pauli feedforward correction,
+  and conditional/non-local reset each raise the structured located error (2.4).
+- [ ] 6.5 Distribution parity (terminal): Bell + GHZ Stim sample counts match the
   QuTiP distribution within a Wilson-score bound at `shots=10000`, seeded.
-- [ ] 6.5 Distribution parity (feedforward): `active-teleportation` teleported
+  Marked slow (low-shot default in fast CI, full count opt-in) per design D6.
+- [ ] 6.6 Distribution parity (feedforward): `active-teleportation` teleported
   distribution matches QuTiP within the bound — the gate on the `rec[-N]` mapping.
-- [ ] 6.6 The two new examples parse, verify (stim backend), and sample.
+- [ ] 6.7 The two new examples parse, verify (stim backend), and sample.
 
 ## 7. Docs
 
