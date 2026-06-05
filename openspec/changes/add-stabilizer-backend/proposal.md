@@ -23,14 +23,12 @@ from 64 to 10 000 free instead of minutes-per-commit.
   `{0, π/2, π, 3π/2}` (reusing `q_orca/angle.py`), returning the offending
   gates otherwise.
 - Add a **stabilizer verification backend** implementing the shipped
-  `BackendAdapter` protocol — registered as `stim` (preferred, wrapping
-  [Stim](https://github.com/quantumlib/Stim)) with `stabilizer` as an alias
-  that prefers Stim, falls back to `AerSimulator(method="stabilizer")`, then to
-  state-vector with a warning. It runs Stage 4b (reachability-by-simulation,
-  sampling-based state assertions, backend-agnostic invariants) by sampling a
-  stabilizer tableau instead of a state vector. Guidance: prefer `backend: stim`
-  for best performance; `backend: stabilizer` is the stable alias that resolves
-  Stim → Aer-stabilizer → state-vector.
+  `BackendAdapter` protocol — registered as `stim`, wrapping
+  [Stim](https://github.com/quantumlib/Stim). It runs Stage 4b by reading the
+  entanglement check from a stabilizer tableau instead of evolving a state
+  vector (see below). Guidance: prefer `backend: stim`; `backend: stabilizer`
+  is the stable alias (resolves Stim → state-vector in v1; the
+  `AerSimulator(method="stabilizer")` engine is a deferred follow-on).
 - Make backend selection **Clifford-aware**: under the default `backend: auto`
   (the `## assertion policy` field and the `--backend` CLI flag already exist),
   a Clifford machine routes to the stabilizer backend and a non-Clifford one to
@@ -41,9 +39,12 @@ from 64 to 10 000 free instead of minutes-per-commit.
   `NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND` (offending gate + source location),
   fatal unless `stabilizer_fallback: state-vector` is declared, in which case a
   warning is emitted and the state-vector path is used.
-- **Invariant fallback**: state-vector-only invariants (`fidelity(…)`,
-  `schmidt_rank(…)`) cannot be evaluated on a stabilizer tableau and emit
-  `INVARIANT_REQUIRES_STATEVECTOR` when attempted under the stabilizer backend.
+- **Entanglement on the tableau**: the `O(2ⁿ)` cost in `dynamic_verify` is its
+  entanglement check (von Neumann entropy + Schmidt rank). The stabilizer backend
+  computes these directly from the stabilizer check matrix (Fattal et al.), so
+  `entanglement` / `schmidt_rank(…)` invariants are verified natively — not
+  refused. (No state-vector-only invariant exists in the v1 grammar; a
+  `fidelity(…)`-style restriction is deferred to when those invariants ship.)
 - Add `examples/surface-code-3.q.orca.md` (one round of distance-3 rotated
   surface code, 17 physical qubits — intractable for state-vector) and
   `examples/bit-flip-repeated.q.orca.md` (three syndrome rounds).
@@ -62,8 +63,9 @@ fall through to the existing QuTiP/cuQuantum/CUDA-Q backends unchanged. The
   (machine → Stim / Aer-stabilizer circuit), plus the
   `NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND` diagnostic the classifier owns.
 - `verifier`: Stage 4b dynamic verification becomes backend-dispatched; Clifford
-  machines verify on the stabilizer simulator; state-vector-only invariants emit
-  `INVARIANT_REQUIRES_STATEVECTOR` under the stabilizer backend.
+  machines verify on the stabilizer simulator, with entanglement entropy / Schmidt
+  rank computed from the stabilizer tableau (Fattal et al.) rather than a state
+  vector.
 - `language`: the backend-selection surface (`## assertion policy` `backend`
   field + `--backend`) accepts `stabilizer` / `stim`, the `auto` default
   performs Clifford auto-detection, and an optional `stabilizer_fallback` key
@@ -75,7 +77,8 @@ fall through to the existing QuTiP/cuQuantum/CUDA-Q backends unchanged. The
   `q_orca/backends/stim_backend.py` + `q_orca/backends/qiskit_stabilizer_backend.py`
   (registered in `backends/__init__.py` and `registry.py`); backend dispatch in
   `q_orca/verifier/dynamic.py` and the `verify`/`run` paths of `q_orca/cli.py`;
-  two error codes in `q_orca/verifier/types.py`.
+  the `NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND` diagnostic; a stabilizer
+  entanglement-entropy helper in `q_orca/verifier/`.
 - New optional dependency: `stim` (and the `AerSimulator(method="stabilizer")`
   method from the already-used `qiskit-aer`) behind an extras group, detected at
   module load like the other backends — absence degrades to state-vector. The

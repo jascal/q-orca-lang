@@ -1,6 +1,20 @@
 # Feature: Stabilizer (Clifford) Fast-Path Backend
 
 > Generated: 2026-04-24 — weekly feature spec session
+> **Status: DELIVERED (verify path)** — promoted via OpenSpec change
+> `add-stabilizer-backend` (spec PR #120). The verification fast path shipped;
+> it diverges from this pre-build sketch in three ways, all because this draft
+> predates the execution-backends framework and the shipped verifier internals:
+> (1) backends implement `verify() -> QVerificationResult`, not
+> `run() -> MeasurementResults`, so the fast path is a Stage-4b *verification*
+> backend; (2) backend selection reuses the shipped `## assertion policy`
+> `backend` field + `--backend`, not a new `## execution` section; (3) the
+> `O(2ⁿ)` cost is `dynamic_verify`'s entanglement check, so the fast path
+> computes entanglement entropy / Schmidt rank from the stabilizer tableau
+> (Fattal et al.) rather than refusing it. Deferred to follow-ons: the
+> `compile_to_stim` *sampling* path + Aer-stabilizer engine + `q-orca run`
+> acceleration, the Clifford+T magic-state extension, and detector-error-model
+> export.
 
 ---
 

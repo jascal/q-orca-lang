@@ -31,10 +31,17 @@ backend-selection surfaces.
   for free.
 
 **Non-Goals (v1):**
+- The **sampling sub-feature** — `compile_to_stim` (a stim `Circuit` with
+  measurements for shot-based distribution checks), the
+  `AerSimulator(method="stabilizer")` engine, and the authored surface-code /
+  repeated-bit-flip examples. v1's `verify()` reads entanglement from the
+  tableau directly (D8) and never samples, so this path is unused by it; the
+  intractability win is demonstrated by a 30-qubit-GHZ stim test instead.
+  Deferred to a follow-on (which is also where the feedforward `rec[-1]`
+  compilation care points live).
 - `backend: stabilizer+magic` (Clifford+T magic-state branching) — Open Q1.
 - Accelerating the `q-orca run` iterative simulate path — v1 targets the Stage
-  4b verification + assertion-sampling path (the `BackendAdapter` contract).
-  Open Q2.
+  4b verification path (the `BackendAdapter` contract). Open Q2.
 - Stim detector-error-model / decoder (PyMatching) emission — Open Q3.
 - A new `## execution` section — reusing `## assertion policy` instead (D1).
 
@@ -85,13 +92,32 @@ falls back to state-vector via the existing `BackendRegistry.get_with_fallback`.
   warning and uses the state-vector path.
 - `backend: state-vector` forced → never auto-routes (escape hatch).
 
-### D6 — Invariant fallback
+### D6 — Invariants under the stabilizer backend (all v1 forms are tableau-computable)
 Sampling-based state-assertion categories (`classical`/`superposition`/
-`entangled`/`separable`) are evaluated natively from tableau samples.
-State-vector-only invariant forms — `fidelity(|ψ>, …)` and `schmidt_rank(…)` —
-have no tableau analogue; attempting them under the stabilizer backend emits
-`INVARIANT_REQUIRES_STATEVECTOR` (error) naming the invariant, so the user
-either drops the invariant or forces `backend: state-vector`.
+`entangled`/`separable`) are evaluated natively from tableau samples, and
+entanglement / `schmidt_rank(…)` invariants are computed natively (D8). The
+current `## invariants` grammar (`ast.Invariant`) supports only `entanglement`,
+`schmidt_rank`, and `resource` — **all tableau-computable**. The only form that
+would need a state vector is `fidelity(|ψ>, target)` against a non-stabilizer
+target, and the grammar does not express fidelity invariants yet (roadmap §4.6,
+unshipped). So v1 ships **no** `INVARIANT_REQUIRES_STATEVECTOR` path — it is
+deferred to the change that adds fidelity invariants. (Two earlier drafts
+refused `schmidt_rank`/`fidelity`; both corrected after reading `dynamic_verify`
+and `ast.Invariant`.)
+
+### D8 — Stabilizer entanglement entropy / Schmidt rank
+The `O(2^n)` cost in `dynamic_verify` is the entanglement check
+(`_check_dynamic_entanglement`): it evolves a QuTiP state vector and computes
+von Neumann entropy + Schmidt rank across the declared bipartitions. The
+stabilizer backend computes these directly from the tableau: for a stabilizer
+state, the entanglement entropy across a bipartition `A` is
+`S_A = rank_GF2(M_A) − |A|` where `M_A` is the restriction of the stabilizer
+check matrix to `A`'s columns (Fattal et al., quant-ph/0406168), and the Schmidt
+rank is `2^{S_A}`. A new helper `q_orca/verifier/stabilizer_entanglement.py`
+implements the GF(2) rank; the stabilizer backend's `verify()` reuses the same
+`_check_dynamic_entanglement` control flow but swaps the statevector evolution
+for this tableau computation. A test pins Bell/GHZ Schmidt ranks equal across
+the stabilizer and QuTiP paths.
 
 ### D7 — Compilation to Stim / Aer-stabilizer
 `compile_to_stim(machine) -> stim.Circuit` maps gates to Stim primitives
@@ -105,11 +131,13 @@ tolerance.
 
 ## Risks / Trade-offs
 - **Symbolic angle that *could* fold to a Clifford multiple but the evaluator
-  doesn't** (e.g. `π/4 + π/4` = `π/2`) → classifier conservatively returns
-  non-Clifford → state-vector (correct, just slower — never wrong). Mitigation:
-  reuse the shipped `angle.py` simplifier (handles `π/2` literals); a test pins
-  the known-folding cases so a regression is visible. Aggressive symbolic folding
-  is out of scope for v1.
+  doesn't** (e.g. `π/4 + π/4` = `π/2`) → classifier reads it as its float sum
+  and still recognizes genuine `π/2` multiples; a non-`π/2` value reads as
+  non-Clifford → state-vector (slower, not wrong). The classifier judges the
+  *resolved* gate set, exactly the gates every backend simulates: a rotation
+  whose angle references an undefined symbol is dropped by the shared effect
+  parser for **all** backends (QuTiP included), so classification never diverges
+  from what gets simulated. A test pins the `π/2`-multiple boundary.
 - **Stim/qiskit-aer absent in an environment** → `auto` silently uses
   state-vector; forced `stabilizer` falls back per registry with a warning.
   Mitigation: extras group + module-load detection mirrors the existing backends.

@@ -145,16 +145,99 @@ def _has_state_assertions_rule(machine: QMachineDef) -> bool:
     return any(r.kind == "state_assertions" for r in machine.verification_rules)
 
 
+def _resolve_dynamic_backend(machine: QMachineDef, requested: str, out_errors: list):
+    """Resolve the concrete Stage-4b backend name, applying Clifford routing.
+
+    Precedence: an explicit non-`auto` `requested` (CLI/config/opts) wins;
+    otherwise the machine's `## assertion policy` backend; otherwise `auto`.
+    `auto` routes a Clifford machine to `stim` when available, else `qutip`.
+    `state-vector` is an alias for `qutip`; `stabilizer`/`stim` force the
+    stabilizer path and, on a non-Clifford machine, append
+    `NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND` — fatal (returns None, skipping
+    simulation) unless the policy's `stabilizer_fallback` is `state-vector`,
+    which warns and returns `qutip`.
+    """
+    effective = requested or "auto"
+    if effective == "auto":
+        policy = getattr(machine, "assertion_policy", None)
+        effective = getattr(policy, "backend", "auto") or "auto"
+
+    if effective == "state-vector":
+        return "qutip"
+
+    if effective == "auto":
+        from q_orca.compiler.stabilizer import is_clifford
+        from q_orca.backends import stim_backend as _stim_mod
+        is_cliff, _ = is_clifford(machine)
+        return "stim" if (is_cliff and _stim_mod.AVAILABLE) else "qutip"
+
+    if effective in ("stabilizer", "stim"):
+        from q_orca.compiler.stabilizer import is_clifford
+        is_cliff, offenders = is_clifford(machine)
+        if is_cliff:
+            return "stim"
+        first = offenders[0]
+        where = _format_gate_location(first["location"])
+        policy = getattr(machine, "assertion_policy", None)
+        fallback = getattr(policy, "stabilizer_fallback", "error")
+        if fallback == "state-vector":
+            out_errors.append(QVerificationError(
+                code="NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND",
+                message=(
+                    f"Gate '{first['kind']}'{where} is not Clifford; falling back to "
+                    f"the state-vector backend (stabilizer_fallback: state-vector)"
+                ),
+                severity="warning",
+                location=first["location"],
+            ))
+            return "qutip"
+        out_errors.append(QVerificationError(
+            code="NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND",
+            message=(
+                f"Gate '{first['kind']}'{where} is not Clifford; the stabilizer "
+                f"backend supports only Clifford circuits"
+            ),
+            severity="error",
+            location=first["location"],
+            suggestion=(
+                "Use a Clifford-only circuit, choose backend: auto, or set "
+                "stabilizer_fallback: state-vector in `## assertion policy`"
+            ),
+        ))
+        return None  # fatal — skip simulation
+
+    return effective  # qutip / cuquantum / cudaq, unchanged
+
+
+def _format_gate_location(location: dict) -> str:
+    """Render a classifier offender location as a readable suffix for an error
+    message, e.g. " in action 'apply_t'" or
+    " at call site cost_layer(0.5) on transition |a| --e--> |b|"."""
+    if not location:
+        return ""
+    if location.get("transition"):
+        call = location.get("call") or location.get("action") or "?"
+        return f" at call site {call} on transition {location['transition']}"
+    if location.get("action"):
+        return f" in action '{location['action']}'"
+    return ""
+
+
 def _run_dynamic_backend(machine: QMachineDef, backend_name: str):
-    """Dispatch Stage 4b to the named backend, falling back to QuTiP on unavailability.
+    """Dispatch Stage 4b to the resolved backend, falling back to QuTiP on unavailability.
 
     Returns (errors: list[QVerificationError], backend_result_or_None).
     Emits a BACKEND_UNAVAILABLE warning when a fallback occurs.
     """
     from q_orca.backends import BackendRegistry, BackendUnavailableError
 
+    pre_errors: list[QVerificationError] = []
+    resolved = _resolve_dynamic_backend(machine, backend_name, pre_errors)
+    if resolved is None:
+        return pre_errors, None  # fatal non-Clifford force — no simulation
+
     try:
-        adapter, fell_back = BackendRegistry.get_with_fallback(backend_name)
+        adapter, fell_back = BackendRegistry.get_with_fallback(resolved)
     except BackendUnavailableError as exc:
         # No backend at all — degrade gracefully (same as skip_dynamic)
         warn = QVerificationError(
@@ -162,16 +245,16 @@ def _run_dynamic_backend(machine: QMachineDef, backend_name: str):
             message=str(exc),
             severity="warning",
         )
-        return [warn], None
+        return pre_errors + [warn], None
 
     result, backend_result = adapter.verify(machine)
 
-    errors: list[QVerificationError] = list(result.errors)
+    errors: list[QVerificationError] = pre_errors + list(result.errors)
     if fell_back:
         errors.insert(0, QVerificationError(
             code="BACKEND_UNAVAILABLE",
             message=(
-                f"Backend '{backend_name}' is not available; "
+                f"Backend '{resolved}' is not available; "
                 f"fell back to '{adapter.name}'"
             ),
             severity="warning",

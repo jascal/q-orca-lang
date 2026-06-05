@@ -5,11 +5,13 @@ from q_orca.backends.registry import BackendRegistry
 from q_orca.backends.qutip_backend import qutip_backend
 from q_orca.backends.cuquantum_backend import cuquantum_backend
 from q_orca.backends.cudaq_backend import cudaq_backend
+from q_orca.backends.stim_backend import stim_backend
 
 # Register all adapters; QuTiP is the fallback
 BackendRegistry.register(qutip_backend, fallback=True)
 BackendRegistry.register(cuquantum_backend)
 BackendRegistry.register(cudaq_backend)
+BackendRegistry.register(stim_backend)
 
 __all__ = [
     "BackendAdapter",
