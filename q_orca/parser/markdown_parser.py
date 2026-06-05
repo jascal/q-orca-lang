@@ -1584,12 +1584,18 @@ def _parse_assertion_policy_table(
             policy.on_failure = value.lower()
         elif setting == "backend":
             policy.backend = value
+        elif setting == "stabilizer_fallback":
+            if value.lower() not in ("error", "state-vector"):
+                _policy_value_error(errors, setting, value, "'error' or 'state-vector'")
+                continue
+            policy.stabilizer_fallback = value.lower()
         else:
             if errors is not None:
                 errors.append(
                     f"unknown_assertion_policy_setting: '{setting}' is not a "
                     f"recognized assertion-policy setting (expected one of "
-                    f"shots_per_assert, confidence, on_failure, backend)"
+                    f"shots_per_assert, confidence, on_failure, backend, "
+                    f"stabilizer_fallback)"
                 )
 
     return policy

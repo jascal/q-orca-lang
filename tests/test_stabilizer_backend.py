@@ -100,3 +100,140 @@ class TestStabilizerEntanglement:
         assert _gf2_rank([[1, 0], [0, 1]]) == 2
         assert _gf2_rank([[1, 1], [1, 1]]) == 1   # rows identical over GF(2)
         assert _gf2_rank([[0, 0], [0, 0]]) == 0
+
+
+class TestBackendResolution:
+    """Auto-routing + force/refuse in the Stage-4b dispatcher."""
+
+    def _resolve(self, machine, requested):
+        from q_orca.verifier import _resolve_dynamic_backend
+        errors = []
+        resolved = _resolve_dynamic_backend(machine, requested, errors)
+        return resolved, errors
+
+    def test_auto_routes_clifford_to_stim(self):
+        pytest.importorskip("stim")
+        resolved, errors = self._resolve(_machine("examples/bell-entangler.q.orca.md"), "auto")
+        assert resolved == "stim"
+        assert errors == []
+
+    def test_auto_routes_non_clifford_to_qutip(self):
+        resolved, errors = self._resolve(_machine("examples/qaoa-maxcut.q.orca.md"), "auto")
+        assert resolved == "qutip"
+        assert errors == []
+
+    def test_state_vector_alias_maps_to_qutip(self):
+        resolved, _ = self._resolve(_machine("examples/bell-entangler.q.orca.md"), "state-vector")
+        assert resolved == "qutip"
+
+    def test_force_stabilizer_on_non_clifford_is_fatal(self):
+        machine = _machine("examples/qaoa-maxcut.q.orca.md")
+        resolved, errors = self._resolve(machine, "stabilizer")
+        assert resolved is None  # fatal — simulation skipped
+        codes = [(e.code, e.severity) for e in errors]
+        assert ("NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND", "error") in codes
+
+    def test_force_stabilizer_with_fallback_warns_and_uses_qutip(self):
+        machine = _machine("examples/qaoa-maxcut.q.orca.md")
+        machine.assertion_policy.stabilizer_fallback = "state-vector"
+        resolved, errors = self._resolve(machine, "stabilizer")
+        assert resolved == "qutip"
+        codes = [(e.code, e.severity) for e in errors]
+        assert ("NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND", "warning") in codes
+
+    def test_explicit_qutip_unchanged(self):
+        resolved, errors = self._resolve(_machine("examples/bell-entangler.q.orca.md"), "qutip")
+        assert resolved == "qutip"
+        assert errors == []
+
+    def test_end_to_end_force_error(self):
+        from q_orca.verifier import verify, VerifyOptions
+        machine = _machine("examples/qaoa-maxcut.q.orca.md")
+        result = verify(machine, VerifyOptions(backend="stabilizer"))
+        assert not result.valid
+        assert any(e.code == "NON_CLIFFORD_GATE_IN_STABILIZER_BACKEND" for e in result.errors)
+
+
+class TestAssertionPolicyStabilizerFallback:
+    """Parser support for the `stabilizer_fallback` assertion-policy key."""
+
+    def _parse_policy(self, value):
+        from q_orca.parser.markdown_parser import parse_q_orca_markdown
+        src = (
+            "# machine M\n\n## context\n| Field | Type | Default |\n"
+            "|---|---|---|\n| qubits | list<qubit> | [q0] |\n\n"
+            "## states\n## state |0> [initial]\n\n## events\n- e\n\n"
+            "## assertion policy\n| Setting | Value |\n|---|---|\n"
+            f"| stabilizer_fallback | {value} |\n"
+        )
+        return parse_q_orca_markdown(src)
+
+    def test_valid_state_vector(self):
+        res = self._parse_policy("state-vector")
+        assert res.file.machines[0].assertion_policy.stabilizer_fallback == "state-vector"
+
+    def test_default_is_error(self):
+        from q_orca.ast import AssertionPolicy
+        assert AssertionPolicy().stabilizer_fallback == "error"
+
+    def test_invalid_value_errors(self):
+        res = self._parse_policy("qutip")
+        assert any("stabilizer_fallback" in e and "qutip" in e for e in res.errors)
+
+
+class TestSchmidtRankInvariantOnStabilizer:
+    def test_bell_schmidt_rank_invariant_on_stim(self):
+        pytest.importorskip("stim")
+        from q_orca.verifier import verify, VerifyOptions
+        machine = _machine("examples/bell-entangler.q.orca.md")
+        result = verify(machine, VerifyOptions(backend="stim"))
+        # No DYNAMIC_NO_ENTANGLEMENT — the Bell state's entanglement is confirmed
+        # on the tableau, same verdict as the state-vector path.
+        assert not any(e.code == "DYNAMIC_NO_ENTANGLEMENT" for e in result.errors)
+
+
+class TestAutoFallbackWhenStimAbsent:
+    def test_auto_clifford_falls_back_to_qutip_without_stim(self, monkeypatch):
+        # With stim unavailable, `auto` must not pick stim — it routes a Clifford
+        # machine to the state-vector backend instead (no error, no warning).
+        import q_orca.backends.stim_backend as sb
+        monkeypatch.setattr(sb, "AVAILABLE", False)
+        from q_orca.verifier import _resolve_dynamic_backend
+        errors = []
+        resolved = _resolve_dynamic_backend(_machine("examples/bell-entangler.q.orca.md"), "auto", errors)
+        assert resolved == "qutip"
+        assert errors == []
+
+
+class TestLargeCliffordIntractableForStatevector:
+    """The headline win: a Clifford machine well past the state-vector wall
+    verifies on the stabilizer tableau in well under a second."""
+
+    def _ghz_machine(self, n: int):
+        qubits = ", ".join(f"q{i}" for i in range(n))
+        cnots = "; ".join(f"CNOT(qs[{i}], qs[{i + 1}])" for i in range(n - 1))
+        src = (
+            "# machine GHZWide\n\n## context\n| Field | Type | Default |\n|---|---|---|\n"
+            f"| qubits | list<qubit> | [{qubits}] |\n\n"
+            "## states\n## state |0> [initial]\n## state |ghz> [final]\n> GHZ entangled state\n\n"
+            "## events\n- prepare\n\n"
+            "## transitions\n| Source | Event | Guard | Target | Action |\n|---|---|---|---|---|\n"
+            "| |0> | prepare | | |ghz> | build |\n\n"
+            "## actions\n| Name | Signature | Effect |\n|---|---|---|\n"
+            f"| build | (qs) -> qs | H(qs[0]); {cnots} |\n\n"
+            "## verification rules\n- entanglement\n"
+        )
+        return parse_q_orca_markdown(src).file.machines[0]
+
+    def test_30_qubit_ghz_verifies_on_stim(self):
+        pytest.importorskip("stim")
+        from q_orca.compiler.stabilizer import is_clifford
+        from q_orca.verifier.dynamic import dynamic_verify_stabilizer
+
+        machine = self._ghz_machine(30)  # 2**30 statevector — far past the wall
+        ok, offenders = is_clifford(machine)
+        assert ok, offenders
+        result = dynamic_verify_stabilizer(machine)
+        # Entanglement confirmed (GHZ q0 is entangled with the rest), no failure.
+        assert not any(e.code == "DYNAMIC_NO_ENTANGLEMENT" for e in result.errors)
+        assert result.valid

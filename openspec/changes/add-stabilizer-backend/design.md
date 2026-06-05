@@ -31,10 +31,17 @@ backend-selection surfaces.
   for free.
 
 **Non-Goals (v1):**
+- The **sampling sub-feature** — `compile_to_stim` (a stim `Circuit` with
+  measurements for shot-based distribution checks), the
+  `AerSimulator(method="stabilizer")` engine, and the authored surface-code /
+  repeated-bit-flip examples. v1's `verify()` reads entanglement from the
+  tableau directly (D8) and never samples, so this path is unused by it; the
+  intractability win is demonstrated by a 30-qubit-GHZ stim test instead.
+  Deferred to a follow-on (which is also where the feedforward `rec[-1]`
+  compilation care points live).
 - `backend: stabilizer+magic` (Clifford+T magic-state branching) — Open Q1.
 - Accelerating the `q-orca run` iterative simulate path — v1 targets the Stage
-  4b verification + assertion-sampling path (the `BackendAdapter` contract).
-  Open Q2.
+  4b verification path (the `BackendAdapter` contract). Open Q2.
 - Stim detector-error-model / decoder (PyMatching) emission — Open Q3.
 - A new `## execution` section — reusing `## assertion policy` instead (D1).
 

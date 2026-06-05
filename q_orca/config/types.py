@@ -17,8 +17,9 @@ class QOrcaConfig:
     code_generator: CodeGeneratorType = "python"
     max_tokens: int = 4096
     temperature: float = 0.7
-    # Backend selection
-    backend: str = "qutip"
+    # Backend selection. 'auto' lets the verify path route a Clifford machine
+    # to the stabilizer (stim) backend and any other to the state-vector path.
+    backend: str = "auto"
     cuquantum: Dict[str, Any] = field(default_factory=dict)
     cudaq: Dict[str, Any] = field(default_factory=dict)
 

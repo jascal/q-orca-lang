@@ -252,10 +252,18 @@ def _check_dynamic_entanglement(
     state_label: str,
     expected_entangled_pairs: Optional[List[Tuple[int, int]]] = None,
     tolerance: float = 1e-8,
+    engine: str = "qutip",
 ) -> Dict[str, Any]:
-    """Core dynamic entanglement check."""
+    """Core dynamic entanglement check.
 
-    if not QUTIP_AVAILABLE:
+    ``engine`` selects how the entropy / Schmidt rank are computed: ``"qutip"``
+    evolves a state vector (`O(2^n)`); ``"stabilizer"`` reads them from a
+    polynomial-time stabilizer tableau (Fattal et al.). Both feed the identical
+    pass/fail control flow below, so a Clifford machine reaches the same
+    entanglement verdict on either engine.
+    """
+
+    if engine == "qutip" and not QUTIP_AVAILABLE:
         return {"skipped": True, "reason": "QuTiP not available", "passed": True}
 
     n_qubits = _infer_qubit_count(machine)
@@ -268,8 +276,22 @@ def _check_dynamic_entanglement(
     if not any(g.get("name", "").upper() in superposition_gates for g in path_gates):
         return {"skipped": True, "reason": "No superposition gates in path", "passed": True}
 
-    initial_psi = basis([2] * n_qubits, [0] * n_qubits)
-    final_psi = _evolve_path(initial_psi, path_gates, n_qubits)
+    if engine == "stabilizer":
+        from q_orca.verifier.stabilizer_entanglement import (
+            build_state_simulator, entropy_and_schmidt,
+        )
+        _sim = build_state_simulator(path_gates, n_qubits)
+
+        def _entropy_and_rank(q1: int, q2: int) -> Tuple[float, int]:
+            return entropy_and_schmidt(_sim, [q1])
+    else:
+        _final_psi = _evolve_path(basis([2] * n_qubits, [0] * n_qubits), path_gates, n_qubits)
+
+        def _entropy_and_rank(q1: int, q2: int) -> Tuple[float, int]:
+            return (
+                _entanglement_entropy([q1], _final_psi, n_qubits),
+                _schmidt_rank_across_bipartition(_final_psi, [q1], [q2], n_qubits),
+            )
 
     report: Dict[str, Any] = {
         "state": state_label,
@@ -283,10 +305,8 @@ def _check_dynamic_entanglement(
         expected_entangled_pairs = [(i, i + 1) for i in range(n_qubits - 1)]
 
     for q1, q2 in expected_entangled_pairs:
-        entropy_q1 = _entanglement_entropy([q1], final_psi, n_qubits)
+        entropy_q1, rank = _entropy_and_rank(q1, q2)
         report["entropy_checks"][f"q{q1}"] = entropy_q1
-
-        rank = _schmidt_rank_across_bipartition(final_psi, [q1], [q2], n_qubits)
         report["schmidt_ranks"][f"q{q1}-q{q2}"] = rank
 
         if entropy_q1 >= tolerance and rank > 1:
@@ -517,7 +537,30 @@ def dynamic_verify(machine: QMachineDef) -> QVerificationResult:
     # Unitarity check — verify every gate satisfies U†U ≈ I
     errors.extend(_check_unitary_gates(gate_sequence, qubit_count))
 
-    # Check entanglement for states that are explicitly declared as entangled
+    errors.extend(_check_entanglement_for_states(machine, all_gates, qubit_count, engine="qutip"))
+    errors.extend(_check_collapse_completeness(machine))
+
+    return QVerificationResult(
+        valid=not any(e.severity == "error" for e in errors),
+        errors=errors,
+    )
+
+
+def _check_entanglement_for_states(
+    machine: QMachineDef,
+    all_gates: List[Dict[str, Any]],
+    qubit_count: int,
+    engine: str = "qutip",
+) -> List[QVerificationError]:
+    """Run the dynamic entanglement check on every state declared entangled.
+
+    Shared by the QuTiP (`engine="qutip"`) and stabilizer (`engine="stabilizer"`)
+    dynamic-verification paths so they apply identical state selection,
+    invariant-pair sourcing, and `DYNAMIC_NO_ENTANGLEMENT` reporting — only the
+    underlying entropy/Schmidt-rank computation differs.
+    """
+    errors: List[QVerificationError] = []
+
     entangled_kinds = {"bell", "ghz", "epr", "entangl"}
     entangled_states = [
         s for s in machine.states
@@ -525,7 +568,7 @@ def dynamic_verify(machine: QMachineDef) -> QVerificationResult:
                for k in entangled_kinds)
     ]
 
-    # Collect declared invariant pairs from parsed Markdown `## invariants`
+    # Declared invariant pairs from parsed Markdown `## invariants`
     invariant_pairs = [
         (inv.qubits[0], inv.qubits[1])
         for inv in getattr(machine, "invariants", [])
@@ -533,14 +576,11 @@ def dynamic_verify(machine: QMachineDef) -> QVerificationResult:
     ]
 
     for state in entangled_states:
-        if invariant_pairs:
-            expected_pairs = invariant_pairs
-        else:
-            # Fall back to adjacent-pair heuristic
-            expected_pairs = [(i, i + 1) for i in range(qubit_count - 1)]
+        expected_pairs = invariant_pairs or [(i, i + 1) for i in range(qubit_count - 1)]
 
         result = _check_dynamic_entanglement(
-            machine, all_gates, state.name, expected_entangled_pairs=expected_pairs
+            machine, all_gates, state.name,
+            expected_entangled_pairs=expected_pairs, engine=engine,
         )
 
         if not result["passed"]:
@@ -553,7 +593,16 @@ def dynamic_verify(machine: QMachineDef) -> QVerificationResult:
                 suggestion="Ensure the circuit creates an entangled state with CNOT or CZ gates",
             ))
 
-    # Check collapse completeness — probabilities sum to 1
+    return errors
+
+
+def _check_collapse_completeness(machine: QMachineDef) -> List[QVerificationError]:
+    """Collapse-completeness check — measurement-branch probabilities sum to 1.
+
+    Structural (reads guards, not the state), so it is backend-independent and
+    shared by the QuTiP and stabilizer dynamic-verification paths.
+    """
+    errors: List[QVerificationError] = []
     measure_events = {e.name for e in machine.events if "measure" in e.name.lower()}
     measure_transitions = [
         t for t in machine.transitions
@@ -576,6 +625,32 @@ def dynamic_verify(machine: QMachineDef) -> QVerificationResult:
                 location=None,
                 suggestion="Ensure all collapse outcomes are covered with probabilities summing to 1",
             ))
+    return errors
+
+
+def dynamic_verify_stabilizer(machine: QMachineDef) -> QVerificationResult:
+    """Stage 4b for Clifford machines on a stabilizer tableau (polynomial time).
+
+    Mirrors `dynamic_verify` but (1) skips the `O(2^n)` unitarity matrix check —
+    Clifford gates are unitary by construction — and (2) computes the
+    entanglement check from the stabilizer tableau (`engine="stabilizer"`).
+    Falls back to the QuTiP path when stim is unavailable, so a caller never
+    loses verification by selecting it.
+    """
+    from q_orca.verifier.stabilizer_entanglement import STIM_AVAILABLE
+    if not STIM_AVAILABLE:
+        return dynamic_verify(machine)
+
+    qubit_count = _infer_qubit_count(machine)
+    err_msg, gate_sequence = _build_gate_sequence(machine, qubit_count)
+    if err_msg:
+        return QVerificationResult(valid=True, errors=[])
+
+    all_gates = [g for gates in gate_sequence for g in gates]
+
+    errors: list[QVerificationError] = []
+    errors.extend(_check_entanglement_for_states(machine, all_gates, qubit_count, engine="stabilizer"))
+    errors.extend(_check_collapse_completeness(machine))
 
     return QVerificationResult(
         valid=not any(e.severity == "error" for e in errors),

@@ -23,14 +23,12 @@ from 64 to 10 000 free instead of minutes-per-commit.
   `{0, π/2, π, 3π/2}` (reusing `q_orca/angle.py`), returning the offending
   gates otherwise.
 - Add a **stabilizer verification backend** implementing the shipped
-  `BackendAdapter` protocol — registered as `stim` (preferred, wrapping
-  [Stim](https://github.com/quantumlib/Stim)) with `stabilizer` as an alias
-  that prefers Stim, falls back to `AerSimulator(method="stabilizer")`, then to
-  state-vector with a warning. It runs Stage 4b (reachability-by-simulation,
-  sampling-based state assertions, backend-agnostic invariants) by sampling a
-  stabilizer tableau instead of a state vector. Guidance: prefer `backend: stim`
-  for best performance; `backend: stabilizer` is the stable alias that resolves
-  Stim → Aer-stabilizer → state-vector.
+  `BackendAdapter` protocol — registered as `stim`, wrapping
+  [Stim](https://github.com/quantumlib/Stim). It runs Stage 4b by reading the
+  entanglement check from a stabilizer tableau instead of evolving a state
+  vector (see below). Guidance: prefer `backend: stim`; `backend: stabilizer`
+  is the stable alias (resolves Stim → state-vector in v1; the
+  `AerSimulator(method="stabilizer")` engine is a deferred follow-on).
 - Make backend selection **Clifford-aware**: under the default `backend: auto`
   (the `## assertion policy` field and the `--backend` CLI flag already exist),
   a Clifford machine routes to the stabilizer backend and a non-Clifford one to

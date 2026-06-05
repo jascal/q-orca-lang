@@ -42,7 +42,8 @@ def main():
     v.add_argument("--no-follow-imports", action="store_true",
                    help="Do not resolve cross-file `## imports`; non-local invokes report UNRESOLVED_CHILD_MACHINE")
     v.add_argument("--backend", default=None, metavar="BACKEND",
-                   help="Verification backend: qutip (default), cuquantum, cudaq")
+                   help="Verification backend: auto (default; Clifford->stim, else qutip), "
+                        "stim/stabilizer, qutip, state-vector, cuquantum, cudaq")
     v.add_argument("--gpu-count", type=int, default=1, metavar="N",
                    help="Number of GPUs to use (cuquantum backend)")
     v.add_argument("--tensor-network", action="store_true",
@@ -126,13 +127,13 @@ def main():
         _cmd_run(parsed, args)
 
 
-def _resolve_backend(args, config=None) -> str:
+def _resolve_backend(args, config=None, default: str = "qutip") -> str:
     """Merge CLI --backend flag (priority) over config file value (fallback)."""
     if getattr(args, "backend", None):
         return args.backend
     if config is not None and getattr(config, "backend", None):
         return config.backend
-    return "qutip"
+    return default
 
 
 def _cmd_verify(parsed, args):
@@ -142,7 +143,9 @@ def _cmd_verify(parsed, args):
     except Exception:
         config = None
 
-    backend = _resolve_backend(args, config)
+    # Default to auto on the verify path: a Clifford machine routes to the
+    # stabilizer (stim) backend, any other to the state-vector path.
+    backend = _resolve_backend(args, config, default="auto")
 
     # Wire gpu_count / tensor_network into cuquantum adapter if selected
     if backend == "cuquantum":
@@ -163,8 +166,15 @@ def _cmd_verify(parsed, args):
         )
         result = verify(machine, opts, file=parsed.file, import_graph=import_graph)
 
-        # Collect backend metadata for JSON output
-        backend_meta = _get_backend_meta(backend)
+        # Collect backend metadata for JSON output. Resolve `auto` per machine
+        # so the report shows the backend that actually ran (e.g. stim for a
+        # Clifford machine) rather than the literal 'auto'.
+        from q_orca.verifier import _resolve_dynamic_backend
+        display_backend = backend
+        if backend in ("auto", "stabilizer", "stim", "state-vector"):
+            resolved = _resolve_dynamic_backend(machine, backend, [])
+            display_backend = resolved or backend
+        backend_meta = _get_backend_meta(display_backend)
 
         if args.strict:
             warnings_as_errors = [e for e in result.errors if e.severity == "warning"]
@@ -312,6 +322,11 @@ def _cmd_simulate(parsed, args):
         config = None
 
     backend = _resolve_backend(args, config)
+    # Simulation (q-orca run) does not do Clifford routing — the stabilizer
+    # backend is verification-only in v1 — so resolve `auto` to the state-vector
+    # simulator here rather than reporting a misleading 'auto'.
+    if backend == "auto":
+        backend = "qutip"
 
     # Wire gpu_count / tensor_network into cuquantum adapter if selected
     if backend == "cuquantum":

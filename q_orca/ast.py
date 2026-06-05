@@ -210,6 +210,10 @@ class AssertionPolicy:
     confidence: float = 0.99
     on_failure: Literal["error", "warn"] = "error"
     backend: str = "auto"
+    # Governs forcing `backend: stabilizer`/`stim` on a non-Clifford machine:
+    # 'error' (default) is fatal; 'state-vector' downgrades to a warning and
+    # uses the state-vector path.
+    stabilizer_fallback: Literal["error", "state-vector"] = "error"
 
 
 @dataclass
