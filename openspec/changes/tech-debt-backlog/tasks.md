@@ -1606,3 +1606,147 @@ picked up.
   `logs/pr-review-2026-05-29.log`, "the 0.055 rows sit just
   above the heatmap's 0.05 display tier, which could briefly
   confuse a cross-checking reader".)
+
+## Feedback triage — 2026-06-05
+
+Items surfaced from `logs/pr-review-*.log` for PRs merged in the
+seven days ending 2026-06-05 (PRs #95, #97, #98, #99, #100, #101,
+#102, #103, #104, #105, #106, #107, #108, #109, #110, #111, #112,
+#113, #114, #115, #116, #117, #118, #119, #120, #121, #122, #123,
+#124, #125, #126, #127, #128). The visible pr-review logs in this
+window only captured reviews for **#99**, **#100**, **#101**, and
+**#111**; PRs #102 onward landed on a fast spec→impl→archive cycle
+that did not surface a pr-review-log entry by the time of triage
+(no open-PR snapshots between 2026-06-01 and 2026-06-05 — the
+`gh pr list --state open` polls returned empty arrays). Many of the
+unreviewed PRs are spec-sync / housekeeping archives (#96, #98,
+#104, #107, #110, #113, #122, #125, #128) which carry no
+substantive reviewer surface. Numbered in the §7.x range
+continuing from the 2026-05-29 triage.
+
+**Caveat on this run.** The standard remote-comment fetch
+(`gh pr view --comments` / GitHub REST `/pulls/<n>/comments`) was
+unreachable from the scheduled-task sandbox — the egress proxy
+allowlist rejected `api.github.com` with a 403, so the captures
+below come from the local `logs/pr-review-*.log` summaries only.
+Where the summary said "minor optional nits" without enumerating
+them (PR #100) or listed "5 spec-quality refinements" without
+spelling them out (PR #111), the specific items could not be
+captured; the spec sync that followed (PR #113,
+`reconcile-bounded-loop-spec`) suggests the highest-priority
+#111 nit — the dropped `syndrome_completeness` scenarios — was
+addressed before merge.
+
+- [x] 7.21 **Add a friendly preflight check for
+  `register_foreign_runner` instead of a bare `AttributeError`.**
+  Severity: LOW. Surface:
+  `examples/hybrid-bridge/run_demo.py` (the cross-tool bridge
+  entry point added by PR #93 / #99). The installed
+  `runtime-python` 0.1.26 lacks the `register_foreign_runner`
+  attribute the bridge demo relies on; the README documents the
+  required version, but the runtime error is a bare
+  `AttributeError: module 'runtime_python' has no attribute
+  'register_foreign_runner'` with no pointer to the README
+  guidance. Fix shape: before the registration call, check
+  `hasattr(runtime_python, "register_foreign_runner")` and raise
+  a `BridgeSetupError("the installed runtime-python "
+  f"{runtime_python.__version__} predates "
+  "register_foreign_runner; see examples/hybrid-bridge/README.md
+  for the supported runtime-python pin")`. Size: [S] <2h.
+  (Source: 2026-05-30 PR #99 review log,
+  `logs/pr-review-2026-05-30.log`, "installed runtime-python
+  0.1.26 lacks `register_foreign_runner` … suggested a friendly
+  preflight instead of a bare `AttributeError`".)
+  Already addressed in PR #99 itself: `run_demo.py` checks
+  `hasattr(machine, "register_foreign_runner")` and raises
+  `SystemExit` with the README pointer (lines 86-91). The
+  message names the missing attribute and the required
+  `orca-runtime-python >= 0.1.28` pin, matching the spirit of
+  the spec'd fix (the attribute lives on the OrcaMachine
+  instance, not the runtime_python module, so the hasattr
+  target was adjusted accordingly).
+
+- [x] 7.22 **Fix the `2.348` vs `2.346` docstring typo in the
+  hybrid-bridge demo.** Severity: LOW. Surface:
+  `examples/hybrid-bridge/run_demo.py` (or the matching
+  README snippet — the review flagged a numeric drift between
+  the README's quoted convergence value and the docstring's
+  pinned value). The sample-convergence number in one place
+  reads `2.348` and the other reads `2.346`; one of the two is
+  the source of truth (the actual run produces one value; the
+  other is a transcription error). Fix shape: re-run the
+  hybrid-bridge demo with the documented inputs, capture the
+  exact convergence value, and reconcile both copies to it.
+  Size: [XS] <30 min.
+  (Source: 2026-05-30 PR #99 review log,
+  `logs/pr-review-2026-05-30.log`, "a `2.348` vs `2.346`
+  docstring typo".)
+  Already addressed in PR #99's "address review nits" commit:
+  `2.346` is the correct value (`2·asin(√0.85) ≈ 2.3462`) and
+  appears in both `run_demo.py:48` and `README.md:60`. The
+  stray `2.348` was reconciled before merge.
+
+- [x] 7.23 **Fix the repo-escaping doc link in the hybrid-bridge
+  README.** Severity: LOW. Surface:
+  `examples/hybrid-bridge/README.md`. The reviewer noted a
+  doc link that escapes the repository (a relative path
+  containing too many `../` segments, or an absolute path
+  pinned to a local checkout). Repo-escaping links break for
+  every reader who clones to a different parent directory and
+  for every GitHub web-UI reader. Fix shape: confirm the
+  intended target (likely a sibling repo doc or an upstream
+  link), and either (a) rewrite to a `repo-root/` anchor or
+  (b) replace with the canonical upstream URL. Size: [XS]
+  <30 min.
+  (Source: 2026-05-30 PR #99 review log,
+  `logs/pr-review-2026-05-30.log`, "a repo-escaping doc link".)
+  Resolved by dropping the misleading HTML comment on
+  `README.md:10` that pointed readers at
+  `../../../orca-lang/docs/cross-tool-invoke-and-returns.md`
+  (a path only valid for a specific side-by-side checkout
+  layout). The canonical upstream URL on the preceding line
+  is the single source of truth.
+
+- [x] 7.24 **Guard the unvalidated `TARGET` input to the
+  hybrid-bridge orchestrator.** Severity: LOW. Surface:
+  `examples/hybrid-bridge/vqe-orchestrator.orca.md` (and/or its
+  Python harness in `run_demo.py`). The reviewer flagged that
+  the `TARGET` input parameter is passed through to the
+  convergence loop without a range check — out-of-range values
+  (negative, NaN, > π) can drive the GAIN≈Newton clamp into
+  pathological states before `MAX_ITERS` short-circuits. Fix
+  shape: add a one-line range guard at the entry point — e.g.
+  raise on `TARGET < 0.0` or `TARGET > 2*pi` — with a
+  diagnostic that names the offending value. Size: [S] <2h.
+  (Source: 2026-05-30 PR #99 review log,
+  `logs/pr-review-2026-05-30.log`, "unguarded `TARGET` input".)
+  Already addressed in PR #99: `run_demo.py:93-100` parses
+  `TARGET` to float (rejecting non-numeric input with a
+  diagnostic that names the offending value) and enforces
+  `0.0 < TARGET < 1.0`. The accepted range is tightened from
+  `(0, 2π)` to `(0, 1)` because `TARGET` is a target P(1) — a
+  probability — not an angle; the GAIN≈Newton clamp downstream
+  is over θ ∈ (0.01, π−0.01), so the probability guard
+  upstream is the correct boundary check.
+
+- [ ] 7.25 **Sweep the pre-existing ruff errors in the test
+  files.** Severity: LOW. Surface:
+  `tests/test_compiler.py`, `tests/test_examples.py`,
+  `tests/test_mcp_server.py`, `tests/test_verifier.py`. Two
+  consecutive pr-review runs (2026-05-30 and 2026-05-31) noted
+  the same observation — the repo-wide `ruff check .` count
+  stays at 13–18 errors, all in test files, all on `main`
+  before any of the reviewed PRs landed. The reviewer
+  explicitly flagged "might be worth a future cleanup task" on
+  both runs without filing one. Codes observed across the two
+  logs include `E402`, `E741`, `F401`, `F811`, `F841`. Fix
+  shape: a single tech-debt PR that walks each file, decides
+  per error whether the imported name / shadowed loop variable
+  / unused local is intentional (suppress with `# noqa: <code>`
+  and a one-line explanation) or stale (remove). Aim for
+  `ruff check .` to return zero on `main`. Size: [M] half-day.
+  (Source: 2026-05-30 PR #99 review log + 2026-05-31 PR #111
+  review log, `logs/pr-review-2026-05-30.log` and
+  `logs/pr-review-2026-05-31.log`, "13 ruff errors … all
+  pre-existing on `main`" and "18 ruff errors are all
+  pre-existing in `tests/` files".)
