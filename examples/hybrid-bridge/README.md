@@ -7,7 +7,6 @@ FFI, and — as run here — not even a Python environment. Every iteration cros
 the boundary as JSON envelopes piped over a subprocess.
 
 [bridge-doc]: https://github.com/jascal/orca-lang/blob/main/docs/cross-tool-invoke-and-returns.md
-<!-- In a local side-by-side checkout the doc lives at ../../../orca-lang/docs/cross-tool-invoke-and-returns.md -->
 
 
 ## What it does
