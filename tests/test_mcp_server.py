@@ -178,54 +178,16 @@ class TestToolsCallErrorPath:
 
 
 class TestOuterErrorEnvelope:
-    def test_outer_exception_is_sanitized(self, monkeypatch):
-        monkeypatch.delenv("ORCA_MCP_DEBUG", raising=False)
-
-        # Force handle_request's outer try/except to fire by making the
-        # response builder explode AFTER req_id has been read. The simplest
-        # way is to monkey-patch one of the per-method handlers to raise
-        # without being inside the tools/call try/except. We do that by
-        # making `format_result` raise — it's called from tools/call's
-        # success branch, before the inner except, so we need a path that
-        # routes through the outer except instead. Easiest: send a tools/list
-        # request and patch TOOLS to raise on access via a custom object.
-        class Boom:
-            def __iter__(self):
-                raise RuntimeError(
-                    "iter failed at /Users/secret/code/q-orca-lang/foo.py:123"
-                )
-
-        # The `tools/list` arm returns ``resp({"tools": TOOLS})``. Wrapping
-        # TOOLS in a Boom forces the JSON-RPC `resp` build to raise inside
-        # the outer try, exercising the outer except branch.
-        # In practice the outer branch is hit by any uncaught builder
-        # exception; we simulate one via the TOOLS reference.
-        monkeypatch.setattr("q_orca.mcp_server.TOOLS", Boom())
-
-        # Use json.dumps inside resp to trigger iteration of TOOLS.
-        # Actually resp returns the dict — TOOLS gets serialized only by
-        # the outer caller. To trigger the outer except, raise inside the
-        # match arm directly: patch handle_request's `resp` builder
-        # path... simpler: just patch the tools/list handler arm by
-        # monkeypatching `TOOLS` to an object whose dict-construction
-        # itself raises. dict({"tools": x}) does not iterate x — so go
-        # one level deeper and patch the `match method` dispatch by
-        # raising in the initialize arm via __version__.
-        # Rolling back: use a direct injection via a custom method that
-        # exercises the unknown-method arm? That arm returns an error
-        # envelope but goes through `resp` cleanly, not the outer except.
-        # The outer except only fires when something inside the try/match
-        # block raises. The easiest deterministic trigger is to replace
-        # the `resp` closure indirectly by raising in `format_result`
-        # within a path that does not catch it. tools/call already has
-        # its own catch. ping/initialize don't call any patchable code.
-        # Conclusion: the outer except is essentially unreachable via the
-        # public surface today. We pin it as a unit test on
-        # ``sanitize_exception_message`` (covered above) and rely on the
-        # tools/call test to exercise the structural wiring of the
-        # sanitizer into a real error envelope.
-        pytest.skip(
-            "outer try/except is structurally unreachable via the public "
-            "JSON-RPC surface; sanitizer wiring covered by the "
-            "tools/call path tests above."
-        )
+    # The outer try/except in `handle_request` is structurally unreachable
+    # from the public JSON-RPC surface: tools/call has its own inner catch,
+    # tools/list / ping / initialize go through `resp` cleanly, and the
+    # unknown-method arm returns a well-formed error envelope. Sanitizer
+    # wiring is pinned by the unit tests on `sanitize_exception_message`
+    # and by the tools/call path tests above. Left as a placeholder so the
+    # outer-envelope behaviour gets a home if a future code path makes it
+    # reachable.
+    @pytest.mark.skip(
+        reason="outer try/except unreachable via current public surface"
+    )
+    def test_outer_exception_is_sanitized(self):
+        raise AssertionError("placeholder — see class docstring")
