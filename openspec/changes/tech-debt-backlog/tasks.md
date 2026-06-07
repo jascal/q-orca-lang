@@ -1439,7 +1439,7 @@ picked up.
   `pytest tests/test_mcp_server.py` (11 passed, 1 skipped) and
   the full suite (1130 passed, 20 skipped) stay green.
 
-- [ ] 7.12 **Trim the dead `Boom` / `monkeypatch` scaffolding
+- [x] 7.12 **Trim the dead `Boom` / `monkeypatch` scaffolding
   inside the skipped `TestOuterErrorEnvelope` test.** Severity:
   LOW. Surface: `tests/test_mcp_server.py`, around the
   `TestOuterErrorEnvelope` class (line 181 in the merged shape)
@@ -1455,6 +1455,12 @@ picked up.
   (Source: 2026-05-27 PR #74 review log,
   `logs/pr-review-2026-05-27.log`, "trim the ~60-line
   exploration comment in the skipped outer-envelope test".)
+  Took option (b): single `test_outer_exception_is_sanitized` wrapped in
+  `@pytest.mark.skip`, with the `Boom` class, the `monkeypatch` body, and
+  the ~50-line exploration comment deleted; the class-level docstring now
+  carries the one-paragraph "structurally unreachable, sanitizer wired by
+  the unit + tools/call tests" rationale. `pytest tests/test_mcp_server.py
+  -q` stays at 11 passed / 1 skipped; full suite at 1274 passed / 8 skipped.
 
 - [x] 7.13 **Replace the dead `if False else` branch in the
   `_run` test helper with the live path.** Severity: LOW.
