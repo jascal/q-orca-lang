@@ -189,11 +189,18 @@ def compile_to_stim(machine: QMachineDef):
         action = action_map.get(action_name)
         if action is not None and action.mid_circuit_measure is not None:
             mcm = action.mid_circuit_measure
-            # Single change point for MR: when q-orca gains `reset` syntax, emit
-            # "MR" here if an unconditional reset(qs[i]) follows (see design D2).
-            circuit.append("M", [mcm.qubit_idx])
+            # Coalesce measure + reset on the same qubit into a single `MR`
+            # (measure-and-reset); both `M` and `MR` advance exactly one record.
+            if action.reset is not None and action.reset.qubit_idx == mcm.qubit_idx:
+                circuit.append("MR", [mcm.qubit_idx])
+            else:
+                circuit.append("M", [mcm.qubit_idx])
+                if action.reset is not None:
+                    circuit.append("R", [action.reset.qubit_idx])
             bit_to_record[mcm.bit_idx] = n_records
             n_records += 1
+        elif action is not None and action.reset is not None:
+            circuit.append("R", [action.reset.qubit_idx])  # reset-only action
         elif action is not None and action.conditional_gate is not None:
             _emit_feedforward(circuit, action.conditional_gate, bit_to_record, n_records, stim)
         elif action is not None and action.context_update is not None:
@@ -320,6 +327,22 @@ def _resolve_noise_qubits(machine, target, data_qubits, all_qubits) -> list[int]
     return []  # single_qubit_gates / two_qubit_gates / all_measurements: circuit-level, deferred
 
 
+def _readout_flip_prob(machine) -> float:
+    """Symmetric measurement-flip probability from a `readout_error` noise channel
+    (averaging `p0given1` / `p1given0`), or 0.0 if none. Applied to stabilizer
+    measurements so cross-round detectors have measurement errors to catch."""
+    nm = getattr(machine, "noise_model", None)
+    if nm is None:
+        return 0.0
+    for ch in nm.channels:
+        if ch.kind == "readout_error":
+            p = ch.parameters
+            vals = [float(p[k]) for k in ("p0given1", "p1given0", "p") if k in p]
+            if vals:
+                return sum(vals) / len(vals)
+    return 0.0
+
+
 def _emit_noise_layer(circuit, machine, data_qubits, all_qubits) -> None:
     """Emit the `## noise_model` qubit-targeted Pauli/depolarizing channels once,
     modelling errors on the prepared codeword (code-capacity). Gate-level and
@@ -379,6 +402,7 @@ def compile_to_stim_with_detectors(machine):
     action_map = {a.name: a for a in machine.actions}
     circuit = stim.Circuit()
     _emit_noise_layer(circuit, machine, data, all_qubits)
+    readout_p = _readout_flip_prob(machine)  # measurement-flip prob on stabilizers
 
     n_records = 0
     ancilla_support: dict[int, set[int]] = {}   # ancilla -> data qubits its CNOTs read
@@ -391,10 +415,26 @@ def compile_to_stim_with_detectors(machine):
         action = action_map.get(action_name)
         if action is not None and action.mid_circuit_measure is not None:
             q = action.mid_circuit_measure.qubit_idx
-            circuit.append("M", [q])
+            # Reset an ancilla after measuring it (MR) so it is re-initialised for
+            # the next round — this is what makes multi-round decoding physical.
+            # Apply readout-flip noise to stabilizer (ancilla) measurements so
+            # multi-round cross-round detectors have measurement errors to catch.
+            m_args = [readout_p] if (q in ancilla and readout_p > 0.0) else []
+            if action.reset is not None and action.reset.qubit_idx == q:
+                circuit.append("MR", [q], *m_args)
+            else:
+                circuit.append("M", [q], *m_args)
+                if action.reset is not None:
+                    circuit.append("R", [action.reset.qubit_idx])
             if q in ancilla:
-                ancilla_record[q] = n_records
-                circuit.append("DETECTOR", [stim.target_rec(-1)])  # round detector
+                if q in ancilla_record:
+                    # Round >= 2: cross-round detector — parity of this round's
+                    # record and the same stabilizer's previous-round record.
+                    prev_off = -(n_records - ancilla_record[q] + 1)
+                    circuit.append("DETECTOR", [stim.target_rec(-1), stim.target_rec(prev_off)])
+                else:
+                    circuit.append("DETECTOR", [stim.target_rec(-1)])  # round 1
+                ancilla_record[q] = n_records  # latest record for this stabilizer
             else:
                 data_record[q] = n_records
             n_records += 1

@@ -156,14 +156,15 @@ The logical error rate **falls with code distance** (a bigger code corrects more
 and **rises with the physical error rate** — the trends that confirm the
 observable and detectors are correct.
 
-**v1 is single-round (code-capacity):** one syndrome extraction over noisy data,
-each ancilla measurement its own detector. Multi-round / circuit-level decoding
-(comparing a stabilizer across rounds) needs the ancilla **reset** between
-rounds, which q-orca has no syntax for yet — deferred to a reset-syntax change
-(which also unblocks `MR` in the sampling path). The logical observable is
-inferred as a single data qubit (correct for repetition / bit-flip codes); codes
-whose `Z_L` is a multi-qubit chain (the surface code) will need an explicit
-observable declaration — a planned follow-on.
+**Single-round and multi-round.** Single-round (code-capacity) decoding gives
+each ancilla measurement its own detector. **Multi-round / circuit-level**
+decoding is supported once an ancilla is `reset(qs[i])` between rounds (it is
+re-initialised via `MR`): the compiler emits a cross-round `DETECTOR` comparing a
+stabilizer's record across consecutive rounds. The logical observable is inferred
+as a single data qubit (correct for repetition / bit-flip codes); codes whose
+`Z_L` is a multi-qubit chain (the surface code) will need an explicit observable
+declaration — a planned follow-on. (The quantitative *improves-with-rounds*
+benefit needs the full phenomenological noise model — a tuning exercise.)
 
 ## Limitations
 
@@ -175,7 +176,9 @@ observable declaration — a planned follow-on.
   single-record `rec[-N]` controls cannot express in-circuit — that is a decoder
   concern (Stim `DETECTOR` / PyMatching), a follow-on. `compile_to_stim` refuses
   multi-clause feedforward with a clear error.
-- `MR` (measure-and-reset) is not emitted — q-orca has no `reset` syntax yet, so
-  every measurement is `M`.
+- A `measure(qs[i]) -> bits[j]` followed by `reset(qs[i])` compiles to a single
+  Stim `MR` (measure-and-reset); a standalone `reset(qs[i])` compiles to `R`. A
+  `reset` is treated as a stabilizer-compatible operation (it does not make a
+  machine non-Clifford).
 - Wiring the sampler into `q-orca run` / `simulate`, a Clifford+T magic-state
   extension, and Stim detector-error-model export are follow-ons.

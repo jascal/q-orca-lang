@@ -379,6 +379,12 @@ class QEffectMeasure:
 
 
 @dataclass
+class QEffectReset:
+    """Reset: re-initialise qubit N to |0⟩ (e.g. an ancilla between syndrome rounds)."""
+    qubit_idx: int
+
+
+@dataclass
 class QEffectConditional:
     """Classical feedforward: if every (bits[i] == v) holds, apply gate.
 
@@ -452,6 +458,7 @@ class QActionSignature:
     mid_circuit_measure: Optional[QEffectMeasure] = None
     conditional_gate: Optional[QEffectConditional] = None
     context_update: Optional[QEffectContextUpdate] = None
+    reset: Optional["QEffectReset"] = None
 
 
 @dataclass

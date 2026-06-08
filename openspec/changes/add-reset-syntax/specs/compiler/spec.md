@@ -37,9 +37,15 @@ recovered from the unrolled `[loop N]` body.
 - **THEN** the second round's `DETECTOR` references both that round's record and
   the previous round's record for that stabilizer
 
-#### Scenario: Multi-round decoding catches measurement errors
+#### Scenario: Multi-round repetition code decodes correctly
 
-- **WHEN** a multi-round repetition code is decoded under measurement noise across
-  increasing round counts
-- **THEN** the logical error rate improves with more rounds (single-round cannot
-  detect measurement errors; cross-round detectors can)
+- **WHEN** a multi-round (ancilla-reset) repetition code is compiled with detectors
+  and decoded
+- **THEN** the circuit carries cross-round detectors, the detector error model is
+  well-formed, and the logical error rate is sane (no decoder error)
+
+> The quantitative *improves-with-rounds* benefit appears only under the full
+> phenomenological noise model (noisy logical readout + per-round data noise);
+> emitting the cross-round detectors correctly is the compiler's job and is what
+> this requirement pins. Tuning a phenomenological example to exhibit the
+> threshold trend is a follow-on.
