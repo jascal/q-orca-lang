@@ -14,7 +14,7 @@ from q_orca.ast import (
     QType, QTypeQubit, QTypeList, QTypeScalar, QTypeOptional, QTypeCustom,
     QGuardRef, QuantumGate, Measurement, CollapseOutcome,
     QGuardTrue, QGuardFalse, QGuardCompare, QGuardProbability, QGuardFidelity,
-    VariableRef, ValueRef, QEffectMeasure, QEffectConditional,
+    VariableRef, ValueRef, QEffectMeasure, QEffectReset, QEffectConditional,
     QContextMutation, QEffectContextUpdate,
     ActionParameter, BoundArg,
     EncodingDecl, ThetaBlock, ThetaRow,
@@ -1406,12 +1406,14 @@ def _parse_actions_table(
         measurement = _parse_measurement_from_effect(effect_str)
         mid_circuit_measure = _parse_mid_circuit_measure_from_effect(effect_str)
         conditional_gate = _parse_conditional_gate_from_effect(effect_str, errors, action_name=name, angle_context=effect_angle_context)
+        reset = _parse_reset_from_effect(effect_str)
 
         has_other_effect = (
             gate is not None
             or measurement is not None
             or mid_circuit_measure is not None
             or conditional_gate is not None
+            or reset is not None
         )
 
         # If the parser recognized a context-update AND any other effect,
@@ -1449,6 +1451,7 @@ def _parse_actions_table(
             and mid_circuit_measure is None
             and conditional_gate is None
             and context_update is None
+            and reset is None
             and not params
             and errors is not None
             and _looks_like_gate_call(effect_str)
@@ -1473,6 +1476,7 @@ def _parse_actions_table(
             mid_circuit_measure=mid_circuit_measure,
             conditional_gate=conditional_gate,
             context_update=context_update,
+            reset=reset,
         ))
 
     return actions
@@ -2399,6 +2403,16 @@ def _parse_mid_circuit_measure_from_effect(effect_str: str) -> Optional[QEffectM
     )
     if m:
         return QEffectMeasure(qubit_idx=int(m.group(1)), bit_idx=int(m.group(2)))
+    return None
+
+
+def _parse_reset_from_effect(effect_str: str) -> Optional[QEffectReset]:
+    """Parse 'reset(qs[N])' into QEffectReset(qubit_idx=N)."""
+    if not effect_str:
+        return None
+    m = re.search(r"reset\s*\(\s*\w+\[(\d+)\]\s*\)", effect_str, re.IGNORECASE)
+    if m:
+        return QEffectReset(qubit_idx=int(m.group(1)))
     return None
 
 

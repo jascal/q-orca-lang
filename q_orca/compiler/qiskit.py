@@ -689,10 +689,18 @@ def build_circuit_for_iteration(
             angle_ctx[key] = float(value)
 
     for action in actions:
-        # Mid-circuit measurement: qubit N -> bit M.
+        # Mid-circuit measurement: qubit N -> bit M (+ reset if the action also
+        # resets — re-initialise the qubit to |0> for reuse).
         if action.mid_circuit_measure is not None:
             m = action.mid_circuit_measure
             qc.measure(m.qubit_idx, m.bit_idx)
+            if action.reset is not None:
+                qc.reset(action.reset.qubit_idx)
+            continue
+
+        # Reset-only action: re-initialise the qubit to |0>.
+        if action.reset is not None:
+            qc.reset(action.reset.qubit_idx)
             continue
 
         # Classical feedforward (conditional gate) — rare, left to the

@@ -248,6 +248,12 @@ def parse_single_gate(
     if m:
         return ParsedGate(name=m.group(1).upper(), targets=(int(m.group(2)),))
 
+    # `reset(qs[N])` is a structured effect (QEffectReset), not a gate — skip it
+    # so gate-walks (is_clifford, the compilers, the dynamic verifier) ignore it;
+    # the compiler/runtime read the parsed reset off the action signature.
+    if re.match(r"^reset\s*\(\s*\w+\[\d+\]\s*\)\s*$", s, re.IGNORECASE):
+        return None
+
     # Generic single-qubit fallback: <Name>(qs[N]).
     m = re.match(r"^([A-Za-z][A-Za-z0-9_]*)\(\s*\w+\[(\d+)\]\s*\)\s*$", s)
     if m:
