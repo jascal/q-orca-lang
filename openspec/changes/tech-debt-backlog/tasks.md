@@ -1404,7 +1404,7 @@ picked up.
   "effective rank N" stays identical because `np.count_nonzero`
   and the Python `len([... if ...])` return the same integer.
 
-- [ ] 7.10 **Simplify the `U_oracle` / `Vh_oracle` Q-R scaffolding
+- [x] 7.10 **Simplify the `U_oracle` / `Vh_oracle` Q-R scaffolding
   in `test_rank_three_input_raises_with_named_discard`.**
   Severity: LOW. Surface:
   `tests/test_concept_gram_mps_contraction.py` around lines
@@ -1423,6 +1423,23 @@ picked up.
   (Source: 2026-05-22 PR #73 review log,
   `logs/pr-review-2026-05-22.log`, "simplify unused
   `U_oracle`/`Vh_oracle` setup in test 3".)
+  Audit at fix time clarified the surface: the Q-R block lives in
+  `test_below_atol_discard_does_not_raise` (lines 336-345), not in
+  `test_rank_three_input_raises_with_named_discard` (which already
+  uses a seeded Gaussian directly and keeps its oracle SVD intact).
+  Took the simpler-still path: replaced the two `np.linalg.qr`
+  calls and the `U_oracle @ S_oracle @ Vh_oracle` product with a
+  single `M = np.diag([1.0, 0.5, 1e-12, 0.0]).astype(complex)` —
+  a diagonal matrix trivially has its diagonal entries as singular
+  values, so the prescribed `[1.0, 0.5, 1e-12, 0]` spectrum lands
+  by construction with no randomness, no Q-R, and no sanity
+  assertion needed. The downstream CNOT inverse-permutation is
+  unitary so it preserves singular values through to `_apply_cnot`'s
+  SVD step (the existing inline comment already noted this
+  invariance). ~10 lines deleted, 1 line added. The other two
+  tests in the class are unchanged: rank-2 pass-through and rank-3
+  raise both kept their seeded-Gaussian construction and oracle
+  SVD pin respectively. Full suite green: 1282 passed, 8 skipped.
 
 - [x] 7.11 **Remove the unused `import os` in
   `tests/test_mcp_server.py`.** Severity: LOW. Surface:

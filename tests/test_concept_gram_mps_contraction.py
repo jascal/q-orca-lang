@@ -330,19 +330,13 @@ class TestApplyCnotBondTruncationGuard:
         round-off-sized noise on an otherwise rank-2 input stays
         silent — the guard separates physical leaks from round-off.
         """
-        # Build an explicit (4, 4) matrix with singular values
-        # [1.0, 0.5, 1e-12, 0] so the discarded entries sit well below
-        # the 1e-10 atol.
-        U_oracle, _ = np.linalg.qr(
-            np.random.default_rng(0).standard_normal((4, 4))
-            + 1j * np.random.default_rng(1).standard_normal((4, 4))
-        )
-        Vh_oracle, _ = np.linalg.qr(
-            np.random.default_rng(2).standard_normal((4, 4))
-            + 1j * np.random.default_rng(3).standard_normal((4, 4))
-        )
-        S_oracle = np.diag([1.0, 0.5, 1e-12, 0.0]).astype(complex)
-        M = U_oracle @ S_oracle @ Vh_oracle
+        # A diagonal (4, 4) matrix has its diagonal entries as its
+        # singular values, so M trivially carries [1.0, 0.5, 1e-12, 0]
+        # — the two smallest sit below the guard's 1e-10 atol so the
+        # discard is round-off-sized, not an amplitude leak. The CNOT
+        # inverse-permutation below is unitary, so the singular values
+        # propagate through to _apply_cnot's SVD step unchanged.
+        M = np.diag([1.0, 0.5, 1e-12, 0.0]).astype(complex)
         # Reverse the CNOT permutation so _apply_cnot's permutation
         # lands us back at M (the guard sees the singular values of M
         # itself, so the permutation choice is immaterial for this
