@@ -1605,7 +1605,7 @@ picked up.
   example-driven (could miss tasks without `§N.M`-style
   anchors)".)
 
-- [ ] 7.20 **Re-tier the heatmap legend in the larql-polysemantic-
+- [x] 7.20 **Re-tier the heatmap legend in the larql-polysemantic-
   hierarchical demo to disambiguate the 0.055 rows.** Severity:
   LOW. Surface:
   `demos/larql_polysemantic_hierarchical/demo.py:85,99`. The
@@ -1629,6 +1629,19 @@ picked up.
   `logs/pr-review-2026-05-29.log`, "the 0.055 rows sit just
   above the heatmap's 0.05 display tier, which could briefly
   confuse a cross-checking reader".)
+  Took option (b): added one extra `print(...)` line in
+  `print_gram_heatmap` (`demos/larql_polysemantic_hierarchical/demo.py`)
+  immediately after the existing tier-legend line, noting that the
+  dot tier includes values arbitrarily close to the blank threshold
+  (with the `0.055` / `0.063` cells called out by example) and that
+  the tabulated decimal is the source of truth. The four-tier
+  cutoffs themselves are unchanged so the demo's heatmap output is
+  visually stable for downstream readers; the `heatmap_tier`
+  docstring stays canonical (no duplication of the new explanatory
+  text). Verified the demo runs end-to-end (`PASS` on the empirical-
+  vs-analytic threshold) and the full suite stays green
+  (1282 passed, 8 skipped). No code or test changes beyond the
+  legend-print addition.
 
 ## Feedback triage — 2026-06-05
 
