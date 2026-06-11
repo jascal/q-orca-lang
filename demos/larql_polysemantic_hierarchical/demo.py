@@ -97,6 +97,10 @@ def print_gram_heatmap(gram: np.ndarray) -> None:
     """Print |gram|² as a 4-tier 12×12 ASCII heatmap with hierarchy labels."""
     gsq = np.abs(gram) ** 2
     print("  |gram[i,j]|²  (# ≥ 0.7, o ∈ [0.3, 0.7), . ∈ [0.05, 0.3), blank < 0.05)")
+    print(
+        "  The dot tier includes values arbitrarily close to the blank threshold"
+        " (e.g. 0.055, 0.063 below); the tabulated decimal is the source of truth."
+    )
     print("  ", "".join(f"{i:>3}" for i in range(12)))
     for i in range(12):
         row = "".join(f"  {heatmap_tier(gsq[i, j])}" for j in range(12))
