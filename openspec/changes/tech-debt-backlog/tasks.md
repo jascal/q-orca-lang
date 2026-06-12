@@ -1564,7 +1564,7 @@ picked up.
   `logs/pr-review-2026-05-28.log`, "gloss `tools/call` as MCP
   jargon".)
 
-- [ ] 7.18 **Tighten the prior-Claude-review check from
+- [x] 7.18 **Tighten the prior-Claude-review check from
   substring to author identity in `pr-review-prompt.txt`.**
   Severity: LOW. Surface:
   `scripts/pr-review-prompt.txt` step 2.b (and the matching
@@ -1585,8 +1585,22 @@ picked up.
   `logs/pr-review-2026-05-28.log`, "the `"Claude"` substring
   check is still loose (false positive if a human mentions
   Claude in a comment)".)
+  Took option (b) — the canonical header
+  `## Code Review — Claude Sonnet 4.6` is already required by
+  step 3.e of the same prompt, so anchoring on a "starts with"
+  match against that header is the lowest-friction
+  discriminator and needs no out-of-band marker. Updated step
+  2.b in `scripts/pr-review-prompt.txt` to say "any entry whose
+  `body` **starts with** the canonical header line" instead of
+  "any entry whose `body` contains `"Claude"`", and inlined the
+  rationale (false-positive when a human reviewer mentions
+  Claude in a normal review body). Options (a) and (c) were
+  available but rejected: (a) couples the check to a fragile
+  bot identity that can change as the automation surface
+  evolves, and (c) adds an out-of-band marker for a property
+  that the step-3.e header already conveys structurally.
 
-- [ ] 7.19 **Add a direct `change-name → headRefName` comparison
+- [x] 7.19 **Add a direct `change-name → headRefName` comparison
   to the nightly's open-PR cross-check.** Severity: LOW. Surface:
   `scripts/nightly-prompt.txt` (the open-PR cross-check
   introduced by PR #78). Today the nightly's "is there already
@@ -1604,6 +1618,24 @@ picked up.
   `logs/pr-review-2026-05-28.log`, "section-identifier scan is
   example-driven (could miss tasks without `§N.M`-style
   anchors)".)
+  Restructured the Step 2 cross-check in
+  `scripts/nightly-prompt.txt` from one paragraph into two
+  ordered checks. Check (1) is the new whole-change exact-match
+  guard: compare `<change-name>` to every open PR's `headRefName`,
+  and if any equals the change name exactly, stop and report
+  `"Change <change-name> already covered by open PR #<n>."` —
+  catches single-task changes whose branch matches the change
+  directory by convention (`add-reset-syntax`,
+  `fix-mps-encoding-non-factorizing`, …), which the §N.M anchor
+  scan misses because such changes don't use anchors. Check (2)
+  is the existing per-task anchor scan, kept as-is and explicitly
+  labelled as the granular case for multi-task changes like
+  `tech-debt-backlog` whose individual PRs branch off as
+  `tech-debt-backlog-7-18`, `tech-debt-backlog-7-16-7-17`, etc.
+  No code under `tests/` references either prompt file, so the
+  edit lands as a doc-style change; the nightly itself is what
+  consumes the prompt, and the new behaviour will be exercised
+  on the next run.
 
 - [ ] 7.20 **Re-tier the heatmap legend in the larql-polysemantic-
   hierarchical demo to disambiguate the 0.055 rows.** Severity:

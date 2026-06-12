@@ -28,7 +28,11 @@ Run `openspec instructions apply --change "<name>" --json` to get pending tasks.
 
 **Before picking a task, cross-check open PRs.** Yesterday's nightly may have opened a PR for a task that is still unchecked in `tasks.md` because the PR is awaiting human review. Implementing the same task again produces a duplicate PR with conflicting `tasks.md` edits.
 
-Run `gh pr list --state open --json number,title,body,headRefName --limit 50`. For each pending task, scan every open PR's title, body, and `headRefName` for the task's section identifier (e.g. `§4.3`, `4.3 `, `tech-debt-backlog-4-3`). If any open PR already covers the task, treat that task as taken and pick the next one.
+Run `gh pr list --state open --json number,title,body,headRefName --limit 50`. Apply two checks against the result, in order:
+
+1. **Whole-change match.** Compare `<change-name>` against every open PR's `headRefName` exactly. By convention the branch for a single-task change matches the change directory (`add-reset-syntax`, `fix-mps-encoding-non-factorizing`, …), so an exact match means the entire change is already in flight as one PR. This catches changes that do NOT use `§N.M`-style anchors and would otherwise slip past the per-task scan below. If any open PR has `headRefName == <change-name>`, stop and report `"Change <change-name> already covered by open PR #<n>."` — do not implement anything; do not open a PR.
+
+2. **Per-task match.** For each pending task, scan every open PR's title, body, and `headRefName` for the task's section identifier (e.g. `§4.3`, `4.3 `, `tech-debt-backlog-4-3`). If any open PR already covers the task, treat that task as taken and pick the next one. This is the granular case for multi-task changes like `tech-debt-backlog`, where individual PRs branch off as `tech-debt-backlog-7-18`, `tech-debt-backlog-7-16-7-17`, etc.
 
 If every pending task is already covered by an open PR, stop and report `"No uncovered work — N PRs await human review."` Do not implement anything; do not open a PR.
 
