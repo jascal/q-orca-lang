@@ -8,7 +8,7 @@ Steps:
 
 2. For each open PR:
    a. Run `gh pr view <number> --json number,title,author,body,headRefName,reviews,comments` to fetch both posted reviews and discussion comments.
-   b. Check **both** the `reviews` array and the `comments` array for any entry whose `body` contains `"Claude"`. `gh pr review --comment` (used in step 3e below) writes to the `reviews` endpoint, NOT the `comments` endpoint, so a check against `comments` alone misses prior Claude reviews and produces duplicates. If either field contains a prior Claude review, skip this PR (print `"PR #<n>: already reviewed by Claude, skipping."`).
+   b. Check **both** the `reviews` array and the `comments` array for any entry whose `body` **starts with** the canonical header line `"## Code Review — Claude Sonnet 4.6"` (the same header step 3.e requires every automation review to begin with — anchoring on the header instead of a bare `"Claude"` substring avoids a false-positive skip when a human reviewer happens to mention Claude in a normal review body). `gh pr review --comment` (used in step 3e below) writes to the `reviews` endpoint, NOT the `comments` endpoint, so a check against `comments` alone misses prior Claude reviews and produces duplicates. If either field contains a prior Claude review, skip this PR (print `"PR #<n>: already reviewed by Claude, skipping."`).
 
 3. For each PR that needs a review:
    a. Run `gh pr diff <number>` to get the full diff.
