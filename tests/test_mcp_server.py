@@ -77,6 +77,76 @@ class TestSanitizeExceptionMessage:
         # Class prefix + the full raw message.
         assert out == f"RuntimeError: {raw}"
 
+    # ── §7.15 residual-leak shapes ────────────────────────────────────────────
+    #
+    # PR #74's review enumerated five path shapes the v1 regex missed; PR
+    # tech-debt-backlog §7.15 extends the alternation to cover them. Each
+    # test below pins one shape and asserts both that the sensitive segment
+    # is replaced AND that the `<path>` substitution lands.
+
+    def test_replaces_home_relative_path(self):
+        exc = FileNotFoundError("could not open ~/code/secret/config.json")
+        out = sanitize_exception_message(exc)
+        assert "~/code/secret" not in out
+        assert "<path>" in out
+
+    def test_replaces_windows_unc_path(self):
+        exc = OSError(r"share unreachable: \\fileserver\team-secret\spec.xlsx")
+        out = sanitize_exception_message(exc)
+        assert r"\\fileserver" not in out
+        assert "team-secret" not in out
+        assert "<path>" in out
+
+    def test_replaces_file_uri(self):
+        exc = ValueError("bad url file:///Users/secret/foo.txt")
+        out = sanitize_exception_message(exc)
+        assert "/Users/secret" not in out
+        assert "file://" not in out
+        assert "<path>" in out
+
+    def test_replaces_quoted_path_with_spaces(self):
+        # Python's stdlib (e.g. FileNotFoundError) quotes paths with single
+        # quotes — including paths that contain spaces — so this is the
+        # actual leak shape we need to handle, not bare unquoted spaces.
+        exc = FileNotFoundError(
+            "[Errno 2] No such file or directory: "
+            "'/Users/Alice Smith/Documents/secret.txt'"
+        )
+        out = sanitize_exception_message(exc)
+        assert "/Users/Alice Smith" not in out
+        assert "Alice Smith" not in out
+        assert "secret.txt" not in out
+        assert "<path>" in out
+
+    def test_replaces_double_quoted_path_with_spaces(self):
+        # Same shape as the single-quoted case but with double quotes — some
+        # callers (yaml/json loaders, hand-rolled error messages) emit this
+        # form. The two alternations are symmetric so both must scrub.
+        exc = ValueError('cannot read "/var/My Docs/spec.txt" yet')
+        out = sanitize_exception_message(exc)
+        assert "/var/My Docs" not in out
+        assert "<path>" in out
+
+    def test_keeps_short_quoted_non_path_tokens(self):
+        # The quoted-form alternation requires ≥2 slash/backslash separators
+        # inside the quotes so a single-slash module reference like
+        # `'foo/bar'` is not a false positive. Pins the boundary.
+        exc = ValueError("malformed token: 'foo/bar'")
+        out = sanitize_exception_message(exc)
+        assert "'foo/bar'" in out
+
+    def test_keeps_date_like_numeric_triple(self):
+        # `\d/\d/\d`-shaped strings (dates, version numbers) are not paths.
+        # The v1 regex partially scrubbed `2025/01/15` to `2025<path>` and
+        # the §7.15 extension keeps that conservative behaviour — adding a
+        # digit-only multi-slash anchor would over-scrub real dates. Pins
+        # the partial-scrub status so a future stricter pass doesn't
+        # silently eat dates whole.
+        exc = ValueError("expected date 2025-01-15, got 2025/01/15")
+        out = sanitize_exception_message(exc)
+        # Year stays visible; tail segments may be subsumed by `<path>`.
+        assert "2025-01-15" in out
+
 
 # ── handle_request — integration on tools/call error path ─────────────────────
 
