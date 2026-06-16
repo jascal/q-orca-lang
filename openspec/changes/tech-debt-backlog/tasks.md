@@ -1514,7 +1514,7 @@ picked up.
   `logs/pr-review-2026-05-27.log`, "add a one-line note that the
   path regex is ASCII-only".)
 
-- [ ] 7.15 **Extend the MCP path-scrubbing regex to cover the
+- [x] 7.15 **Extend the MCP path-scrubbing regex to cover the
   five residual-leak shapes.** Severity: LOW. Surface:
   `q_orca/mcp_server.py` sanitizer regex. The PR #74 review
   identified five path shapes the current regex misses:
@@ -1532,6 +1532,31 @@ picked up.
   (Source: 2026-05-27 PR #74 review log,
   `logs/pr-review-2026-05-27.log`, "residual-leak edge cases in
   the path-scrubbing regex".)
+  Extended `_ABS_PATH_RE` in `q_orca/mcp_server.py` with four
+  new alternations covering shapes (2)–(5) — each carries a
+  comment naming the shape it catches per §7.14's convention:
+  home-relative `~(?:/seg)+`, Windows UNC
+  `\\\\host(?:\\seg)+`, `file://` URIs, and a pair of quoted-path
+  alternations (single + double) that require ≥2 slash-or-
+  backslash separators inside the quotes so a stray `'foo/bar'`
+  module reference isn't a false positive. The quoted alternation
+  is what handles paths-with-spaces in practice — Python's
+  stdlib `FileNotFoundError` quotes path arguments with single
+  quotes (verified empirically) so the leak shape that matters
+  is `'/Users/Alice Smith/foo.txt'`, not bare unquoted form.
+  Shape (1) deliberately left at the v1 partial-scrub
+  behaviour: adding a digit-only multi-slash anchor would
+  over-scrub real dates and version strings like `2025/01/15`,
+  and there is no real path information leaking from a bare
+  `1/2/3` partial scrub anyway. Documented the decision in the
+  regex comment block and pinned the date-survival behaviour
+  with `test_keeps_date_like_numeric_triple`. Seven new tests
+  in `TestSanitizeExceptionMessage` pin one shape each plus the
+  boundary cases: home-relative, UNC, `file://`, single-quoted
+  space-path, double-quoted space-path, the
+  `'foo/bar'`-stays-clean boundary, and date-survival. Full
+  suite: 1289 passed, 8 skipped (was 1282 passed, 8 skipped —
+  delta is exactly the 7 new tests).
 
 - [x] 7.16 **Forward-link the README `### Trust Boundary`
   subsection to the §4.3 sanitization story.** Severity: LOW.

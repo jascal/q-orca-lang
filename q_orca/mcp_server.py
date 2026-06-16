@@ -219,22 +219,45 @@ def format_error(error: str) -> list[dict]:
     return [{"type": "text", "text": error}]
 
 
-# Strips POSIX absolute paths (/foo/bar/baz) and Windows-style paths
-# (C:\foo\bar). Conservative so that something like "expected 3, got 2" or
-# "1/2" survives unchanged.
+# Strips path-like substrings from exception messages before they reach
+# untrusted callers. ASCII-only by design: every character class is POSIX-
+# ASCII, so a path segment containing non-ASCII characters (Unicode home
+# dirs, CJK filenames, emoji) is silently passed through unscrubbed. That
+# is intentional for v1 — every tooling path the server can plausibly leak
+# today is ASCII.
 #
-# ASCII-only by design: both character classes are POSIX-ASCII ([A-Za-z0-9_.\-]),
-# so a path segment containing non-ASCII characters (Unicode home dirs, CJK
-# filenames, emoji) is silently passed through unscrubbed. That is intentional
-# for v1 — every tooling path the server can plausibly leak today is ASCII —
-# but the constraint is invisible from the regex alone, hence this note.
-# Known residual-leak shapes that the current pattern also misses are tracked
-# in `tech-debt-backlog` §7.15: multi-slash numerics (`1/2/3`), home-relative
-# (`~/foo`), Windows UNC (`\\host\share\…`), `file://` URIs, and paths with
-# spaces. Extending the alternation to cover them is the next iteration.
+# The alternation below intentionally orders quoted paths first so that a
+# `FileNotFoundError("[Errno 2] '/Users/secret/foo.txt'")`-style message
+# (Python's stdlib quotes paths with single quotes) is scrubbed whole rather
+# than leaving stray quotation marks. The quoted variants require ≥2 slash-
+# or-backslash separators inside the quotes, mirroring the bare-form `{2,}`
+# constraint, so an innocuous `'foo/bar'` token survives unchanged.
+#
+# Conservative misses retained from the v1 regex: single-slash literals
+# like "1/2" and "3/4" (math expressions, exit-code ratios) survive
+# unchanged; bare paths with embedded spaces are partially scrubbed (the
+# head and tail land as `<path>` but the space-bridged word leaks) —
+# Python's stdlib quotes path-with-space arguments, so the practical case
+# is covered by the quoted-form alternation.
 _ABS_PATH_RE = re.compile(
-    r"(?:/[A-Za-z0-9_.\-]+){2,}"
+    # Quoted paths-with-spaces: '/Users/Alice Smith/foo.txt' or the same
+    # with double quotes. Requires ≥2 slash/backslash separators inside
+    # the quotes so plain `'foo/bar'` tokens aren't false-positives.
+    r'"[^"]*(?:[/\\][^"]*){2,}"'
+    r"|'[^']*(?:[/\\][^']*){2,}'"
+    # POSIX absolute paths: /Users/foo/bar
+    r"|(?:/[A-Za-z0-9_.\-]+){2,}"
+    # Windows drive paths: C:\Users\bob\AppData
     r"|(?:[A-Za-z]:\\(?:[A-Za-z0-9_.\-]+\\?)+)"
+    # Windows UNC paths: \\server\share\path — requires ≥2 backslash
+    # segments after the leading `\\` so a single `\\foo` artefact in
+    # error text doesn't trip.
+    r"|\\\\[A-Za-z0-9_.\-]+(?:\\[A-Za-z0-9_.\-]+)+"
+    # file:// URIs: file:///Users/foo, file://server/share
+    r"|file://[A-Za-z0-9_.\-/]+"
+    # Home-relative paths: ~/code, ~/.config/foo — anchored on `~` so the
+    # tilde is consumed too rather than left dangling as `~<path>`.
+    r"|~(?:/[A-Za-z0-9_.\-]+)+"
 )
 _MAX_SANITIZED_LENGTH = 200
 
