@@ -1532,7 +1532,7 @@ picked up.
   `logs/pr-review-2026-05-27.log`, "residual-leak edge cases in
   the path-scrubbing regex".)
 
-- [ ] 7.16 **Forward-link the README `### Trust Boundary`
+- [x] 7.16 **Forward-link the README `### Trust Boundary`
   subsection to the §4.3 sanitization story.** Severity: LOW.
   Surface: `README.md`, the `### Trust Boundary` block added by
   PR #76 (commit 606f74f, around line 866 of README.md on HEAD).
@@ -1548,8 +1548,22 @@ picked up.
   handling docs so the link resolves. Size: [XS] <30 min.
   (Source: 2026-05-28 PR #76 review log,
   `logs/pr-review-2026-05-28.log`, "forward-link to §4.3".)
+  Added a third bullet to the `### Trust Boundary` list in
+  `README.md` — "**Exception messages are scrubbed.** Errors
+  raised inside `tools/call` are passed through
+  `sanitize_exception_message` in `q_orca/mcp_server.py` before
+  being returned, so stack traces and absolute filesystem paths
+  do not leak into the JSON-RPC response. Set `ORCA_MCP_DEBUG=1`
+  to disable the scrubbing for local debugging." Pointed at the
+  source file directly rather than an anchored "MCP error
+  handling section" because no such section exists in the README
+  — the sanitization story lives in code and tests, not in a
+  standalone doc block, so a code reference is the honest
+  forward-link. The bullet also surfaces the `ORCA_MCP_DEBUG=1`
+  escape hatch from §4.3, which is otherwise invisible to anyone
+  who hasn't read the module.
 
-- [ ] 7.17 **Gloss `tools/call` as MCP jargon on first use in
+- [x] 7.17 **Gloss `tools/call` as MCP jargon on first use in
   the README.** Severity: LOW. Surface: `README.md`, the
   `### Trust Boundary` subsection ("There is no auth check on
   `tools/call` — any client that can connect…"). A reader new
@@ -1563,6 +1577,14 @@ picked up.
   (Source: 2026-05-28 PR #76 review log,
   `logs/pr-review-2026-05-28.log`, "gloss `tools/call` as MCP
   jargon".)
+  Applied the suggested wording verbatim — the first occurrence
+  in `### Trust Boundary` now reads "There is no auth check on
+  the JSON-RPC `tools/call` method (the MCP-standard
+  tool-invocation entry point) — any client that can connect to
+  the stdio pipe …". Subsequent occurrences in §7.16's bullet
+  and elsewhere in the README stay bare; the jargon is glossed
+  on the first reader-facing mention and the threat-model
+  discussion can keep using the bare name.
 
 - [ ] 7.18 **Tighten the prior-Claude-review check from
   substring to author identity in `pr-review-prompt.txt`.**
