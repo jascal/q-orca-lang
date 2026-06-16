@@ -1474,10 +1474,11 @@ picked up.
   exploration comment in the skipped outer-envelope test".)
   Took option (b): single `test_outer_exception_is_sanitized` wrapped in
   `@pytest.mark.skip`, with the `Boom` class, the `monkeypatch` body, and
-  the ~50-line exploration comment deleted; the class-level docstring now
-  carries the one-paragraph "structurally unreachable, sanitizer wired by
-  the unit + tools/call tests" rationale. `pytest tests/test_mcp_server.py
-  -q` stays at 11 passed / 1 skipped; full suite at 1274 passed / 8 skipped.
+  the ~50-line exploration comment deleted; the leading `#` comment on the
+  class now carries the one-paragraph "structurally unreachable, sanitizer
+  wired by the unit + tools/call tests" rationale. `pytest
+  tests/test_mcp_server.py -q` stays at 11 passed / 1 skipped; full suite
+  at 1274 passed / 8 skipped.
 
 - [x] 7.13 **Replace the dead `if False else` branch in the
   `_run` test helper with the live path.** Severity: LOW.
@@ -1773,7 +1774,7 @@ addressed before merge.
   docstring typo".)
   Already addressed in PR #99's "address review nits" commit:
   `2.346` is the correct value (`2·asin(√0.85) ≈ 2.3462`) and
-  appears in both `run_demo.py:48` and `README.md:60`. The
+  appears in both `run_demo.py:48` and `README.md:59`. The
   stray `2.348` was reconciled before merge.
 
 - [x] 7.23 **Fix the repo-escaping doc link in the hybrid-bridge
@@ -1840,3 +1841,126 @@ addressed before merge.
   `logs/pr-review-2026-05-31.log`, "13 ruff errors … all
   pre-existing on `main`" and "18 ruff errors are all
   pre-existing in `tests/` files".)
+
+## Feedback triage — 2026-06-12
+
+Items surfaced from `logs/pr-review-*.log` for PRs merged in the
+seven days ending 2026-06-12 (PRs #129, #130, #131, #132, #133,
+#134). The visible pr-review logs in this window captured Claude
+reviews for **#129** (2026-06-06), **#130** and **#131**
+(2026-06-07), and **#134** (2026-06-09); PRs **#132** (impl
+reset-syntax) and **#133** (archive add-reset-syntax) merged on
+2026-06-08 between the noon and 7pm review polls (both of which
+saw an empty `gh pr list --state open`), so no pr-review-log
+entry exists for either. The deferred follow-on captured for
+#133 below was taken from the merged change's archived
+`tasks.md` rather than from a reviewer comment.
+
+**Caveat on this run.** As in the 2026-06-05 triage, the
+standard remote-comment fetch (`gh pr view --comments` /
+GitHub REST `/pulls/<n>/comments`) was unreachable from the
+scheduled-task sandbox — the egress proxy allowlist still
+rejects `api.github.com` with a 403, and `gh` is not on the
+sandbox PATH. The items below come from the local
+`logs/pr-review-*.log` summaries and from in-tree
+`openspec/changes/archive/...` task lists; any non-Claude
+reviewer comments that landed on these PRs (if any) were not
+visible. Numbered in the §7.x range continuing from the
+2026-06-05 triage.
+
+- [ ] 7.26 **Ship the deferred `examples/bit-flip-repeated.q.orca.md`
+  multi-round repetition example.** Severity: MEDIUM. Surface:
+  new file `examples/bit-flip-repeated.q.orca.md`. The
+  archived `add-reset-syntax` change (#133) explicitly marks
+  task 6.1 as `[ ] (DEFERRED → quick follow-on; capability
+  test-validated via a generated machine)`: a 3-syndrome-round
+  bit-flip code example with ancilla `reset` between rounds
+  plus a `## noise_model` including `readout_error` so the
+  cross-round detector path actually demonstrates a
+  noise-aware improvement. Without this example, the
+  reset-syntax change ships its capability but only exercises
+  it through generated test fixtures — the docs-visible
+  surface for users is still the single-round
+  `bit-flip-syndrome.q.orca.md`. Fix shape: author the
+  example file (~80 lines), add it to `tests/test_examples.py`
+  parametrisation, confirm the verifier passes and Stim
+  sampling shows lower logical error than the 1-round version
+  under matched `readout_error`. Size: [M] half-day. (Source:
+  `openspec/changes/archive/2026-06-08-add-reset-syntax/tasks.md`,
+  task 6.1, marked DEFERRED before merge of #133.)
+
+- [x] 7.27 **Fix the `README.md:60` line citation in §7.22.**
+  Severity: LOW. Surface:
+  `openspec/changes/tech-debt-backlog/tasks.md` (the body of
+  the §7.22 entry). The §7.22 task body's resolution note
+  states the `2.346` convergence value "appears in both
+  `run_demo.py:48` and `README.md:60`"; the reviewer of
+  PR #129 verified the README occurrence is actually on line
+  59. The off-by-one citation persists in the merged backlog
+  body. Fix shape: change `README.md:60` to `README.md:59` in
+  the §7.22 entry. Size: [XS] <30 min. (Source: 2026-06-06
+  PR #129 review log, `logs/pr-review-2026-06-06.log`, "One
+  minor nit: §7.22 cites `README.md:60` but the value is on
+  line 59".)
+  Updated the §7.22 resolution note: `README.md:60` →
+  `README.md:59` (the reference is to
+  `examples/hybrid-bridge/README.md`, where `2·asin√0.85 ≈
+  2.346` sits on line 59, verified by grep). The §7.22 entry
+  now matches the live README.
+
+- [x] 7.28 **Tighten the §7.12 "class docstring" wording.**
+  Severity: LOW. Surface:
+  `openspec/changes/tech-debt-backlog/tasks.md` (the body of
+  the §7.12 entry). The reviewer of PR #131 noted that the
+  §7.12 resolution prose claims the trimmed Boom/monkeypatch
+  rationale was preserved in "the class docstring", but the
+  actual landing place was a `#` comment on the class — not a
+  docstring. The placeholder/explanation in §7.12 should call
+  it a comment so future readers searching the file with
+  `pydoc` / `__doc__` are not misled. Fix shape: replace
+  "class docstring" with "leading `#` comment on the class"
+  wherever it appears in the §7.12 entry body. Size: [XS]
+  <30 min. (Source: 2026-06-07 PR #131 review log,
+  `logs/pr-review-2026-06-07.log`, "the rationale lives in a
+  `#` comment, not the 'class docstring' the prose /
+  placeholder message claims".)
+  Updated the §7.12 resolution note: "the class-level
+  docstring now carries the one-paragraph … rationale" → "the
+  leading `#` comment on the class now carries the one-
+  paragraph … rationale". Verified against
+  `tests/test_mcp_server.py:181-188`: the rationale lives in a
+  contiguous `#` comment block immediately above
+  `@pytest.mark.skip`, not a docstring (no `"""…"""` exists on
+  the class).
+
+- [x] 7.29 **Tighten the below-atol guard test's
+  singular-value justification comment.** Severity: LOW.
+  Surface: the test fixture touched by PR #134 (the
+  Q-R-scaffolding simplification of the below-atol guard test
+  under §7.10). The new code comment justifies the spectrum
+  recovery by claiming the entry-permutation "is unitary, so
+  singular values propagate unchanged." The reviewer of PR
+  #134 noted the conclusion is correct but the stated reason
+  is loose — an entry permutation is a row-dependent column
+  swap that does **not** in general preserve a *reshaped*
+  matrix's singular values; the real reason the spectrum
+  survives is the exact inverse-permute step combined with
+  the exact full-rank SVD reconstruction the test sets up.
+  Fix shape: rewrite the inline comment to reference the
+  inverse-permute + full-rank SVD reconstruction explicitly,
+  and drop the "permutation is unitary" framing. Size: [XS]
+  <30 min. (Source: 2026-06-09 PR #134 review log,
+  `logs/pr-review-2026-06-09.log`, "the new code comment
+  justifies the spectrum recovery by claiming the
+  entry-permutation 'is unitary, so singular values
+  propagate unchanged' … the real reason is the exact
+  inverse-permute + exact full-rank SVD reconstruction".)
+  Rewrote the inline comment in
+  `tests/test_concept_gram_mps_contraction.py::test_below_atol_discard_does_not_raise`
+  (lines 333-343): dropped the "CNOT inverse-permutation is
+  unitary" framing and replaced it with an explicit chain —
+  the inverse swap exactly undoes _apply_cnot's forward swap,
+  the SVD reshapes to (4, 4) and runs `full_matrices=False`
+  with every singular value kept (no truncation), so the
+  reconstruction is exact and _apply_cnot's downstream SVD
+  sees the singular values of M itself.

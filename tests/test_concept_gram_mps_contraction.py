@@ -333,9 +333,14 @@ class TestApplyCnotBondTruncationGuard:
         # A diagonal (4, 4) matrix has its diagonal entries as its
         # singular values, so M trivially carries [1.0, 0.5, 1e-12, 0]
         # — the two smallest sit below the guard's 1e-10 atol so the
-        # discard is round-off-sized, not an amplitude leak. The CNOT
-        # inverse-permutation below is unitary, so the singular values
-        # propagate through to _apply_cnot's SVD step unchanged.
+        # discard is round-off-sized, not an amplitude leak. The
+        # downstream factorisation reshapes M, applies the inverse
+        # CNOT entry swap, then SVDs the (4, 4) reshape with
+        # `full_matrices=False` and keeps every singular value (no
+        # truncation). The inverse swap exactly undoes _apply_cnot's
+        # forward swap, and the full-rank SVD reconstruction is exact,
+        # so by the time _apply_cnot runs its own SVD it sees the
+        # singular values of M itself — i.e. [1.0, 0.5, 1e-12, 0].
         M = np.diag([1.0, 0.5, 1e-12, 0.0]).astype(complex)
         # Reverse the CNOT permutation so _apply_cnot's permutation
         # lands us back at M (the guard sees the singular values of M
