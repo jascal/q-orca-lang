@@ -82,7 +82,14 @@ def banner(title: str) -> None:
 
 
 def heatmap_tier(value: float) -> str:
-    """4-tier ASCII heatmap: '#' ≥ 0.7, 'o' ∈ [0.3, 0.7), '.' ∈ [0.05, 0.3), blank < 0.05."""
+    """4-tier ASCII heatmap: '#' ≥ 0.7, 'o' ∈ [0.3, 0.7), '.' ∈ [0.05, 0.3), blank < 0.05.
+
+    The dot tier includes values arbitrarily close to the blank threshold
+    (e.g. 0.055, 0.063 in the polysemy column below render as '.' but sit
+    just above the 0.05 cutoff). The per-concept table in section 4 prints
+    the exact tabulated decimal — treat that as the source of truth when
+    cross-checking against this heatmap.
+    """
     v = abs(value)
     if v >= 0.7:
         return "#"
@@ -97,6 +104,8 @@ def print_gram_heatmap(gram: np.ndarray) -> None:
     """Print |gram|² as a 4-tier 12×12 ASCII heatmap with hierarchy labels."""
     gsq = np.abs(gram) ** 2
     print("  |gram[i,j]|²  (# ≥ 0.7, o ∈ [0.3, 0.7), . ∈ [0.05, 0.3), blank < 0.05)")
+    print("  (dot tier includes values arbitrarily close to the blank threshold;")
+    print("   see the polysemy column in section 4 for exact tabulated decimals.)")
     print("  ", "".join(f"{i:>3}" for i in range(12)))
     for i in range(12):
         row = "".join(f"  {heatmap_tier(gsq[i, j])}" for j in range(12))
