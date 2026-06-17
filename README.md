@@ -865,12 +865,12 @@ Add to your Claude Code settings (`~/.claude/settings.json` or project `.claude.
 
 ### Trust Boundary
 
-The server speaks JSON-RPC over **stdio only**. There is no auth check on
-`tools/call` — any client that can connect to the stdio pipe can invoke any
-tool, including the two that spend on an LLM provider (`generate_machine`,
-`refine_machine`). This is intentional: under stdio the client is a local
-process the user already started, so the OS process boundary is the trust
-boundary.
+The server speaks JSON-RPC over **stdio only**. There is no auth check on the
+JSON-RPC `tools/call` method (the MCP-standard tool-invocation entry point) —
+any client that can connect to the stdio pipe can invoke any tool, including
+the two that spend on an LLM provider (`generate_machine`, `refine_machine`).
+This is intentional: under stdio the client is a local process the user
+already started, so the OS process boundary is the trust boundary.
 
 This property is invisible from the outside, so operators (and anyone wiring
 the server up to a new transport) should know:

@@ -1549,7 +1549,7 @@ picked up.
   (Source: 2026-05-28 PR #76 review log,
   `logs/pr-review-2026-05-28.log`, "forward-link to §4.3".)
 
-- [ ] 7.17 **Gloss `tools/call` as MCP jargon on first use in
+- [x] 7.17 **Gloss `tools/call` as MCP jargon on first use in
   the README.** Severity: LOW. Surface: `README.md`, the
   `### Trust Boundary` subsection ("There is no auth check on
   `tools/call` — any client that can connect…"). A reader new
@@ -1563,6 +1563,19 @@ picked up.
   (Source: 2026-05-28 PR #76 review log,
   `logs/pr-review-2026-05-28.log`, "gloss `tools/call` as MCP
   jargon".)
+  Took the prescribed wording verbatim. The `### Trust Boundary`
+  subsection's opening sentence in `README.md` now reads "There
+  is no auth check on the JSON-RPC `tools/call` method (the
+  MCP-standard tool-invocation entry point) — any client that
+  can connect to the stdio pipe can invoke any tool…", glossing
+  the JSON-RPC method name and naming MCP as the standard that
+  defines it. No test pins the README prose (`grep -n
+  'tools/call\|Trust Boundary' tests/` returns nothing in
+  `tests/test_mcp_server.py` except the sanitizer-related code
+  paths it covers), so the print-only change is safe. The
+  follow-up forward-link from §7.16 stays open: it depends on
+  an MCP-error-handling section that does not yet exist in
+  `README.md`, so adding the anchor is wider than §7.17 scope.
 
 - [ ] 7.18 **Tighten the prior-Claude-review check from
   substring to author identity in `pr-review-prompt.txt`.**
