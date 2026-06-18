@@ -865,12 +865,12 @@ Add to your Claude Code settings (`~/.claude/settings.json` or project `.claude.
 
 ### Trust Boundary
 
-The server speaks JSON-RPC over **stdio only**. There is no auth check on
-`tools/call` — any client that can connect to the stdio pipe can invoke any
-tool, including the two that spend on an LLM provider (`generate_machine`,
-`refine_machine`). This is intentional: under stdio the client is a local
-process the user already started, so the OS process boundary is the trust
-boundary.
+The server speaks JSON-RPC over **stdio only**. There is no auth check on the
+JSON-RPC `tools/call` method (the MCP-standard tool-invocation entry point) —
+any client that can connect to the stdio pipe can invoke any tool, including
+the two that spend on an LLM provider (`generate_machine`, `refine_machine`).
+This is intentional: under stdio the client is a local process the user already
+started, so the OS process boundary is the trust boundary.
 
 This property is invisible from the outside, so operators (and anyone wiring
 the server up to a new transport) should know:
@@ -883,6 +883,22 @@ the server up to a new transport) should know:
   key. If a future deployment exposes the server over a non-stdio transport
   (HTTP, WebSocket, TCP), authentication and per-caller rate limits **must**
   be added before that bit flips, or untrusted callers can drain the API key.
+
+Exception messages on the `tools/call` error path are scrubbed of filesystem
+paths before being returned to the caller (see [MCP error handling](#mcp-error-handling)).
+
+### MCP error handling
+
+When a tool invocation raises, the message is wrapped into a JSON-RPC error
+envelope and sanitized before it reaches the client:
+
+- Prefixed with the exception class name (e.g. `ValueError: …`).
+- POSIX (`/a/b/c`) and Windows (`C:\a\b`) absolute paths replaced with `<path>`.
+- Truncated to 200 characters with an ellipsis if longer.
+
+Set `ORCA_MCP_DEBUG=1` to opt out and pass the raw message through unchanged —
+useful for local stdio debugging, unsafe to leave on for any non-stdio
+transport (see [Trust Boundary](#trust-boundary)).
 
 ### Available MCP Tools
 

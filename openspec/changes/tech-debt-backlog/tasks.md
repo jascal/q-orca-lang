@@ -1532,7 +1532,7 @@ picked up.
   `logs/pr-review-2026-05-27.log`, "residual-leak edge cases in
   the path-scrubbing regex".)
 
-- [ ] 7.16 **Forward-link the README `### Trust Boundary`
+- [x] 7.16 **Forward-link the README `### Trust Boundary`
   subsection to the §4.3 sanitization story.** Severity: LOW.
   Surface: `README.md`, the `### Trust Boundary` block added by
   PR #76 (commit 606f74f, around line 866 of README.md on HEAD).
@@ -1548,8 +1548,20 @@ picked up.
   handling docs so the link resolves. Size: [XS] <30 min.
   (Source: 2026-05-28 PR #76 review log,
   `logs/pr-review-2026-05-28.log`, "forward-link to §4.3".)
+  Appended the forward-link sentence at the end of the
+  `### Trust Boundary` subsection in `README.md` and added a
+  new `### MCP error handling` subsection immediately after it
+  (between Trust Boundary and Available MCP Tools) so the
+  `#mcp-error-handling` anchor resolves. The new subsection
+  documents the three sanitizer guarantees mirrored from
+  `q_orca/mcp_server.py::sanitize_exception_message` (class-
+  name prefix, POSIX/Windows path scrubbing to `<path>`, 200-
+  char truncation with ellipsis) and names the `ORCA_MCP_DEBUG=1`
+  opt-out with a back-link to `### Trust Boundary` for the
+  non-stdio caveat. README-only change; no code or tests
+  affected (full suite stayed at 1282 passed, 8 skipped).
 
-- [ ] 7.17 **Gloss `tools/call` as MCP jargon on first use in
+- [x] 7.17 **Gloss `tools/call` as MCP jargon on first use in
   the README.** Severity: LOW. Surface: `README.md`, the
   `### Trust Boundary` subsection ("There is no auth check on
   `tools/call` — any client that can connect…"). A reader new
@@ -1563,6 +1575,14 @@ picked up.
   (Source: 2026-05-28 PR #76 review log,
   `logs/pr-review-2026-05-28.log`, "gloss `tools/call` as MCP
   jargon".)
+  Rewrote the first occurrence in the `### Trust Boundary`
+  subsection to the suggested form: "There is no auth check on
+  the JSON-RPC `tools/call` method (the MCP-standard tool-
+  invocation entry point) — any client that can connect to the
+  stdio pipe can invoke any tool…". Subsequent occurrences in
+  the same section (and the new §7.16 forward-link sentence)
+  keep the bare `tools/call` reference since the gloss is
+  established. README-only change; no behavioural impact.
 
 - [ ] 7.18 **Tighten the prior-Claude-review check from
   substring to author identity in `pr-review-prompt.txt`.**
